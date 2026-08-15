@@ -37,6 +37,11 @@ hand.angle.set_raw_angles([128, 96, 160, 160, 160, 160])
 
 SDK 发送控制帧前会将“标准 raw 值”通过角度映射表转换为“硬件 raw 值”。默认映射是线性直通：`0 -> 0`，`255 -> 255`。
 
+“标准 raw”是旧 manager 的逻辑校准坐标，不是精确 CAN 协议值。绕过用户映射并发送协议
+原值时使用 `hand.angle.set_hardware_raw_angles(...)`。读取结果的 `raw_angles` 是协议原值，
+`standard_raw_angles` 是逆映射后的逻辑值。完整定义与 unified API 对照见
+[角度坐标、方向与用户映射](../angle-coordinates.md)。
+
 L6 的映射表形状为 `6 x 256`：
 
 - 行：关节索引，顺序与 [关节说明](./README.md#关节说明) 一致。
