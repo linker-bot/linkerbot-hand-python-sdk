@@ -1,0 +1,113 @@
+"""L25 capability declaration."""
+
+from ...contracts import (
+    DeviceCapabilities,
+    DeviceFeatures,
+    HandSide,
+    JointEndpoint,
+    JointMotionType,
+    SensorType,
+    TransportType,
+)
+from ..builders import classic_joints, sensor
+
+CAPABILITIES = DeviceCapabilities(
+    model="L25",
+    firmware=None,
+    side=HandSide.UNKNOWN,
+    joints=classic_joints(
+        (
+            "thumb_abd",
+            "thumb_yaw",
+            "thumb_root1",
+            "thumb_tip",
+            "index_abd",
+            "index_root1",
+            "index_tip",
+            "middle_abd",
+            "middle_root1",
+            "middle_tip",
+            "ring_abd",
+            "ring_root1",
+            "ring_tip",
+            "pinky_abd",
+            "pinky_root1",
+            "pinky_tip",
+        ),
+        (
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+            (255, 0),
+        ),
+        {0, 1, 4, 7, 10, 13},
+        motion_types=(
+            JointMotionType.ROTATION,
+            JointMotionType.ROLL,
+            JointMotionType.FLEXION,
+            JointMotionType.FLEXION,
+            JointMotionType.ABDUCTION,
+            JointMotionType.FLEXION,
+            JointMotionType.FLEXION,
+            JointMotionType.ABDUCTION,
+            JointMotionType.FLEXION,
+            JointMotionType.FLEXION,
+            JointMotionType.ABDUCTION,
+            JointMotionType.FLEXION,
+            JointMotionType.FLEXION,
+            JointMotionType.ABDUCTION,
+            JointMotionType.FLEXION,
+            JointMotionType.FLEXION,
+        ),
+        direction_endpoints={
+            0: (
+                JointEndpoint.TOWARD_INDEX_FINGER,
+                JointEndpoint.AWAY_FROM_INDEX_FINGER,
+            ),
+            1: (
+                JointEndpoint.PERPENDICULAR_TO_PALM,
+                JointEndpoint.PARALLEL_TO_PALM,
+            ),
+            4: (
+                JointEndpoint.TOWARD_LITTLE_FINGER,
+                JointEndpoint.TOWARD_THUMB,
+            ),
+            7: (
+                JointEndpoint.TOWARD_LITTLE_FINGER,
+                JointEndpoint.TOWARD_THUMB,
+            ),
+            10: (
+                JointEndpoint.TOWARD_LITTLE_FINGER,
+                JointEndpoint.TOWARD_THUMB,
+            ),
+            13: (
+                JointEndpoint.TOWARD_LITTLE_FINGER,
+                JointEndpoint.TOWARD_THUMB,
+            ),
+        },
+    ),
+    sensors=(
+        sensor(SensorType.ANGLES, 60),
+        sensor(SensorType.SPEEDS, 30),
+        sensor(SensorType.TORQUES, 30),
+        sensor(SensorType.FORCE, 30),
+        sensor(SensorType.TEMPERATURE, 1),
+        sensor(SensorType.FAULTS, 5),
+    ),
+    transport=TransportType.CAN,
+    features=DeviceFeatures(clear_faults=True),
+)
+
+__all__ = ["CAPABILITIES"]
