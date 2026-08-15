@@ -106,9 +106,26 @@ if handle.stage is CommandStage.SUPERSEDED:
 
 ## 建议迁移顺序
 
-1. 将型号和关节配置改为读取 `get_capabilities()`。
-2. 把 ROS 周期读取替换为一份 `PollingPlan` 和缓存快照发布。
-3. 把运动 callback 替换为 `submit_*()`，删除同步等待。
-4. 按命令阶段和稳定错误码改写诊断映射。
-5. 把断线恢复交给 `recover()`，删除目标重放与隐式安全动作。
-6. 使用 fake backend 覆盖生命周期、超时、覆盖、断线和恢复测试后，再进行实物验证。
+这里的“顺序”是 ROS 驱动从旧型号适配逻辑迁移到 unified API 的实施顺序，不是软件包发布
+顺序，也不要求一次修改完全部业务节点。每一步都先保持现有 ROS topic 契约，再进入下一步：
+
+1. **依赖与能力**：ROS 只直接依赖 `linkerbot-hand`；由 hand 依赖
+   `linkerbot-transport`。将型号、关节顺序、范围和传感器支持改为读取
+   `get_capabilities()`，删除 ROS 自有型号表。
+2. **生命周期与轮询**：在 `configure` 只创建设备，在 `activate` 执行 `open()` 和
+   `start_polling(PollingPlan(...))`，在 `deactivate` 停止轮询，在 cleanup/shutdown 关闭。
+   ROS 发布定时器只读取 `get_snapshot()`。
+3. **角度坐标**：保留明确分开的百分比和协议 raw ROS 接口。百分比调用
+   `submit_angles()`；协议 raw 调用 `submit_raw_angles()`，状态分别来自
+   `snapshot.angles.values` 和 `raw_values`。不得向 ROS 暴露 classic `standard_raw` 或用户
+   LUT，详见[角度坐标、方向与用户映射](./angle-coordinates.md)。
+4. **非阻塞命令**：把运动 callback 替换为 `submit_*()` 并立即返回，删除同步等待；连续
+   目标使用 latest-wins，离散命令使用有界 FIFO。
+5. **诊断与恢复**：按 `CommandStage`、稳定错误码和 `get_health()` 改写诊断；把断线恢复
+   交给 `recover()`，删除目标重放与隐式张开、握拳、清错动作。
+6. **验证**：使用 fake backend 覆盖生命周期、快照无 I/O、超时、覆盖、断线和恢复，再按
+   capability 的逐轴顺序进行实物方向和协议 raw 往返验证。
+
+两个仓库的所有权边界固定为：`linkerbot-hand` 定义能力、坐标转换、轮询、命令和缓存契约；
+`linkerbot-hand-ros` 只负责 ROS 参数、Lifecycle、topic/service、消息转换和诊断。相同转换不得
+在两个仓库各实现一遍。

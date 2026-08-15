@@ -48,6 +48,9 @@ from linkerbot.hand import HandDevice, HandSession, PollingPlan, CommandPolicy
 显式启用旧自动轮询参数仅用于过渡；在 ROS Lifecycle 集成中不得使用，因为 activate 与
 deactivate 必须拥有轮询的完整控制权。
 
+百分比、standard raw、protocol raw 和 classic 用户 LUT 的完整定义见
+[角度坐标、方向与用户映射](./angle-coordinates.md)。
+
 旧百分比入口的保留语义如下。`DeprecationWarning` 默认不会显示，应用可在迁移测试中启用该
 类别以定位调用点：
 

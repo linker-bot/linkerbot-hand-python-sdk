@@ -4,6 +4,7 @@
 
 - [统一设备接口](./hand-device.md)
 - [型号能力矩阵](./hand-capabilities.md)
+- [角度坐标、方向与用户映射](./angle-coordinates.md)
 - [兼容策略](./hand-compatibility.md)
 - [统一接口迁移说明](./hand-migration.md)
 - [CAN 总线](./can.md)

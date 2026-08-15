@@ -333,7 +333,8 @@ if angles is not None and angles.valid and not angles.stale:
 数据类 `TactileState`，调用方不需要导入型号专用类型。
 
 角度样本的 `raw_values` 与 `submit_raw_angles()` 均为协议线上原始坐标；二者不会经过 classic
-旧 manager 的 standard-raw LUT。
+旧 manager 的 standard-raw LUT。三种坐标和 LUT 的精确定义见
+[角度坐标、方向与用户映射](./angle-coordinates.md)。
 
 ## 健康状态
 

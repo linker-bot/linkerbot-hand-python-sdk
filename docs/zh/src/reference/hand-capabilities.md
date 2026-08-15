@@ -71,6 +71,9 @@ O20 原始/物理角度范围：
 
 ## 百分比映射
 
+百分比、classic `standard_raw`、协议 `protocol_raw` 以及用户 LUT 的完整调用关系见
+[角度坐标、方向与用户映射](./angle-coordinates.md)。
+
 屈伸轴的公共约定为 `0=弯曲/闭合，100=伸直/张开`。方向轴也提供可逆 `0..100` 位置，但其
 两端由 capability 描述，不能解释成开合。`submit_raw_angles()` 与快照 `raw_values` 使用协议原始
 坐标，可以精确往返。classic 型号专用 manager 的旧 `set_raw_angles()` 仍保留“标准 raw 经用户
