@@ -1,145 +1,161 @@
 # linkerbot-hand
 
-`linkerbot-hand` is the independently installable SDK for Linkerbot dexterous
-hands. It contains the common `HandDevice` / `HandSession` contract, capability
-data, command scheduling, cached snapshots, health reporting, deterministic
-test doubles, and the bundled L6, O6, L20Lite, L25, L30, O20, and O30i hardware
-backends.
+简体中文 | [English](README.en.md)
 
-The wheel has no ROS, arm, kinematics, Pydantic, SciPy, or aggregate SDK
-dependency. It uses `linkerbot-transport` for CAN/CAN FD communication and can
-be installed directly for hand-only applications:
+`linkerbot-hand` 是 Linkerbot 灵巧手的独立 Python SDK，统一提供设备生命周期、
+能力描述、非阻塞命令调度、缓存快照、健康状态、安全恢复和可注入测试后端，并内置
+L6、O6、L20Lite、L25、L30、O20 和 O30i 驱动。
+
+本包不依赖 ROS、机械臂、运动学、Pydantic、SciPy 或旧聚合 SDK。CAN/CAN FD
+通信由轻量的 `linkerbot-transport` 提供。先为 pip 配置公司 Gitea Python 包源及
+访问凭据，再安装正式版本：
 
 ```bash
-pip install linkerbot-hand
+python -m pip install linkerbot-hand==0.1.0
 ```
 
-The canonical unified API is `linkerbot_hand`. The historical
-`linkerbot.hand` package remains available from the same wheel, with the same
-model classes and function signatures.
+包源地址为
+`https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple`。请通过环境变量、
+pip 的认证配置或系统凭据管理器提供用户名和访问令牌，不要把令牌写入代码或提交到
+仓库。
 
-## Lifecycle
+规范的新接口入口是 `linkerbot_hand`。同一个 wheel 继续提供历史
+`linkerbot.hand` 包、原有型号类和函数签名，现有用户可以逐步迁移。
 
-Construction performs no device I/O and starts no polling or motion. A backend
-is created only by `open()`, and polling starts only after an explicit
-`start_polling()` call.
+## 快速开始
+
+构造 `HandDevice` 不会连接设备、启动轮询或产生运动。只有显式调用 `open()` 后
+才创建设备后端，只有调用 `start_polling()` 后才产生周期性状态查询。
 
 ```python
-from linkerbot_hand import (
-    CommandPolicy,
-    HandDevice,
-    HandSide,
-    PollingPlan,
-    SessionConfig,
-    get_model_capabilities,
-)
-from linkerbot_hand.testing import FakeBackendFactory
+from linkerbot.hand import create_hand_device
+from linkerbot_hand import CommandPolicy, PollingPlan
 
-capabilities = get_model_capabilities("L6", side=HandSide.RIGHT)
-backend_factory = FakeBackendFactory(capabilities)
-hand = HandDevice(
-    capabilities,
-    backend_factory,
-    config=SessionConfig(command_rate_hz=100, auto_reconnect=False),
-)
-
+hand = create_hand_device("L6", side="right", interface_name="can0")
 hand.open()
 try:
-    hand.start_polling(PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1))
+    hand.start_polling(
+        PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1)
+    )
     handle = hand.submit_angles(
         [100, 100, 100, 100, 100, 100],
         policy=CommandPolicy.LATEST,
     )
-    snapshot = hand.get_snapshot()  # Cached data only; never device I/O.
-    health = hand.get_health()  # Cached counters only.
+    snapshot = hand.get_snapshot()
+    health = hand.get_health()
 finally:
     hand.stop_polling()
     hand.close()
 ```
 
-`open()`, `close()`, `start_polling()` with the same plan, and
-`stop_polling()` are idempotent. Closing waits for the worker for the bounded
-`SessionConfig.join_timeout_s` interval.
+`open()`、`close()`、使用相同配置的 `start_polling()` 以及 `stop_polling()` 都是
+幂等操作。关闭设备时最多等待 `SessionConfig.join_timeout_s`，不会依赖
+`__del__` 回收线程或连接。
 
-## Commands
+## 统一接口
 
-`submit_angles()`, `submit_raw_angles()`, `submit_speeds()`, and
-`submit_torques()` validate and enqueue work without waiting for device I/O.
-Continuous motion commands share one latest-wins slot. Discrete operations
-(`clear_faults()`, `enable()`, `disable()`, and `calibrate()`) use a separate,
-bounded FIFO when the model advertises support.
+所有型号通过相同的 `HandDevice` / `HandSession` 接口使用：
 
-Every `CommandHandle` records these stages:
+- 生命周期：`open()`、`close()`、`start_polling()`、`stop_polling()`。
+- 命令：`submit_angles()`、`submit_raw_angles()`、`submit_speeds()`、
+  `submit_torques()` 和受能力约束的离散操作。
+- 状态：`get_snapshot()`、`get_health()`、`get_capabilities()`。
+- 恢复：`recover()` 或通过 `SessionConfig(auto_reconnect=True)` 启用自动重连。
 
-- `ACCEPTED`: validated and admitted to the scheduler.
-- `DISPATCHED`: the backend reports a successful transport send.
-- `ACKNOWLEDGED`: the device protocol explicitly confirms the command.
-- `FAILED`: validation has already passed, but dispatch or communication fails.
-- `SUPERSEDED`: a newer continuous target replaces this target before dispatch.
+型号差异由 `get_capabilities()` 返回，包括型号、固件、左右手、关节顺序、数值
+范围、传感器、推荐轮询频率、transport、ACK 和清错/使能/标定能力。上层应用
+不需要维护另一份容易漂移的型号表。
 
-Check `handle.ack_support`. For a command whose protocol has no device ACK,
-`DISPATCHED` is terminal and is never relabeled as `ACKNOWLEDGED`.
+## 角度坐标
 
-## Cached State And Capabilities
+统一百分比接口始终使用以下定义：
 
-`get_snapshot()` only copies SDK cache state. Each `SensorSample` includes its
-collection timestamp, sequence, validity, staleness, raw values when available,
-and connection generation. `get_health()` reports connection state, successful
-send/receive times, errors, reconnects, superseded and pending command counts,
-and sensor ages.
+- `0`：弯曲或闭合。
+- `100`：伸直或张开。
 
-`get_capabilities()` is the runtime source of truth for model, firmware, side,
-joint order and ranges, sensors, recommended polling rates, transport, optional
-operations, command-specific ACK support, and percentage/raw mappings. The
-public percentage convention is always `100=open, 0=closed`. Raw positions are
-protocol-native on both submit and snapshot paths. The classic manager's legacy
-standard-raw LUT remains a compatibility-only API. Physical-angle conversion
-raises `UnsupportedOperationError` unless the capability explicitly provides a
-calibrated physical range.
+新接口 `submit_raw_angles()` 和快照中的 `raw_values` 始终表示设备协议原始值
+（`protocol_raw`），不经过用户 LUT。旧型号接口的 `set_raw_angles()` 为兼容
+历史应用，部分型号仍表示经过用户 LUT 的标准 raw；需要精确发送设备原值时使用
+`set_hardware_raw_angles()`。
 
-## Recovery And Testing
+只有能力描述明确提供标定物理范围时，SDK 才支持物理角度转换；否则会抛出
+`UnsupportedOperationError`，不会把未知原始值伪装成弧度。完整定义见
+[角度坐标 Reference](docs/zh/src/reference/angle-coordinates.md)。
 
-`recover()` replaces and re-verifies the backend, clears pre-recovery commands,
-and samples current state before publishing a new connection generation. It
-does not replay old targets, move the hand, or clear faults. Automatic reconnect
-is opt-in through `SessionConfig(auto_reconnect=True)`.
+## 非阻塞命令
 
-`linkerbot_hand.testing` provides `FakeBackend`, `FakeBackendFactory`,
-`FakeBackendState`, and `ManualClock` for deterministic disconnect, timeout,
-polling, queue, and recovery tests without hardware.
+`submit_*()` 只负责校验并将命令交给调度器，不在调用线程等待设备 I/O。连续运动
+命令共用容量为 1 的 latest-wins 槽位，新目标会覆盖尚未发送的旧目标；清错、使能
+和标定等离散操作使用独立的有界 FIFO。
 
-Custom `HandBackend.dispatch()` implementations must call `claim_dispatch()`
-immediately before their first transport send. A rejected claim returns without
-I/O. After a successful claim, call `mark_dispatched()` only once an actual
-transport send succeeds; enqueueing into another software queue is not a send.
+`CommandHandle` 至少区分以下阶段：
 
-## Existing Hardware Drivers
+- `ACCEPTED`：参数有效并进入调度器。
+- `DISPATCHED`：transport 已实际发送成功。
+- `ACKNOWLEDGED`：设备协议明确确认。
+- `FAILED`：发送或通信失败。
+- `SUPERSEDED`：发送前被更新目标覆盖。
 
-The bundled hardware drivers remain available from their historic
-`linkerbot.hand` paths. Construct the unified interface through the compatibility
-adapter:
+不支持设备 ACK 的协议以 `DISPATCHED` 作为终态，不会把入队成功描述为
+`ACKNOWLEDGED`。可通过 `handle.ack_support` 判断当前命令的 ACK 能力。
+
+## 快照与健康状态
+
+`get_snapshot()` 只复制 SDK 缓存，不发送 CAN 请求或等待设备。每个
+`SensorSample` 都包含采集时间、序号、有效性、过期状态、连接代次和可用的协议
+原始值。`get_health()` 返回连接状态、成功收发时间、连续错误、最近错误、重连
+次数、连接代次、命令覆盖数、待发送数和各类状态年龄。
+
+SDK 统一调度角度、力、温度、电流、速度和故障轮询；上层只提交
+`PollingPlan`，不应再建立第二套周期查询任务。
+
+## 安全恢复与测试
+
+`recover()` 会替换并重新验证后端，清除恢复前尚未发送的命令，并在发布新连接
+代次前读取当前状态。恢复过程不会重放旧目标、自动张开/握拳或自动清除故障。
+
+`linkerbot_hand.testing` 提供 `FakeBackend`、`FakeBackendFactory`、
+`FakeBackendState` 和 `ManualClock`，可以在无实物环境下确定性测试断线、超时、
+轮询、命令覆盖和恢复：
 
 ```python
-from linkerbot.hand import create_hand_device
+from linkerbot_hand import HandDevice, HandSide, get_model_capabilities
+from linkerbot_hand.testing import FakeBackendFactory
 
-hand = create_hand_device("L6", side="right", interface_name="can0")
+capabilities = get_model_capabilities("L6", side=HandSide.RIGHT)
+hand = HandDevice(capabilities, FakeBackendFactory(capabilities))
 ```
 
-The legacy `linkerbot.hand` import path also re-exports `HandDevice`,
-`HandSession`, `PollingPlan`, and `CommandPolicy` during migration.
+自定义 `HandBackend.dispatch()` 必须在第一次 transport 发送前调用
+`claim_dispatch()`；只有实际发送成功后才能调用一次 `mark_dispatched()`。
 
-Existing model-specific applications can keep their class and method calls:
+## 旧接口兼容
+
+现有按型号调用的应用可以继续使用：
 
 ```python
 from linkerbot.hand import L6, L30
 ```
 
-The independent wheel does not own the shared `linkerbot` package root, so
-aggregate-only imports such as `from linkerbot import L6` should use the
-equivalent `linkerbot.hand` import above.
+迁移期间，`linkerbot.hand` 也重导出 `HandDevice`、`HandSession`、
+`PollingPlan` 和 `CommandPolicy`。独立 wheel 不拥有共享的 `linkerbot` 包根，原来
+的 `from linkerbot import L6` 应改为 `from linkerbot.hand import L6`。
 
-## API Reference
+## 文档
 
-See the [`linkerbot_hand` API reference
-(Chinese)](docs/zh/src/reference/hand-device.md) for complete signatures,
-return types, lifecycle semantics, command stages, telemetry, and stable errors.
+- [统一设备 API Reference](docs/zh/src/reference/hand-device.md)
+- [设备能力矩阵](docs/zh/src/reference/hand-capabilities.md)
+- [角度坐标与原始值](docs/zh/src/reference/angle-coordinates.md)
+- [旧接口兼容说明](docs/zh/src/reference/hand-compatibility.md)
+- [迁移指南](docs/zh/src/reference/hand-migration.md)
+- [CAN 接入](docs/zh/src/reference/can.md)
+- [CAN FD 接入](docs/zh/src/reference/canfd.md)
+
+## 支持范围
+
+- Python 3.10 及以上版本。
+- Linux SocketCAN / CAN FD，以及各型号能力描述支持的厂商后端。
+- L6、O6、L20Lite、L25、L30、O20 和 O30i。
+
+具体型号功能以运行时 `get_capabilities()` 和
+[设备能力矩阵](docs/zh/src/reference/hand-capabilities.md) 为准。
