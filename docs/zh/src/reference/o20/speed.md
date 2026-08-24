@@ -1,6 +1,6 @@
 # 速度控制
 
-通过 `hand.speed` 设置和读取 O20 的 16 个电机速度目标。速度值走**整数**通道，范围 **0 ~ 100**(无单位，值越大越快)。
+通过 `hand.speed` 设置 O20 的 16 个电机速度目标，并读取当前速度。目标速度仍走**整数**通道，范围 **0 ~ 100**（无量纲）；当前速度反馈每个电机是协议原值乘 `0.732 RPM`。
 
 - **数量**:16 个电机，按 motor ID 1~16 顺序
 - **范围**:0 ~ 100(`O20_SPEED_MIN` / `O20_SPEED_MAX`)
@@ -54,7 +54,8 @@ from linkerbot.exceptions import TimeoutError
 with O20(side="right") as hand:
     try:
         data = hand.speed.get_blocking(timeout_ms=1000)
-        print("速度值： ", data.speeds)  # tuple[int, ...],16 个值
+        print("当前速度 (RPM)： ", data.speeds)  # tuple[float, ...],16 个值
+        print("协议原值： ", data.raw_speeds)  # tuple[int, ...]
         print("时间戳： ", data.timestamp)
     except TimeoutError:
         print("速度读取超时")

@@ -251,6 +251,7 @@ class L6:
             fault=self.fault.get_snapshot(),
             force_sensor=self.force_sensor.get_snapshot(),
             timestamp=time.time(),
+            speed=self.speed.get_snapshot(),
         )
 
     # ===== Unified stream =====

@@ -245,6 +245,17 @@ def test_sensor_capability_rejects_malformed_field_types(
         )
 
 
+@pytest.mark.parametrize("unit", ("", 1, True))
+def test_sensor_capability_rejects_invalid_units(unit: object) -> None:
+    with pytest.raises(ValidationError, match="sensor unit must be"):
+        SensorCapability(
+            SensorType.ANGLES,
+            60,
+            0.05,
+            unit=cast(Any, unit),
+        )
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [

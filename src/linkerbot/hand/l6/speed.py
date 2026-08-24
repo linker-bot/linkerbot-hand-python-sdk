@@ -4,12 +4,14 @@ This module provides the SpeedManager class for controlling motor speeds
 and reading speed sensor data via CAN bus communication.
 """
 
+import time
 from dataclasses import dataclass
 
 import can
 
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
+from linkerbot_transport.relay import DataRelay
 
 
 @dataclass
@@ -110,6 +112,18 @@ class L6Speed:
         return 6
 
 
+@dataclass(frozen=True)
+class SpeedData:
+    """Last L6 speed target set by the host.
+
+    L6 has no protocol query for current motor speed.  This value is therefore
+    a target snapshot and must not be interpreted as measured feedback.
+    """
+
+    speeds: L6Speed
+    timestamp: float
+
+
 class SpeedManager:
     """Manager for motor speed control.
 
@@ -129,6 +143,7 @@ class SpeedManager:
         """
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
+        self._relay = DataRelay[SpeedData]()
 
     def set_speeds(self, speeds: L6Speed | list[float]) -> None:
         """Send target speeds to the robotic hand motors.
@@ -150,9 +165,11 @@ class SpeedManager:
             >>> manager.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
         """
         if isinstance(speeds, L6Speed):
-            raw_speeds = speeds.to_raw()
+            target = speeds
+            raw_speeds = target.to_raw()
         elif isinstance(speeds, list):
-            raw_speeds = L6Speed.from_list(speeds).to_raw()
+            target = L6Speed.from_list(speeds)
+            raw_speeds = target.to_raw()
         else:
             raise ValidationError(
                 f"Expected L6Speed or list, got {type(speeds).__name__}"
@@ -166,3 +183,12 @@ class SpeedManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
+        self._relay.push(SpeedData(speeds=target, timestamp=time.time()))
+
+    def get_snapshot(self) -> SpeedData | None:
+        """Return the most recent target without performing device I/O.
+
+        The L6 protocol does not support reading current speed, so no
+        ``get_blocking`` method is provided for this manager.
+        """
+        return self._relay.snapshot()

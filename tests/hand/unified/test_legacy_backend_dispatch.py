@@ -156,6 +156,7 @@ class _LegacyL30:
         if dispatcher is not None:
             self._dispatcher = dispatcher
             self.angle = _AngleManager(dispatcher)
+            self.current = _ReadingManager()
         self.version = SimpleNamespace(
             get_device_info=lambda: SimpleNamespace(
                 product_id=product_id,
@@ -643,6 +644,32 @@ def test_l30_identity_preserves_shared_backend_position_mapping(
         ):
             span = mapping.raw_open - mapping.raw_closed
             assert actual == pytest.approx(100.0 * (raw - mapping.raw_closed) / span)
+    finally:
+        backend.close()
+
+
+def test_l30_current_poll_returns_milliamps_and_protocol_raw_values(
+    monkeypatch,
+) -> None:
+    _install_model(
+        monkeypatch,
+        "L30",
+        lambda **options: _LegacyL30(product_id=0x13, **options),
+    )
+    backend = device_module.LegacyHandBackend(
+        "L30",
+        side=HandSide.RIGHT,
+        options={"dispatcher": _Dispatcher()},
+    )
+    try:
+        backend.open()
+        hand = _LegacyL30.instances[-1]
+        hand.current.data = SimpleNamespace(currents=(60, 100, 800) + (60,) * 14)
+
+        reading = backend.poll(SensorType.CURRENT)
+
+        assert reading.values[:3] == (390.0, 650.0, 5200.0)
+        assert reading.raw_values == (60, 100, 800) + (60,) * 14
     finally:
         backend.close()
 

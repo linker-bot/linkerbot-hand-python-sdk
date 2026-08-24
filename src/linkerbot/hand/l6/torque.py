@@ -17,7 +17,7 @@ from linkerbot_transport.relay import DataRelay
 
 @dataclass
 class L6Torque:
-    """Joint torques for L6 hand (0-100 range).
+    """Joint torque limits for L6 hand (0-100 legacy or 0-1400 mA).
 
     Attributes:
         thumb_flex: Thumb flexion joint torque (0-100)
@@ -92,6 +92,26 @@ class L6Torque:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
         normalized = [v * 100 / 255 for v in values]
+        return cls.from_list(normalized)
+
+    def to_milliamps(self) -> list[float]:
+        """Return the protocol current-limit values in milliamps.
+
+        L6 encodes the limit as an unsigned byte.  The documented full-scale
+        value is approximately 1400 mA, so conversion uses ``raw * 1400/255``.
+        """
+        return [value * 1400.0 / 255.0 for value in self.to_raw()]
+
+    @classmethod
+    def from_milliamps(cls, values: list[float]) -> "L6Torque":
+        """Construct a legacy torque object from 0..1400 mA values."""
+        if len(values) != 6:
+            raise ValueError(f"Expected 6 values, got {len(values)}")
+        if any(not isinstance(value, (int, float)) for value in values):
+            raise ValueError("mA values must be numeric")
+        if any(value < 0 or value > 1400 for value in values):
+            raise ValueError("mA values must be in range [0, 1400]")
+        normalized = [float(value) * 100.0 / 1400.0 for value in values]
         return cls.from_list(normalized)
 
     def __getitem__(self, index: int) -> float:

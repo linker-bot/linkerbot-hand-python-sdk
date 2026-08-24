@@ -100,8 +100,8 @@ CAPABILITIES = DeviceCapabilities(
     ),
     sensors=(
         sensor(SensorType.ANGLES, 60),
-        sensor(SensorType.SPEEDS, 30),
-        sensor(SensorType.TORQUES, 30),
+        sensor(SensorType.SPEEDS, 30, unit="percent"),
+        sensor(SensorType.TORQUES, 30, unit="percent"),
         sensor(SensorType.FORCE, 30),
         sensor(SensorType.TEMPERATURE, 1),
         sensor(SensorType.FAULTS, 5),

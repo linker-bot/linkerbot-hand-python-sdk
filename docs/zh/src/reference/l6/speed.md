@@ -10,6 +10,10 @@ hand.speed.set_speeds(speeds)
 
 设置 6 个关节电机的目标速度。
 
+L6 可以设置速度，但协议没有“当前速度”查询命令。`hand.speed.get_snapshot()`（以及
+`L6Snapshot.speed`）只返回最近一次成功下发的目标快照，不能当作实测速度；统一能力因此
+不声明 `SensorType.SPEEDS`，也不会产生速度轮询帧。
+
 **参数：**
 
 - `speeds`: `L6Speed` 实例或 6 元素列表，速度范围 0-100（无单位）

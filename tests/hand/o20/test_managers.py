@@ -9,7 +9,7 @@ from linkerbot.hand.o20.client import O20Client
 from linkerbot.hand.o20.current import CurrentManager
 from linkerbot.hand.o20.fault import FaultManager
 from linkerbot.hand.o20.joints import O20_JOINT_SPECS
-from linkerbot.hand.o20.speed import SpeedManager
+from linkerbot.hand.o20.speed import O20SpeedData, SpeedManager
 from linkerbot.hand.o20.temperature import TemperatureManager
 from linkerbot.hand.o20.torque import TorqueManager
 from tests.hand.o20.fakes import FakeDispatcher
@@ -76,6 +76,27 @@ def test_speed_command_uses_target_vel_register_and_validates_range() -> None:
     assert dispatcher.sent[0].data[:32] == b"\x32\x00" * 16
     with pytest.raises(ValidationError):
         manager.set_all(101)
+
+
+def test_speed_readback_exposes_rpm_and_protocol_raw_values() -> None:
+    raw_values = [*range(-8, 8), 999]
+    response = b"".join(
+        value.to_bytes(2, "little", signed=True) for value in raw_values
+    )
+    dispatcher = FakeDispatcher(responses={protocol.O20_REG_CURRENT_VEL: response})
+    manager = SpeedManager(O20Client(dispatcher, device_id=0x01))
+
+    data = manager.get_blocking(timeout_ms=100)
+
+    assert data.raw_speeds == tuple(range(-8, 8))
+    assert data.speeds == pytest.approx(tuple(value * 0.732 for value in range(-8, 8)))
+
+
+def test_speed_data_keeps_legacy_positional_construction_compatible() -> None:
+    data = O20SpeedData((1.0,) * 16, 123.0)
+
+    assert data.timestamp == 123.0
+    assert data.raw_speeds == ()
 
 
 def test_torque_command_uses_target_torque_register_and_caches_targets() -> None:

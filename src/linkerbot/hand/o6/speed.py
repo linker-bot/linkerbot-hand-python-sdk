@@ -20,7 +20,7 @@ class O6Speed:
     """Motor speeds for O6 hand (0-100 range or RPM).
 
     Speeds can be specified either as normalized 0-100 values or in RPM units.
-    Maximum speed: 186.66 RPM (corresponds to 100).
+    The protocol conversion used by this SDK is ``raw * 180 / 255`` RPM.
 
     Attributes:
         thumb_flex: Thumb flexion motor speed (0-100). Higher values = faster.
@@ -38,9 +38,7 @@ class O6Speed:
     ring: float
     pinky: float
 
-    # Hardware conversion constant: 1 hardware unit = 0.732 RPM
-    _RPM_PER_UNIT: float = 0.732
-    _MAX_RPM: float = 255 * _RPM_PER_UNIT  # 186.66 RPM
+    _MAX_RPM: float = 180.0
 
     def to_list(self) -> list[float]:
         """Convert to list of floats in joint order.
@@ -111,7 +109,7 @@ class O6Speed:
         Example:
             >>> speed = O6Speed(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
             >>> rpm_values = speed.to_rpm()
-            >>> print(rpm_values[0])  # ~93.33 RPM
+            >>> print(rpm_values[0])  # ~90 RPM
         """
         return [v * self._MAX_RPM / 100 for v in self.to_list()]
 
@@ -120,7 +118,7 @@ class O6Speed:
         """Construct from list of speeds in RPM units.
 
         Args:
-            rpm_values: List of 6 speed values in RPM (0 to 186.66 RPM)
+            rpm_values: List of 6 speed values in RPM (0 to 180 RPM)
 
         Returns:
             O6Speed instance

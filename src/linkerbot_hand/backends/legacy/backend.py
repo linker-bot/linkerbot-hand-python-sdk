@@ -15,9 +15,11 @@ from .adapters import LegacyModelAdapter, get_legacy_model_adapter
 from .dispatcher import DispatchClaimRejected, ScopedImmediateDispatcher
 from .normalization import (
     as_tuple,
+    command_values_for_legacy,
     extract_payload,
     normalize_sensor_value,
     normalize_tactile,
+    normalize_vector_sensor,
     percent_to_raw,
     poll_manager_name,
     raise_mapped,
@@ -148,9 +150,13 @@ class LegacyHandBackend:
                 elif kind is CommandKind.RAW_ANGLES:
                     set_protocol_raw_angles(hand.angle, values)
                 elif kind is CommandKind.SPEEDS:
-                    hand.speed.set_speeds(values)
+                    hand.speed.set_speeds(
+                        command_values_for_legacy(self._model, kind, values)
+                    )
                 elif kind is CommandKind.TORQUES:
-                    hand.torque.set_torques(values)
+                    hand.torque.set_torques(
+                        command_values_for_legacy(self._model, kind, values)
+                    )
                 elif kind is CommandKind.CLEAR_FAULTS:
                     clear = getattr(hand.fault, "clear_faults", None)
                     if clear is None:
@@ -204,6 +210,18 @@ class LegacyHandBackend:
                     sensor=sensor,
                     values=raw_to_percent(raw_values, self._capabilities),
                     raw_values=raw_values,
+                )
+            if sensor in (
+                SensorType.SPEEDS,
+                SensorType.TORQUES,
+                SensorType.ACCELERATION,
+                SensorType.CURRENT,
+            ):
+                values, raw_values = normalize_vector_sensor(
+                    data, payload, sensor=sensor, model=self._model
+                )
+                return BackendReading(
+                    sensor=sensor, values=values, raw_values=raw_values
                 )
             values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
             return BackendReading(sensor=sensor, values=values)

@@ -18,6 +18,7 @@ from .joints import O20_JOINT_COUNT, validate_int_values
 
 O20_SPEED_MIN = 0
 O20_SPEED_MAX = 100
+O20_SPEED_RPM_PER_RAW = 0.732
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,12 +26,14 @@ class O20SpeedData:
     """Immutable O20 speed data.
 
     Attributes:
-        speeds: 16 speed values in motor-ID order.
+        speeds: 16 measured speed values in motor-ID order, in RPM.
         timestamp: Unix timestamp when the data was decoded.
+        raw_speeds: Exact signed 16-bit protocol values when provided.
     """
 
-    speeds: tuple[int, ...]
+    speeds: tuple[float, ...]
     timestamp: float
+    raw_speeds: tuple[int, ...] = ()
 
 
 class SpeedManager:
@@ -99,8 +102,10 @@ class SpeedManager:
         response = self._client.read(
             register=protocol.O20_REG_CURRENT_VEL, timeout_ms=timeout_ms
         )
+        raw_speeds = protocol.decode_i16_vector_response(response)
         data = O20SpeedData(
-            speeds=protocol.decode_i16_vector_response(response),
+            speeds=tuple(value * O20_SPEED_RPM_PER_RAW for value in raw_speeds),
+            raw_speeds=raw_speeds,
             timestamp=time.time(),
         )
         self._relay.push(data)

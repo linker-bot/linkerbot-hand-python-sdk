@@ -6,6 +6,7 @@ from ...contracts import (
     HandSide,
     JointEndpoint,
     JointMotionType,
+    NumericRange,
     SensorType,
     TransportType,
 )
@@ -33,13 +34,14 @@ CAPABILITIES = DeviceCapabilities(
                 JointEndpoint.AWAY_FROM_THUMB_WEB,
             )
         },
+        torque_range=NumericRange(0, 1400, "mA"),
     ),
     sensors=(
         sensor(SensorType.ANGLES, 60),
-        sensor(SensorType.TORQUES, 30),
+        sensor(SensorType.TORQUES, 30, unit="mA"),
         sensor(SensorType.FORCE, 30),
         sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10),
+        sensor(SensorType.CURRENT, 10, unit="mA"),
         sensor(SensorType.FAULTS, 5),
     ),
     transport=TransportType.CAN,

@@ -235,6 +235,7 @@ class SensorCapability:
         sensor: Supported sensor channel.
         recommended_hz: Recommended polling frequency in hertz.
         stale_after_s: Age in seconds after which cached data is stale.
+        unit: Unit used by values published for this sensor, when known.
 
     Raises:
         ValidationError: If the sensor type or either positive finite value is
@@ -244,11 +245,14 @@ class SensorCapability:
     sensor: SensorType
     recommended_hz: float
     stale_after_s: float
+    unit: str | None = None
 
     def __post_init__(self) -> None:
         """Validate sensor metadata and timing values."""
         if not isinstance(self.sensor, SensorType):
             raise ValidationError("sensor must be SensorType")
+        if self.unit is not None and (not isinstance(self.unit, str) or not self.unit):
+            raise ValidationError("sensor unit must be a non-empty str or None")
         for name, value in (
             ("recommended_hz", self.recommended_hz),
             ("stale_after_s", self.stale_after_s),

@@ -17,10 +17,10 @@ from linkerbot_transport.relay import DataRelay
 
 @dataclass
 class O6Torque:
-    """Joint torques for O6 hand (0-100 range or milliamps).
+    """Joint torque limits for O6 hand (0-100 legacy or 0-1000 mA).
 
     Torques can be specified either as normalized 0-100 values or in milliamp units.
-    Maximum torque: 1657.5 mA (corresponds to 100).
+    The protocol maps raw ``0..255`` to approximately ``0..1000 mA``.
 
     Attributes:
         thumb_flex: Thumb flexion joint torque (0-100). Higher values = higher torque limit.
@@ -38,9 +38,7 @@ class O6Torque:
     ring: float
     pinky: float
 
-    # Hardware conversion constant: 1 hardware unit = 6.5 mA
-    _MA_PER_UNIT: float = 6.5
-    _MAX_MA: float = 255 * _MA_PER_UNIT  # 1657.5 mA
+    _MAX_MA: float = 1000.0
 
     def to_list(self) -> list[float]:
         """Convert to list of floats in joint order.
@@ -111,16 +109,16 @@ class O6Torque:
         Example:
             >>> torque = O6Torque(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
             >>> ma_values = torque.to_milliamps()
-            >>> print(ma_values[0])  # ~828.75 mA
+            >>> print(ma_values[0])  # ~502 mA after byte quantization
         """
-        return [v * self._MAX_MA / 100 for v in self.to_list()]
+        return [raw * self._MAX_MA / 255.0 for raw in self.to_raw()]
 
     @classmethod
     def from_milliamps(cls, ma_values: list[float]) -> "O6Torque":
         """Construct from list of torques in milliamp units.
 
         Args:
-            ma_values: List of 6 torque values in milliamps (0 to 1657.5 mA)
+            ma_values: List of 6 torque values in milliamps (0 to 1000 mA)
 
         Returns:
             O6Torque instance

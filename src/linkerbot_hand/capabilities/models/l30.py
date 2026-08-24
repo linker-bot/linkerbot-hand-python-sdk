@@ -98,9 +98,10 @@ def _joints() -> tuple[JointCapability, ...]:
             speed_range=NumericRange(
                 1, 250, "protocol_unit", integer_only=True, step=1
             ),
-            torque_range=NumericRange(
-                60, 800, "protocol_unit", integer_only=True, step=1
-            ),
+            # The protocol calls this field torque, but it is the motor
+            # current limit. Public commands use mA and are quantized to the
+            # 60..800 protocol range by the legacy adapter.
+            torque_range=NumericRange(60 * 6.5, 800 * 6.5, "mA"),
             motion_type=_MOTION_TYPES[index],
         )
         for index, (name, minimum, maximum) in enumerate(_JOINTS)
@@ -114,10 +115,10 @@ CAPABILITIES = DeviceCapabilities(
     joints=_joints(),
     sensors=(
         sensor(SensorType.ANGLES, 60),
-        sensor(SensorType.SPEEDS, 30),
+        sensor(SensorType.SPEEDS, 30, unit="protocol_unit"),
         sensor(SensorType.FORCE, 30),
         sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10),
+        sensor(SensorType.CURRENT, 10, unit="mA"),
         sensor(SensorType.FAULTS, 5),
     ),
     transport=TransportType.CAN_FD,

@@ -336,6 +336,10 @@ if angles is not None and angles.valid and not angles.stale:
 旧 manager 的 standard-raw LUT。三种坐标和 LUT 的精确定义见
 [角度坐标、方向与用户映射](./angle-coordinates.md)。
 
+速度、力矩等数值的公共单位由对应关节范围和传感器能力的 `unit` 字段声明。统一接口发送
+物理单位时由 SDK 转换为协议值；`SensorSample.raw_values` 始终保留协议原值。L6 的速度样本
+不存在，因为设备不提供当前速度读回；其旧兼容入口的速度快照是目标值而非测量值。
+
 ## 健康状态
 
 `get_health()` 同样不产生设备 I/O，返回 `HealthStatus`：
@@ -373,7 +377,7 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 | `sensor(sensor)`       | 返回对应 `SensorCapability`，不支持时为 `None`。                                                         |
 | `supports_sensor(...)` | 是否支持指定数据源。                                                                                     |
 | `JointCapability`      | `index/name/raw_angle_range/percentage_mapping/speed_range/torque_range/motion_type/coupled_with`        |
-| `SensorCapability`     | `sensor/recommended_hz/stale_after_s`                                                                    |
+| `SensorCapability`     | `sensor/recommended_hz/stale_after_s/unit`                                                               |
 | `DeviceFeatures`       | `device_ack/clear_faults/enable/calibration/acknowledged_commands`                                       |
 | `NumericRange`         | `minimum/maximum/unit/integer_only/step`                                                                 |
 | `PercentageMapping`    | `raw_open/raw_closed/raw_at_zero/raw_at_hundred/physical_angle/semantics/zero_endpoint/hundred_endpoint` |

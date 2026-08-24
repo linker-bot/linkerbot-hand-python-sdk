@@ -11,6 +11,7 @@ from .angle import AngleData
 from .current import CurrentData
 from .fault import FaultData
 from .force_sensor import AllFingersData
+from .speed import SpeedData
 from .temperature import TemperatureData
 from .torque import TorqueData
 
@@ -77,3 +78,4 @@ class L6Snapshot:
     fault: FaultData | None
     force_sensor: AllFingersData | None
     timestamp: float
+    speed: SpeedData | None = None

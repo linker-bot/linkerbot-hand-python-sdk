@@ -108,10 +108,10 @@ CAPABILITIES = DeviceCapabilities(
     joints=_joints(),
     sensors=(
         sensor(SensorType.ANGLES, 30),
-        sensor(SensorType.SPEEDS, 30),
+        sensor(SensorType.SPEEDS, 30, unit="rpm"),
         sensor(SensorType.FORCE, 30),
         sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10),
+        sensor(SensorType.CURRENT, 10, unit="mA"),
         sensor(SensorType.FAULTS, 5),
     ),
     transport=TransportType.CAN_FD,

@@ -3,7 +3,7 @@
 通过 `hand.speed` 控制和读取 O6 灵巧手各关节电机的运动速度。
 
 - **速度范围**: 0-100
-- **最大转速**: 186.66 RPM（对应值 100）
+- **最大转速**: 180 RPM（协议原值 255）
 
 ## 设置速度
 
@@ -71,7 +71,7 @@ hand.stop_stream()
 
 ## RPM 单位转换
 
-O6Speed 支持 RPM（转/分钟）单位的转换。
+O6Speed 支持 RPM（转/分钟）单位的转换，使用 `raw * 180 / 255`。
 
 ### 转换为 RPM
 
@@ -80,7 +80,7 @@ from linkerbot.hand.o6 import O6Speed
 
 speed = O6Speed(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
 rpm_values = speed.to_rpm()
-print(rpm_values)  # [93.33, 93.33, 93.33, 93.33, 93.33, 93.33]
+print(rpm_values)  # 约 [90, 90, 90, 90, 90, 90]
 ```
 
 ### 从 RPM 创建

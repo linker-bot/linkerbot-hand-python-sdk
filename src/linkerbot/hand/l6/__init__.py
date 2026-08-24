@@ -20,7 +20,7 @@ from .events import (
 from .fault import FaultCode, FaultData, FaultManager, L6Fault
 from .force_sensor import AllFingersData, ForceSensorData, ForceSensorManager
 from .l6 import L6
-from .speed import L6Speed
+from .speed import L6Speed, SpeedData
 from .temperature import L6Temperature, TemperatureData, TemperatureManager
 from .torque import L6Torque, TorqueData
 from .version import DeviceInfo, Version, VersionManager
@@ -56,6 +56,7 @@ __all__ = [
     "L6Angle",
     "L6Torque",
     "L6Speed",
+    "SpeedData",
     "L6Temperature",
     "L6Current",
     "L6Fault",

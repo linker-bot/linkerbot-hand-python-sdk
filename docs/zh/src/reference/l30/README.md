@@ -132,7 +132,9 @@ L30 的主机发送帧默认不启用 BRS；SocketCAN 链路仍应配置 5 Mbit/
 
 ## 关节说明
 
-L30 SDK 按协议顺序使用 17 个关节值：`J1` 到 `J17`。所有角度、速度、力矩、电流、温度、故障数据都按这个顺序排列。
+L30 SDK 按协议顺序使用 17 个关节值：`J1` 到 `J17`。所有角度、速度、电流上限、
+当前电流、温度、故障数据都按这个顺序排列。协议中的“力矩”字段实际表示电流上限，
+每个协议单位为 6.5 mA。
 
 **角度单位**:与 L6 一致，`set_angles` 与 sensor readback 都使用 **0-100 float 百分比**;需要协议原始整数时用 `set_raw_angles` / `to_raw()`。详见 [angle](./angle.md)。
 
@@ -175,8 +177,8 @@ for index, spec in enumerate(L30_JOINT_SPECS):
 | `hand.calibration`                                       | 全部关节零点标定                       | [calibration](./calibration.md)     |
 | `hand.angle`                                             | 角度设置、角度读取、角度快照           | [angle](./angle.md)                 |
 | `hand.speed`                                             | 速度设置、速度读取、速度快照           | [speed](./speed.md)                 |
-| `hand.torque`                                            | 力矩目标设置、力矩目标快照             | [torque](./torque.md)               |
-| `hand.current`                                           | 电流读取、电流快照                     | [current](./current.md)             |
+| `hand.torque`                                            | 电流上限协议值设置、目标快照           | [torque](./torque.md)               |
+| `hand.current`                                           | 当前电流协议值读取、快照               | [current](./current.md)             |
 | `hand.temperature`                                       | 温度读取、温度快照                     | [temperature](./temperature.md)     |
 | `hand.fault`                                             | 故障字节读取、故障判断、故障快照       | [fault](./fault.md)                 |
 | `hand.force_sensor`                                      | 五指触觉传感器读取                     | [force-sensor](./force-sensor.md)   |

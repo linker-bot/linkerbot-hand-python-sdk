@@ -7,6 +7,7 @@ from numbers import Integral, Real
 from typing import Any, NoReturn
 
 from ...contracts import (
+    CommandKind,
     DeviceCapabilities,
     SensorType,
     SensorValue,
@@ -47,6 +48,96 @@ _VALUE_ATTRIBUTES = {
     SensorType.ACCELERATION: ("accelerations",),
     SensorType.MOTION_TIME: ("ticks", "motion_times", "motion_time", "values"),
 }
+
+
+def command_values_for_legacy(
+    model: str, kind: CommandKind, values: list[float | int]
+) -> object:
+    """Convert unified physical command values to legacy manager values.
+
+    Legacy managers intentionally keep their historical public conventions:
+    classic hands use normalized percentages, O6 exposes helper objects, and
+    L30 accepts protocol current-limit integers.  The unified capability
+    contract is allowed to use physical units, so this conversion is the one
+    boundary where those conventions are translated.
+    """
+    if kind is CommandKind.SPEEDS and model == "O6":
+        from linkerbot.hand.o6.speed import O6Speed
+
+        return O6Speed.from_rpm(list(values))
+    if kind is CommandKind.TORQUES:
+        if model == "L6":
+            from linkerbot.hand.l6.torque import L6Torque
+
+            return L6Torque.from_milliamps(list(values))
+        if model == "O6":
+            from linkerbot.hand.o6.torque import O6Torque
+
+            return O6Torque.from_milliamps(list(values))
+        if model == "L30":
+            # L30's so-called torque field is a current limit, 6.5 mA/LSB.
+            return [round(float(value) / 6.5) for value in values]
+    return values
+
+
+def _raw_vector(data: Any, payload: Any, sensor: SensorType) -> tuple[int, ...]:
+    """Extract exact protocol vector values from a legacy response object."""
+    raw_attribute = {
+        SensorType.SPEEDS: "raw_speeds",
+        SensorType.TORQUES: "raw_torques",
+        SensorType.ACCELERATION: "raw_accelerations",
+    }.get(sensor)
+    if raw_attribute is not None:
+        raw_values = getattr(data, raw_attribute, None)
+        if raw_values is not None:
+            return tuple(int(value) for value in raw_values)
+    to_raw = getattr(payload, "to_raw", None)
+    if callable(to_raw):
+        return tuple(int(value) for value in to_raw())
+    return tuple(int(value) for value in as_tuple(payload))
+
+
+def normalize_vector_sensor(
+    data: Any,
+    payload: Any,
+    *,
+    sensor: SensorType,
+    model: str,
+) -> tuple[tuple[SensorValue, ...], tuple[int, ...] | None]:
+    """Normalize vector telemetry and retain exact protocol values."""
+    if sensor not in (
+        SensorType.SPEEDS,
+        SensorType.TORQUES,
+        SensorType.ACCELERATION,
+        SensorType.CURRENT,
+    ):
+        values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
+        return values, None
+
+    raw_values = _raw_vector(data, payload, sensor)
+    if sensor is SensorType.SPEEDS:
+        if model == "O6":
+            values = tuple(value * 180.0 / 255.0 for value in raw_values)
+        elif model == "O20":
+            values = tuple(value * 0.732 for value in raw_values)
+        else:
+            values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
+    elif sensor is SensorType.ACCELERATION:
+        if model == "O6":
+            values = tuple(
+                254.0 * 8.7 if value == 0 else value * 8.7 for value in raw_values
+            )
+        else:
+            values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
+    elif sensor is SensorType.TORQUES and model == "L6":
+        values = tuple(value * 1400.0 / 255.0 for value in raw_values)
+    elif sensor is SensorType.TORQUES and model == "O6":
+        values = tuple(value * 1000.0 / 255.0 for value in raw_values)
+    elif sensor is SensorType.CURRENT and model == "L30":
+        values = tuple(value * 6.5 for value in raw_values)
+    else:
+        values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
+    return tuple(normalize_sensor_value(value) for value in values), raw_values
 
 
 def poll_manager_name(sensor: SensorType) -> str:

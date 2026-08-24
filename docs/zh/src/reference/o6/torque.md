@@ -3,7 +3,7 @@
 通过 `hand.torque` 控制和读取 O6 灵巧手的 6 个关节电机扭矩。
 
 - **扭矩范围**: 0-100（无量纲百分比）
-- **最大电流**: 1657.5 mA（对应 100）
+- **最大电流**: 1000 mA（协议原值 255）
 
 ## 设置扭矩
 
@@ -74,15 +74,15 @@ hand.stop_stream()
 
 ## mA 单位转换
 
-O6 支持扭矩值与 mA 电流单位的相互转换。
+O6 支持扭矩值与 mA 电流单位的相互转换，使用 `raw * 1000 / 255`。
 
 ### 从 mA 创建
 
 ```python
 from linkerbot.hand.o6 import O6Torque
 
-# 从 mA 值创建（范围 0-1657.5 mA）
-torques = O6Torque.from_milliamps([800.0, 800.0, 1000.0, 1000.0, 1200.0, 1200.0])
+# 从 mA 值创建（范围 0-1000 mA）
+torques = O6Torque.from_milliamps([600.0, 600.0, 800.0, 800.0, 1000.0, 1000.0])
 print(f"归一化值：{torques.to_list()}")  # 转换为 0-100 范围
 ```
 
@@ -91,7 +91,7 @@ print(f"归一化值：{torques.to_list()}")  # 转换为 0-100 范围
 ```python
 torques = O6Torque(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
 ma_values = torques.to_milliamps()
-print(f"mA 值：{ma_values}")  # [828.75, 828.75, ...]
+print(f"mA 值：{ma_values}")  # 约 [502, 502, ...]，受 raw 字节量化影响
 ```
 
 ## 完整示例

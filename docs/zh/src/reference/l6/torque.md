@@ -2,9 +2,13 @@
 
 ## 概述
 
-通过 `hand.torque` 访问扭矩控制功能，支持设置目标扭矩和读取当前扭矩。
+通过 `hand.torque` 访问扭矩控制功能，支持设置目标扭矩和读取当前扭矩。统一
+`HandDevice.submit_torques()` 使用电流上限单位 mA；L6 协议原值 `0..255` 约对应
+`0..1400 mA`（`raw * 1400 / 255`）。旧 manager 的 `set_torques()` 继续接受
+历史 `0..100` 百分比，使用 `L6Torque.to_milliamps()` / `from_milliamps()` 获取或构造
+物理单位值。
 
-扭矩值范围为 **0-100**（无量纲，表示关节电机的相对扭矩百分比），对应 L6 灵巧手的 6 个关节电机：
+旧兼容 `set_torques()` 的扭矩值范围为 **0-100**（无量纲，表示相对扭矩百分比），对应 L6 灵巧手的 6 个关节电机：
 
 | 索引 | 属性         | 关节电机 |
 | ---- | ------------ | -------- |
@@ -28,6 +32,10 @@ target = L6Torque(
     thumb_flex=50.0, thumb_abd=30.0, index=60.0, middle=60.0, ring=60.0, pinky=60.0
 )
 hand.torque.set_torques(target)
+
+# 物理单位辅助转换（不改变旧 set_torques 的入参语义）
+target = L6Torque.from_milliamps([700.0] * 6)
+print(target.to_milliamps())
 ```
 
 ## 读取扭矩
@@ -89,7 +97,8 @@ with L6(side="left", interface_name="can0") as hand:
 
     # 阻塞读取当前扭矩
     data = hand.torque.get_blocking(timeout_ms=200)
-    print(f"当前扭矩：{data.torques.to_list()}")
+    print(f"当前扭矩百分比：{data.torques.to_list()}")
+    print(f"当前电流上限约：{data.torques.to_milliamps()} mA")
 ```
 
 ### 实时监控

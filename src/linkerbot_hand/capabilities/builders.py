@@ -15,12 +15,15 @@ from ..contracts import (
 from ..errors import ValidationError
 
 
-def sensor(sensor_type: SensorType, hz: float) -> SensorCapability:
+def sensor(
+    sensor_type: SensorType, hz: float, *, unit: str | None = None
+) -> SensorCapability:
     """Build standard sensor capability metadata.
 
     Args:
         sensor_type: Sensor channel implemented by the model.
         hz: Recommended polling frequency in hertz.
+        unit: Unit used by values published for this sensor, when known.
 
     Returns:
         Sensor capability whose staleness threshold is three polling periods.
@@ -32,6 +35,7 @@ def sensor(sensor_type: SensorType, hz: float) -> SensorCapability:
         sensor=sensor_type,
         recommended_hz=hz,
         stale_after_s=3 / hz,
+        unit=unit,
     )
 
 
@@ -42,6 +46,8 @@ def classic_joints(
     *,
     motion_types: Sequence[JointMotionType] | None = None,
     direction_endpoints: dict[int, tuple[JointEndpoint, JointEndpoint]] | None = None,
+    speed_range: NumericRange | None = None,
+    torque_range: NumericRange | None = None,
 ) -> tuple[JointCapability, ...]:
     """Build capabilities for classic unsigned-byte hand protocols.
 
@@ -53,6 +59,10 @@ def classic_joints(
         motion_types: Optional mechanical motion type for each joint. Defaults
             to flexion for every axis.
         direction_endpoints: Physical endpoint names for every directional axis.
+        speed_range: Shared speed command range. Defaults to the historical
+            dimensionless ``0..100`` range.
+        torque_range: Shared torque command range. Defaults to the historical
+            dimensionless ``0..100`` range.
 
     Returns:
         Ordered joint capabilities with raw, normalized, speed, and torque ranges.
@@ -65,6 +75,10 @@ def classic_joints(
         motion_types = (JointMotionType.FLEXION,) * len(names)
     if direction_endpoints is None:
         direction_endpoints = {}
+    if speed_range is None:
+        speed_range = NumericRange(0, 100, "percent")
+    if torque_range is None:
+        torque_range = NumericRange(0, 100, "percent")
     if len(endpoints) != len(names) or len(motion_types) != len(names):
         raise ValidationError(
             "classic joint names, endpoints, and motion types must have equal lengths"
@@ -100,8 +114,8 @@ def classic_joints(
                     (JointEndpoint.FLEXED, JointEndpoint.EXTENDED),
                 )[1],
             ),
-            speed_range=NumericRange(0, 100, "percent"),
-            torque_range=NumericRange(0, 100, "percent"),
+            speed_range=speed_range,
+            torque_range=torque_range,
             motion_type=motion_types[index],
         )
         for index, name in enumerate(names)
