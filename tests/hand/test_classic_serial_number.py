@@ -128,3 +128,26 @@ def test_collector_ignores_fragments_outside_both_position_encodings() -> None:
 
     with pytest.raises(TimeoutError, match="within 1ms"):
         collector.wait(0.001)
+
+
+def test_collector_request_cleans_state_after_send_error() -> None:
+    collector = SerialNumberCollector()
+    error = RuntimeError("send failed")
+
+    def fail() -> None:
+        raise error
+
+    with pytest.raises(RuntimeError) as raised:
+        collector.request(fail, 0.01)
+    assert raised.value is error
+
+    def respond() -> None:
+        for position, payload in (
+            (0, b"ABCDEF"),
+            (1, b"GHIJKL"),
+            (2, b"MNOPQR"),
+            (3, b"ST\0\0\0\0"),
+        ):
+            collector.add_frame(position, payload)
+
+    assert collector.request(respond, 0.01) == "ABCDEFGHIJKLMNOPQRST"
