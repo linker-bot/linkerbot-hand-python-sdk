@@ -11,13 +11,25 @@ L6、O6、L20Lite、L25、L30、O20 和 O30i 驱动。
 访问凭据，再安装正式版本：
 
 ```bash
-python -m pip install linkerbot-hand==0.1.1
+python -m pip install linkerbot-hand==0.1.2
 ```
 
 包源地址为
 `https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple`。请通过环境变量、
 pip 的认证配置或系统凭据管理器提供用户名和访问令牌，不要把令牌写入代码或提交到
 仓库。
+
+### NumPy 兼容范围
+
+SDK 的触觉矩阵使用 NumPy，但不依赖 SciPy。依赖范围按 Python 版本声明：
+
+- Python 3.10-3.12：`numpy>=1.21.6,<2`。
+- Python 3.13 及以上：`numpy>=2.1,<3`。
+
+ROS 2 Jazzy 使用 Python 3.12，安装时会选择 NumPy 1.26.x，与 Ubuntu 系统提供的
+SciPy 1.11.4（要求 `numpy<1.28`）兼容。不要在 Jazzy 的
+`--system-site-packages` 环境中继续使用 `linkerbot-hand==0.1.1`，该版本错误地要求
+`numpy>=2.2.6`。
 
 规范的新接口入口是 `linkerbot_hand`。同一个 wheel 继续提供历史
 `linkerbot.hand` 包、原有型号类和函数签名，现有用户可以逐步迁移。

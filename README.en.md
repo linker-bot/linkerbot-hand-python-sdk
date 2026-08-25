@@ -13,8 +13,21 @@ dependency. It uses `linkerbot-transport` for CAN/CAN FD communication and can
 be installed directly for hand-only applications:
 
 ```bash
-pip install linkerbot-hand
+pip install linkerbot-hand==0.1.2
 ```
+
+### NumPy compatibility
+
+The SDK uses NumPy for tactile matrices but does not depend on SciPy. Supported
+ranges are selected by Python version:
+
+- Python 3.10-3.12: `numpy>=1.21.6,<2`.
+- Python 3.13 and newer: `numpy>=2.1,<3`.
+
+ROS 2 Jazzy uses Python 3.12 and therefore resolves NumPy 1.26.x, which remains
+compatible with Ubuntu's SciPy 1.11.4 (`numpy<1.28`). Release 0.1.1 incorrectly
+required NumPy 2.2.6 or newer and should not be used in a Jazzy
+`--system-site-packages` environment.
 
 The canonical unified API is `linkerbot_hand`. The historical
 `linkerbot.hand` package remains available from the same wheel, with the same
