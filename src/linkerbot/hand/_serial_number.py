@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -96,8 +96,24 @@ class SerialNumberCollector:
 
     def __init__(self) -> None:
         self._condition = threading.Condition()
+        self._request_lock = threading.Lock()
         self._active = False
         self._frames = SerialNumberFrames()
+
+    def request(self, send: Callable[[], object], timeout_s: float) -> str:
+        """Start, send and wait for one serialized serial-number transaction."""
+
+        with self._request_lock:
+            self.begin()
+            completed = False
+            try:
+                send()
+                serial_number = self.wait(timeout_s)
+                completed = True
+                return serial_number
+            finally:
+                if not completed:
+                    self.cancel()
 
     def begin(self) -> None:
         """Start a request and discard fragments from any earlier transaction."""

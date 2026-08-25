@@ -217,10 +217,7 @@ class TorqueManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._pending.clear()
-        self._in_flight = False
-        self._send_sense_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_blocking_request, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> TorqueData | None:
         """Get the most recent cached torque data (non-blocking).
@@ -239,6 +236,10 @@ class TorqueManager:
         self._relay.set_sink(sink)
 
     _IN_FLIGHT_TIMEOUT_S = 0.2
+
+    def _send_blocking_request(self) -> None:
+        self._in_flight = False
+        self._send_sense_request()
 
     def _send_sense_request(self) -> None:
         if (

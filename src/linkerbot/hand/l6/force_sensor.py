@@ -6,6 +6,7 @@ This module provides force sensor management for the L6 robotic hand:
 - ForceSensorManager: Manages all 5 fingers' force sensors (thumb, index, middle, ring, pinky).
 """
 
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -132,8 +133,7 @@ class SingleForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        self._send_request()
-        return self._relay.wait(timeout_ms / 1000.0)
+        return self._relay.request(self._send_request, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> ForceSensorData | None:
         """Get the most recent cached sensor data (non-blocking).
@@ -219,6 +219,7 @@ class ForceSensorManager:
         """
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
+        self._blocking_lock = threading.Lock()
 
         # Create a SingleForceSensorManager for each finger
         self._fingers: dict[str, SingleForceSensorManager] = {
@@ -258,7 +259,10 @@ class ForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
+        with self._blocking_lock:
+            return self._get_all_blocking(timeout_ms)
 
+    def _get_all_blocking(self, timeout_ms: float) -> AllFingersData:
         deadline = time.monotonic() + timeout_ms / 1000.0
         results: dict[str, ForceSensorData] = {}
 
