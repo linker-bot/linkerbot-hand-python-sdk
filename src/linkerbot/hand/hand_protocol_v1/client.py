@@ -21,8 +21,8 @@ _CLOSE_DRAIN_TIMEOUT_S = 1.0
 class HandProtocolV1DispatcherLike(Protocol):
     """Minimal dispatcher contract required by :class:`HandProtocolV1`."""
 
-    def send(self, message: CANFDMessage) -> None:
-        """Queue one CAN-FD message for transmission."""
+    def send(self, message: CANFDMessage) -> object:
+        """Queue one CAN-FD message; callers ignore any dispatcher receipt."""
         ...
 
     def subscribe(self, callback: Callable[[CANFDMessage], None]) -> None:

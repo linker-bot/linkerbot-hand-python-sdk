@@ -12,6 +12,8 @@ from typing import Protocol
 from linkerbot_transport.canfd import CANFDMessage
 from linkerbot_transport.errors import StateError, TimeoutError, ValidationError
 
+from linkerbot.hand._send_receipt import SendReceiptLike, wait_for_send_receipt
+
 from . import protocol
 
 _CLOSE_DRAIN_TIMEOUT_S = 1.0
@@ -25,7 +27,7 @@ class L30DispatcherLike(Protocol):
     tests and future socketcan-fd support can provide another implementation.
     """
 
-    def send(self, message: CANFDMessage) -> None:
+    def send(self, message: CANFDMessage) -> SendReceiptLike | None:
         """Send one CANFD message."""
         ...
 
@@ -140,7 +142,10 @@ class L30Client:
     def send_no_ack(
         self, *, parent: int, subcmd: int, payload: bytes, dlc: int | None = None
     ) -> None:
-        """Send an L30 write command without waiting for an ACK.
+        """Send an L30 write without waiting for a device ACK.
+
+        When supported by the dispatcher, this still waits for confirmation
+        that the physical transport accepted the frame.
 
         Args:
             parent: L30 parent command field.
@@ -408,7 +413,8 @@ class L30Client:
                 self._sending_threads.get(current_thread, 0) + 1
             )
         try:
-            self._dispatcher.send(message)
+            receipt = self._dispatcher.send(message)
+            wait_for_send_receipt(receipt)
         finally:
             with self._send_condition:
                 remaining = self._sending_threads[current_thread] - 1
