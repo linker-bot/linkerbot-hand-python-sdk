@@ -11,9 +11,9 @@ from dataclasses import dataclass
 
 import can
 
+from linkerbot.hand._polling_relay import PollingDataRelay
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
-from linkerbot_transport.relay import DataRelay
 
 _JOINT_COUNT = 16
 
@@ -194,10 +194,8 @@ class TorqueManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._relay = DataRelay[TorqueData]()
         self._pending: dict[int, list[float]] = {}
-        self._in_flight = False
-        self._in_flight_since: float = 0
+        self._relay = PollingDataRelay[TorqueData](self._pending.clear)
 
     def set_torques(self, torques: L25Torque | list[float]) -> None:
         """Send target torques to the robotic hand.
@@ -253,7 +251,7 @@ class TorqueManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        return self._relay.request(self._send_blocking_request, timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frames, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> TorqueData | None:
         """Get the most recent cached torque data (non-blocking).
@@ -271,21 +269,13 @@ class TorqueManager:
     def _set_event_sink(self, sink: Callable[[TorqueData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
-    def _send_blocking_request(self) -> None:
-        self._in_flight = False
-        self._send_sense_request()
-
     def _send_sense_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
-        self._pending.clear()
+        self._relay.poll(self._send_request_frames)
+
+    def _cancel_sense_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _send_request_frames(self) -> None:
         for cmd in self._FRAME_MAP:
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
@@ -327,6 +317,4 @@ class TorqueManager:
 
         torques = L25Torque(**kwargs)
         torque_data = TorqueData(torques=torques, timestamp=time.time())
-        self._in_flight = False
-        self._pending.clear()
         self._relay.push(torque_data)

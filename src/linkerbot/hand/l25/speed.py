@@ -11,9 +11,9 @@ from dataclasses import dataclass
 
 import can
 
+from linkerbot.hand._polling_relay import PollingDataRelay
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
-from linkerbot_transport.relay import DataRelay
 
 _JOINT_COUNT = 16
 
@@ -194,10 +194,8 @@ class SpeedManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._relay = DataRelay[SpeedData]()
         self._pending: dict[int, list[float]] = {}
-        self._in_flight = False
-        self._in_flight_since: float = 0
+        self._relay = PollingDataRelay[SpeedData](self._pending.clear)
 
     def set_speeds(self, speeds: L25Speed | list[float]) -> None:
         """Send target speeds to the robotic hand.
@@ -252,7 +250,7 @@ class SpeedManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        return self._relay.request(self._send_blocking_request, timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frames, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> SpeedData | None:
         """Get the most recent cached speed data (non-blocking).
@@ -270,21 +268,13 @@ class SpeedManager:
     def _set_event_sink(self, sink: Callable[[SpeedData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
-    def _send_blocking_request(self) -> None:
-        self._in_flight = False
-        self._send_sense_request()
-
     def _send_sense_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
-        self._pending.clear()
+        self._relay.poll(self._send_request_frames)
+
+    def _cancel_sense_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _send_request_frames(self) -> None:
         for cmd in self._FRAME_MAP:
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
@@ -326,6 +316,4 @@ class SpeedManager:
 
         speeds = L25Speed(**kwargs)
         speed_data = SpeedData(speeds=speeds, timestamp=time.time())
-        self._in_flight = False
-        self._pending.clear()
         self._relay.push(speed_data)

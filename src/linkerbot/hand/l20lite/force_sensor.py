@@ -15,9 +15,9 @@ import can
 import numpy as np
 import numpy.typing as npt
 
+from linkerbot.hand._polling_relay import PollingDataRelay
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import TimeoutError, ValidationError
-from linkerbot_transport.relay import DataRelay
 
 
 @dataclass(frozen=True)
@@ -108,10 +108,7 @@ class SingleForceSensorManager:
 
         # Frame assembly state
         self._frame_batch: FrameBatch | None = None
-        self._in_flight = False
-        self._in_flight_since: float = 0
-
-        self._relay = DataRelay[ForceSensorData]()
+        self._relay = PollingDataRelay[ForceSensorData](self._clear_frame_batch)
 
     def get_blocking(self, timeout_ms: float = 1000) -> ForceSensorData:
         """Get force sensor data with blocking wait.
@@ -135,7 +132,7 @@ class SingleForceSensorManager:
         """
         if timeout_ms <= 0:
             raise ValidationError("timeout_ms must be positive")
-        return self._relay.request(self._send_blocking_request, timeout_ms / 1000.0)
+        return self._relay.request(self._send_request_frame, timeout_ms / 1000.0)
 
     def get_snapshot(self) -> ForceSensorData | None:
         """Get the most recent cached sensor data (non-blocking).
@@ -153,21 +150,16 @@ class SingleForceSensorManager:
     def _set_event_sink(self, sink: Callable[[ForceSensorData], None]) -> None:
         self._relay.set_sink(sink)
 
-    _IN_FLIGHT_TIMEOUT_S = 0.2
-
-    def _send_blocking_request(self) -> None:
-        self._in_flight = False
-        self._send_request()
-
     def _send_request(self) -> None:
-        if (
-            self._in_flight
-            and (time.monotonic() - self._in_flight_since) < self._IN_FLIGHT_TIMEOUT_S
-        ):
-            return
-        self._in_flight = True
-        self._in_flight_since = time.monotonic()
+        self._relay.poll(self._send_request_frame)
+
+    def _cancel_request(self) -> None:
+        self._relay.cancel_polling()
+
+    def _clear_frame_batch(self) -> None:
         self._frame_batch = None
+
+    def _send_request_frame(self) -> None:
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=self._request_cmd,
@@ -203,8 +195,6 @@ class SingleForceSensorManager:
         # Check if we have all frames
         if self._frame_batch.is_complete():
             complete_data = self._frame_batch.assemble()
-            self._in_flight = False
-            self._frame_batch = None
             self._relay.push(complete_data)
 
 
@@ -368,3 +358,7 @@ class ForceSensorManager:
     def _send_sense_request(self) -> None:
         for sensor in self._fingers.values():
             sensor._send_request()
+
+    def _cancel_sense_request(self) -> None:
+        for sensor in self._fingers.values():
+            sensor._cancel_request()

@@ -34,15 +34,13 @@ POLLING_COOLDOWN_SEC = 0.5  # Drain delay after stop_polling() before next start
 def _reset_sensor_state(hand: L20lite, sources: list[SensorSource]) -> None:
     """Reset internal polling state for relevant sensors between cycles."""
     if SensorSource.ANGLE in sources:
-        hand.angle._pending = {}
-        hand.angle._in_flight = False
-        hand.angle._in_flight_since = 0.0
+        hand.angle._cancel_sense_request()
+        hand.angle._pending.clear()
 
     if SensorSource.FORCE_SENSOR in sources:
         for sensor in hand.force_sensor._fingers.values():
-            sensor._frame_batch = None
-            sensor._in_flight = False
-            sensor._in_flight_since = 0.0
+            sensor._cancel_request()
+            sensor._clear_frame_batch()
         hand.force_sensor._sink_latest = {}
         hand.force_sensor._sink_updated = set()
 
