@@ -4,13 +4,14 @@ This module provides the VersionManager class for reading device version informa
 """
 
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import can
 
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.relay import DataRelay
+
+from .._serial_number import SerialNumberCollector
 
 
 @dataclass(frozen=True)
@@ -51,35 +52,6 @@ class DeviceInfo:
     timestamp: float
 
 
-@dataclass(frozen=True)
-class SerialNumberFrames:
-    """Internal helper for accumulating serial number frames."""
-
-    _EXPECTED_INDICES: tuple[int, ...] = (0, 6, 12, 18)
-
-    frames: Mapping[int, bytes] = field(default_factory=dict)
-    started_at: float = field(default_factory=time.time)
-
-    def add_frame(self, byte_index: int, data: bytes) -> "SerialNumberFrames":
-        new_frames = {**self.frames, byte_index: data}
-        return SerialNumberFrames(frames=new_frames, started_at=self.started_at)
-
-    def is_complete(self) -> bool:
-        # Internal: Check if all frames received
-        return len(self.frames) == 4 and all(
-            i in self.frames for i in self._EXPECTED_INDICES
-        )
-
-    def assemble(self) -> str:
-        # Internal: Assemble and decode
-        data = bytearray(24)
-        for byte_index, frame_data in self.frames.items():
-            for i, b in enumerate(frame_data):
-                if byte_index + i < 24:
-                    data[byte_index + i] = b
-        return data.rstrip(b"\x00").decode("ascii", errors="ignore")
-
-
 class VersionManager:
     """Manager for device version information.
 
@@ -104,10 +76,7 @@ class VersionManager:
         self._dispatcher.subscribe(self._on_message)
 
         # Serial number frame assembly
-        self._sn_frames: SerialNumberFrames | None = None
-        self._sn_in_flight = False
-        self._sn_in_flight_since: float = 0
-        self._sn_relay = DataRelay[str]()
+        self._sn_collector = SerialNumberCollector()
 
         # Version number relays
         self._pcb_relay = DataRelay[Version]()
@@ -151,17 +120,18 @@ class VersionManager:
         )
 
     def _get_serial_number_blocking(self, timeout_ms: float) -> str:
-        self._sn_frames = None
-        self._sn_in_flight = False
         msg = can.Message(
             arbitration_id=self._arbitration_id,
             data=[self._SN_CMD],
             is_extended_id=False,
         )
-        self._sn_in_flight = True
-        self._sn_in_flight_since = time.monotonic()
-        self._dispatcher.send(msg)
-        return self._sn_relay.wait(timeout_ms / 1000.0)
+        self._sn_collector.begin()
+        try:
+            self._dispatcher.send(msg)
+            return self._sn_collector.wait(timeout_ms / 1000.0)
+        except BaseException:
+            self._sn_collector.cancel()
+            raise
 
     def _get_pcb_version_blocking(self, timeout_ms: float) -> Version:
         msg = can.Message(
@@ -202,21 +172,7 @@ class VersionManager:
 
         match cmd:
             case self._SN_CMD if len(msg.data) >= 2:
-                # Serial number frame: 0xC0 + byte_index + 6 bytes data
-                # L20lite uses byte index (0, 6, 12, 18) instead of sequential frame ID
-                byte_index = msg.data[1]
-                frame_data = bytes(msg.data[2:8])
-
-                if self._sn_frames is None:
-                    self._sn_frames = SerialNumberFrames()
-
-                self._sn_frames = self._sn_frames.add_frame(byte_index, frame_data)
-
-                if self._sn_frames.is_complete():
-                    sn = self._sn_frames.assemble()
-                    self._sn_in_flight = False
-                    self._sn_frames = None
-                    self._sn_relay.push(sn)
+                self._sn_collector.add_frame(msg.data[1], bytes(msg.data[2:8]))
 
             case self._PCB_VERSION_CMD if len(msg.data) >= 4:
                 version = Version(
