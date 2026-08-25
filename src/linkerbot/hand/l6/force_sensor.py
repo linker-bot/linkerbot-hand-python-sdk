@@ -198,10 +198,6 @@ class ForceSensorManager:
     and provides unified access to sensor data from all fingers.
     """
 
-    _MCU_INTER_REQUEST_DELAY_S = (
-        0.0025  # 2.5ms - MCU can only handle one finger at a time
-    )
-
     FINGER_COMMANDS = {
         "thumb": 0xB1,
         "index": 0xB2,
@@ -353,8 +349,5 @@ class ForceSensorManager:
                 self._event_sink(snapshot)
 
     def _send_sense_request(self) -> None:
-        finger_list = list(self._fingers.values())
-        for i, sensor in enumerate(finger_list):
-            if i > 0:
-                time.sleep(self._MCU_INTER_REQUEST_DELAY_S)
+        for sensor in self._fingers.values():
             sensor._send_request()
