@@ -13,7 +13,7 @@ dependency. It uses `linkerbot-transport` for CAN/CAN FD communication and can
 be installed directly for hand-only applications:
 
 ```bash
-pip install linkerbot-hand==0.1.3
+pip install linkerbot-hand==0.2.0
 ```
 
 ### NumPy compatibility

@@ -2,7 +2,7 @@
 
 本项目遵循语义化版本。正式发布前的开发版本可能继续增加兼容修正。
 
-## Unreleased
+## 0.2.0 - 2026-08-26
 
 - 将 `set_angles()` / `submit_angles()`、`set_speeds()` /
   `submit_speeds()` 统一为协议原始值接口；命令值不再隐式归一化或换算物理单位。

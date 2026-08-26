@@ -11,7 +11,7 @@ L6、O6、L20Lite、L25、L30、O20 和 O30i 驱动。
 访问凭据，再安装正式版本：
 
 ```bash
-python -m pip install linkerbot-hand==0.1.3
+python -m pip install linkerbot-hand==0.2.0
 ```
 
 包源地址为
