@@ -12,9 +12,24 @@ from ...contracts import (
     PercentageMapping,
     PercentageSemantics,
     SensorType,
+    SensorValueKind,
     TransportType,
 )
 from ..builders import sensor
+
+_U8_COUNT_RANGE = NumericRange(0, 255, "count", integer_only=True, step=1)
+_MOTION_TIME_RANGE = NumericRange(
+    0,
+    255,
+    "count",
+    integer_only=True,
+    step=1,
+    physical_unit="millisecond",
+    physical_minimum=0,
+    physical_maximum=2550,
+    scale=10,
+    offset=0,
+)
 
 _JOINTS = (
     "roll_0",
@@ -61,9 +76,7 @@ def _joints() -> tuple[JointCapability, ...]:
         JointCapability(
             index=index,
             name=name,
-            raw_angle_range=NumericRange(
-                0, 255, "protocol_raw_u8", integer_only=True, step=1
-            ),
+            raw_angle_range=_U8_COUNT_RANGE,
             percentage_mapping=PercentageMapping(
                 raw_open=255 if index < 6 else 0,
                 raw_closed=0 if index < 6 else 255,
@@ -83,12 +96,8 @@ def _joints() -> tuple[JointCapability, ...]:
                     else JointEndpoint.EXTENDED
                 ),
             ),
-            speed_range=NumericRange(
-                0, 255, "protocol_raw_u8", integer_only=True, step=1
-            ),
-            torque_range=NumericRange(
-                0, 255, "protocol_raw_u8", integer_only=True, step=1
-            ),
+            speed_range=_U8_COUNT_RANGE,
+            torque_range=_U8_COUNT_RANGE,
             motion_type=_MOTION_TYPES[index],
         )
         for index, name in enumerate(_JOINTS)
@@ -105,21 +114,43 @@ CAPABILITIES = DeviceCapabilities(
             sensor(
                 sensor_type,
                 hz,
-                unit=unit,
+                unit="count",
                 encoding="u8",
-                value_range=NumericRange(0, 255, unit, True, 1),
+                value_range=_U8_COUNT_RANGE,
             )
-            for sensor_type, hz, unit in (
-                (SensorType.ANGLES, 30, "protocol_raw"),
-                (SensorType.SPEEDS, 30, "protocol_raw"),
-                (SensorType.ACCELERATION, 10, "protocol_raw"),
-                (SensorType.TORQUES, 30, "protocol_raw"),
-                (SensorType.TEMPERATURE, 1, "protocol_raw"),
-                (SensorType.CURRENT, 10, "protocol_raw"),
-                (SensorType.FAULTS, 5, "bitmask"),
-                (SensorType.VOLTAGE, 1, "protocol_raw"),
-                (SensorType.MOTION_TIME, 10, "protocol_tick"),
+            for sensor_type, hz in (
+                (SensorType.ANGLES, 30),
+                (SensorType.SPEEDS, 30),
+                (SensorType.ACCELERATION, 10),
+                (SensorType.TORQUES, 30),
+                (SensorType.TEMPERATURE, 1),
+                (SensorType.CURRENT, 10),
             )
+        ),
+        sensor(
+            SensorType.FAULTS,
+            5,
+            unit="dimensionless",
+            encoding="u8",
+            value_range=NumericRange(0, 255, "dimensionless", True, 1),
+            value_kind=SensorValueKind.BITMASK,
+        ),
+        sensor(
+            SensorType.VOLTAGE,
+            1,
+            unit="count",
+            encoding="u8",
+            value_range=_U8_COUNT_RANGE,
+        ),
+        sensor(
+            SensorType.MOTION_TIME,
+            10,
+            unit="count",
+            encoding="u8",
+            value_range=_MOTION_TIME_RANGE,
+            physical_unit="millisecond",
+            scale=10,
+            offset=0,
         ),
     ),
     transport=TransportType.CAN_FD,

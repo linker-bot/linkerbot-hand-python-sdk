@@ -9,6 +9,7 @@ from linkerbot.hand.o30i import (
     O30I_JOINT_SPECS,
     O30iAngle,
 )
+from linkerbot_hand import get_model_capabilities
 
 pytestmark = pytest.mark.o30i
 
@@ -37,8 +38,8 @@ def test_joint_table_exactly_matches_physical_o30i_layout() -> None:
         "tip_4",
     ]
     expected_names = [
-        "拇指侧摆",
-        "拇指横摆",
+        "拇指旋转",
+        "拇指横滚",
         "食指侧摆",
         "中指侧摆",
         "无名指侧摆",
@@ -64,7 +65,7 @@ def test_joint_table_exactly_matches_physical_o30i_layout() -> None:
     assert [spec.id for spec in O30I_JOINT_SPECS] == expected_ids
     assert [spec.name for spec in O30I_JOINT_SPECS] == expected_names
     assert [spec.group for spec in O30I_JOINT_SPECS] == [
-        "侧摆",
+        "旋转",
         "横滚",
         *(["侧摆"] * 4),
         *(["指根 1"] * 5),
@@ -76,6 +77,12 @@ def test_joint_table_exactly_matches_physical_o30i_layout() -> None:
         *range(5, 15),
         *range(16, 25),
     ]
+    assert [spec.motion for spec in O30I_JOINT_SPECS] == [
+        "rotation",
+        "roll",
+        *(["abduction"] * 4),
+        *(["flexion"] * 14),
+    ]
     assert all(spec.minimum == 0 and spec.maximum == 255 for spec in O30I_JOINT_SPECS)
 
 
@@ -84,18 +91,21 @@ def test_joint_defaults_match_product_definition() -> None:
     defaults = O30iAngle.defaults()
     assert defaults.to_raw() == list(O30I_DEFAULT_RAW_VALUES)
     assert defaults.to_list() == pytest.approx(
-        [(255 - value) * 100 / 255 for value in O30I_DEFAULT_RAW_VALUES]
+        [
+            (value if index < 6 else 255 - value) * 100 / 255
+            for index, value in enumerate(O30I_DEFAULT_RAW_VALUES)
+        ]
     )
 
 
 def test_joint_spec_serializes_to_application_json_shape() -> None:
     assert O30I_JOINT_SPECS[0].to_dict() == {
         "id": "roll_0",
-        "name": "拇指侧摆",
+        "name": "拇指旋转",
         "min": 0,
         "max": 255,
         "default": 128,
-        "group": "侧摆",
+        "group": "旋转",
     }
 
 
@@ -108,31 +118,56 @@ def test_raw_angles_reject_values_outside_u8_contract(value: object) -> None:
 
 
 @pytest.mark.parametrize(
-    ("percentage", "raw"),
-    [(0, 255), (5, 242), (50, 128), (100, 0)],
+    ("percentage", "directional_raw", "flexion_raw"),
+    [(0, 0, 255), (5, 13, 242), (50, 128, 128), (100, 255, 0)],
 )
-def test_angle_percentage_uses_hardware_verified_inverse_direction(
+def test_angle_percentage_uses_hardware_verified_per_axis_directions(
     percentage: float,
-    raw: int,
+    directional_raw: int,
+    flexion_raw: int,
 ) -> None:
-    assert O30iAngle.from_list([percentage] * 20).to_raw() == [raw] * 20
+    assert O30iAngle.from_list([percentage] * 20).to_raw() == [
+        *([directional_raw] * 6),
+        *([flexion_raw] * 14),
+    ]
 
 
 @pytest.mark.parametrize(
-    ("raw", "percentage"),
-    [(0, 100), (128, 127 * 100 / 255), (255, 0)],
+    ("raw", "directional_percentage", "openness_percentage"),
+    [(0, 0, 100), (128, 128 * 100 / 255, 127 * 100 / 255), (255, 100, 0)],
 )
-def test_raw_angle_readback_uses_inverse_percentage_direction(
+def test_raw_angle_readback_uses_per_axis_percentage_directions(
     raw: int,
-    percentage: float,
+    directional_percentage: float,
+    openness_percentage: float,
 ) -> None:
-    assert O30iAngle.from_raw([raw] * 20).to_list() == pytest.approx([percentage] * 20)
+    assert O30iAngle.from_raw([raw] * 20).to_list() == pytest.approx(
+        [*([directional_percentage] * 6), *([openness_percentage] * 14)]
+    )
 
 
 def test_angle_round_trip_preserves_every_raw_byte() -> None:
     for raw in range(256):
         angle = O30iAngle.from_raw([raw] * 20)
         assert angle.to_raw() == [raw] * 20
+
+
+def test_percentage_helper_matches_unified_capabilities() -> None:
+    capabilities = get_model_capabilities("O30i")
+
+    for percentage in range(101):
+        expected: list[int] = []
+        for joint in capabilities.joints:
+            mapping = joint.percentage_mapping
+            assert mapping is not None
+            expected.append(
+                round(
+                    mapping.raw_at_zero
+                    + percentage / 100 * (mapping.raw_at_hundred - mapping.raw_at_zero)
+                )
+            )
+
+        assert O30iAngle.from_list([percentage] * 20).to_raw() == expected
 
 
 def test_angle_list_and_index_access_do_not_expose_mutable_state() -> None:

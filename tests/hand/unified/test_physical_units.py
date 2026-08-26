@@ -314,6 +314,49 @@ _EXPECTED_CAN_FD_SENSOR_METADATA = {
             None,
         ),
     },
+    "O30i": {
+        SensorType.ANGLES: ("count", "u8", None, None, None, "numeric", None),
+        SensorType.SPEEDS: ("count", "u8", None, None, None, "numeric", None),
+        SensorType.ACCELERATION: (
+            "count",
+            "u8",
+            None,
+            None,
+            None,
+            "numeric",
+            None,
+        ),
+        SensorType.TORQUES: ("count", "u8", None, None, None, "numeric", None),
+        SensorType.TEMPERATURE: (
+            "count",
+            "u8",
+            None,
+            None,
+            None,
+            "numeric",
+            None,
+        ),
+        SensorType.CURRENT: ("count", "u8", None, None, None, "numeric", None),
+        SensorType.FAULTS: (
+            "dimensionless",
+            "u8",
+            None,
+            None,
+            None,
+            "bitmask",
+            None,
+        ),
+        SensorType.VOLTAGE: ("count", "u8", None, None, None, "numeric", None),
+        SensorType.MOTION_TIME: (
+            "count",
+            "u8",
+            "millisecond",
+            10,
+            0,
+            "numeric",
+            None,
+        ),
+    },
 }
 
 
@@ -421,17 +464,41 @@ def test_can_fd_joint_ranges_do_not_invent_physical_scales() -> None:
     )
 
 
-def test_o30i_metadata_remains_outside_this_protocol_audit() -> None:
+def test_o30i_joint_ranges_publish_counts_without_unverified_scales() -> None:
     o30i = get_model_capabilities("O30i")
-    assert all(
-        joint.raw_angle_range is not None
-        and joint.raw_angle_range.unit == "protocol_raw_u8"
-        and joint.speed_range is not None
-        and joint.speed_range.unit == "protocol_raw_u8"
-        and joint.torque_range is not None
-        and joint.torque_range.unit == "protocol_raw_u8"
-        for joint in o30i.joints
-    )
+    for joint in o30i.joints:
+        for value_range in (
+            joint.raw_angle_range,
+            joint.speed_range,
+            joint.torque_range,
+        ):
+            assert value_range is not None
+            assert (
+                value_range.minimum,
+                value_range.maximum,
+                value_range.unit,
+                value_range.integer_only,
+                value_range.step,
+                value_range.physical_unit,
+                value_range.scale,
+                value_range.offset,
+            ) == (0, 255, "count", True, 1, None, None, None)
+
+
+def test_o30i_motion_time_publishes_only_verified_physical_conversion() -> None:
+    motion_time = get_model_capabilities("O30i").sensor(SensorType.MOTION_TIME)
+
+    assert motion_time is not None
+    assert motion_time.value_range is not None
+    assert (
+        motion_time.value_range.minimum,
+        motion_time.value_range.maximum,
+        motion_time.value_range.physical_unit,
+        motion_time.value_range.physical_minimum,
+        motion_time.value_range.physical_maximum,
+        motion_time.value_range.scale,
+        motion_time.value_range.offset,
+    ) == (0, 255, "millisecond", 0, 2550, 10, 0)
 
 
 def test_classic_physical_helpers_are_explicit_conversions() -> None:

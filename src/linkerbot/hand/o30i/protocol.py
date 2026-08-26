@@ -85,7 +85,8 @@ O30I_MI_STALL_THRESHOLD = 0x0A
 O30I_MI_STALL_HOLD_CURRENT = 0x0B
 O30I_MI_ENABLE_MASK = 0x0C
 O30I_MI_FAULT = 0x0D
-O30I_MI_POSITION_I16 = 0x20
+O30I_MI_POSITION_U16 = 0x20
+O30I_MI_POSITION_I16 = O30I_MI_POSITION_U16
 O30I_MI_SPARSE_POSITION = 0x30
 O30I_MI_SENSOR_INFO = 0x31
 O30I_MI_SENSOR_DATA_1 = 0x32
@@ -97,7 +98,8 @@ O30I_MI_ENGINEERING = 0x42
 O30I_MI_UNIT_RANGE = 0x43
 O30I_MI_COMMUNICATION_ERROR = 0x4F
 
-O30I_POSITION_I16_BYTE_LENGTH = O30I_RUNTIME_SLOT_COUNT * 2
+O30I_POSITION_U16_BYTE_LENGTH = O30I_RUNTIME_SLOT_COUNT * 2
+O30I_POSITION_I16_BYTE_LENGTH = O30I_POSITION_U16_BYTE_LENGTH
 O30I_PRODUCT_INFO_BYTE_LENGTH = 225
 O30I_SENSOR_INFO_BYTE_LENGTH = 50
 O30I_COMMUNICATION_ERROR_BYTE_LENGTH = 17
@@ -118,7 +120,8 @@ class O30iObject(IntEnum):
     STALL_THRESHOLD = O30I_MI_STALL_THRESHOLD
     STALL_HOLD_CURRENT = O30I_MI_STALL_HOLD_CURRENT
     FAULT = O30I_MI_FAULT
-    POSITION_I16 = O30I_MI_POSITION_I16
+    POSITION_U16 = O30I_MI_POSITION_U16
+    POSITION_I16 = POSITION_U16
     SPARSE_POSITION = O30I_MI_SPARSE_POSITION
     SENSOR_INFO = O30I_MI_SENSOR_INFO
     PRODUCT_INFO = O30I_MI_PRODUCT_INFO
@@ -203,19 +206,24 @@ def encode_sparse_positions(values: Mapping[int, int]) -> bytes:
     return bytes(payload)
 
 
-def decode_i16_position_block(data: bytes) -> tuple[int, ...]:
-    """Decode the full object and return its 20 physical-joint values."""
+def decode_u16_position_block(data: bytes) -> tuple[int, ...]:
+    """Decode the full unsigned little-endian position object."""
     normalized = bytes(data)
-    if len(normalized) < O30I_POSITION_I16_BYTE_LENGTH:
+    if len(normalized) < O30I_POSITION_U16_BYTE_LENGTH:
         raise HandProtocolError(
-            "O30i i16 position block too short: expected "
-            f"{O30I_POSITION_I16_BYTE_LENGTH} bytes, got {len(normalized)}"
+            "O30i u16 position block too short: expected "
+            f"{O30I_POSITION_U16_BYTE_LENGTH} bytes, got {len(normalized)}"
         )
     wire_values = tuple(
-        int.from_bytes(normalized[index : index + 2], "little", signed=True)
-        for index in range(0, O30I_POSITION_I16_BYTE_LENGTH, 2)
+        int.from_bytes(normalized[index : index + 2], "little", signed=False)
+        for index in range(0, O30I_POSITION_U16_BYTE_LENGTH, 2)
     )
     return tuple(wire_values[slot] for slot in O30I_JOINT_SLOT_INDICES)
+
+
+def decode_i16_position_block(data: bytes) -> tuple[int, ...]:
+    """Decode unsigned positions through the historical, misnamed entry point."""
+    return decode_u16_position_block(data)
 
 
 def _encode_joint_slices(

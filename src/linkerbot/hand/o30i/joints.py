@@ -18,7 +18,7 @@ class JointSpec:
 
     The measured protocol currently defines only a normalized byte range. It
     does not provide calibrated degrees. The public percentage direction is
-    defined separately by :class:`O30iAngle` and is inverse to the raw bytes.
+    defined per axis by :class:`O30iAngle`.
     """
 
     id: str
@@ -55,37 +55,67 @@ class JointSpec:
 
 O30I_JOINT_SPECS: tuple[JointSpec, ...] = (
     JointSpec(
-        "roll_0", "拇指侧摆", "thumb", "roll", default=128, group="侧摆", wire_slot=0
+        "roll_0",
+        "拇指旋转",
+        "thumb",
+        "rotation",
+        default=128,
+        group="旋转",
+        wire_slot=0,
     ),
     JointSpec(
-        "yaw_0", "拇指横摆", "thumb", "yaw", default=50, group="横滚", wire_slot=5
+        "yaw_0", "拇指横滚", "thumb", "roll", default=50, group="横滚", wire_slot=5
     ),
     JointSpec(
-        "yaw_1", "食指侧摆", "index", "yaw", default=50, group="侧摆", wire_slot=6
+        "yaw_1",
+        "食指侧摆",
+        "index",
+        "abduction",
+        default=50,
+        group="侧摆",
+        wire_slot=6,
     ),
     JointSpec(
-        "yaw_2", "中指侧摆", "middle", "yaw", default=50, group="侧摆", wire_slot=7
+        "yaw_2",
+        "中指侧摆",
+        "middle",
+        "abduction",
+        default=50,
+        group="侧摆",
+        wire_slot=7,
     ),
     JointSpec(
-        "yaw_3", "无名指侧摆", "ring", "yaw", default=50, group="侧摆", wire_slot=8
+        "yaw_3",
+        "无名指侧摆",
+        "ring",
+        "abduction",
+        default=50,
+        group="侧摆",
+        wire_slot=8,
     ),
     JointSpec(
-        "yaw_4", "小指侧摆", "pinky", "yaw", default=50, group="侧摆", wire_slot=9
+        "yaw_4",
+        "小指侧摆",
+        "pinky",
+        "abduction",
+        default=50,
+        group="侧摆",
+        wire_slot=9,
     ),
-    JointSpec("root1_0", "拇指根 1", "thumb", "root_1", group="指根 1", wire_slot=10),
-    JointSpec("root1_1", "食指根 1", "index", "root_1", group="指根 1", wire_slot=11),
-    JointSpec("root1_2", "中指根 1", "middle", "root_1", group="指根 1", wire_slot=12),
-    JointSpec("root1_3", "无名指根 1", "ring", "root_1", group="指根 1", wire_slot=13),
-    JointSpec("root1_4", "小指根 1", "pinky", "root_1", group="指根 1", wire_slot=14),
-    JointSpec("root2_1", "食指根 2", "index", "root_2", group="指根 2", wire_slot=16),
-    JointSpec("root2_2", "中指根 2", "middle", "root_2", group="指根 2", wire_slot=17),
-    JointSpec("root2_3", "无名指根 2", "ring", "root_2", group="指根 2", wire_slot=18),
-    JointSpec("root2_4", "小指根 2", "pinky", "root_2", group="指根 2", wire_slot=19),
-    JointSpec("tip_0", "拇指尖", "thumb", "tip", group="指尖", wire_slot=20),
-    JointSpec("tip_1", "食指尖", "index", "tip", group="指尖", wire_slot=21),
-    JointSpec("tip_2", "中指尖", "middle", "tip", group="指尖", wire_slot=22),
-    JointSpec("tip_3", "无名指尖", "ring", "tip", group="指尖", wire_slot=23),
-    JointSpec("tip_4", "小指尖", "pinky", "tip", group="指尖", wire_slot=24),
+    JointSpec("root1_0", "拇指根 1", "thumb", "flexion", group="指根 1", wire_slot=10),
+    JointSpec("root1_1", "食指根 1", "index", "flexion", group="指根 1", wire_slot=11),
+    JointSpec("root1_2", "中指根 1", "middle", "flexion", group="指根 1", wire_slot=12),
+    JointSpec("root1_3", "无名指根 1", "ring", "flexion", group="指根 1", wire_slot=13),
+    JointSpec("root1_4", "小指根 1", "pinky", "flexion", group="指根 1", wire_slot=14),
+    JointSpec("root2_1", "食指根 2", "index", "flexion", group="指根 2", wire_slot=16),
+    JointSpec("root2_2", "中指根 2", "middle", "flexion", group="指根 2", wire_slot=17),
+    JointSpec("root2_3", "无名指根 2", "ring", "flexion", group="指根 2", wire_slot=18),
+    JointSpec("root2_4", "小指根 2", "pinky", "flexion", group="指根 2", wire_slot=19),
+    JointSpec("tip_0", "拇指尖", "thumb", "flexion", group="指尖", wire_slot=20),
+    JointSpec("tip_1", "食指尖", "index", "flexion", group="指尖", wire_slot=21),
+    JointSpec("tip_2", "中指尖", "middle", "flexion", group="指尖", wire_slot=22),
+    JointSpec("tip_3", "无名指尖", "ring", "flexion", group="指尖", wire_slot=23),
+    JointSpec("tip_4", "小指尖", "pinky", "flexion", group="指尖", wire_slot=24),
 )
 O30I_DEFAULT_RAW_VALUES: tuple[int, ...] = tuple(
     spec.default for spec in O30I_JOINT_SPECS
@@ -96,10 +126,10 @@ O30I_DEFAULT_RAW_VALUES: tuple[int, ...] = tuple(
 class O30iAngle:
     """Twenty physical O30i joint values represented as percentages.
 
-    Hardware verification confirms that O30i raw positions run opposite to the
-    public logical direction: 0% (open endpoint) maps to byte 255 and 100%
-    (closed endpoint) maps to byte 0. These values are normalized endpoints,
-    not calibrated angles in degrees.
+    Directional axes 0 through 5 map 0% and 100% to their measured low and high
+    physical endpoints. Flexion axes 6 through 19 use the public openness
+    convention: 0% is flexed (raw 255) and 100% is extended (raw 0). These are
+    normalized endpoints, not calibrated angles in degrees.
     """
 
     values: tuple[float, ...]
@@ -114,9 +144,14 @@ class O30iAngle:
 
     @classmethod
     def from_raw(cls, values: list[int] | tuple[int, ...]) -> O30iAngle:
-        """Construct from 20 protocol-native bytes using inverse direction."""
+        """Construct from 20 protocol-native bytes using per-axis direction."""
         normalized = validate_u8_values(values, name="raw_angles")
-        return cls(tuple((255 - value) * 100 / 255 for value in normalized))
+        return cls(
+            tuple(
+                (value if index < 6 else 255 - value) * 100 / 255
+                for index, value in enumerate(normalized)
+            )
+        )
 
     @classmethod
     def defaults(cls) -> O30iAngle:
@@ -128,8 +163,11 @@ class O30iAngle:
         return list(self.values)
 
     def to_raw(self) -> list[int]:
-        """Convert logical percentages to inverse protocol-native bytes."""
-        return [round((100 - value) * 255 / 100) for value in self.values]
+        """Convert logical percentages to per-axis protocol-native bytes."""
+        return [
+            round((value if index < 6 else 100 - value) * 255 / 100)
+            for index, value in enumerate(self.values)
+        ]
 
     def __getitem__(self, index: int) -> float:
         return self.values[index]

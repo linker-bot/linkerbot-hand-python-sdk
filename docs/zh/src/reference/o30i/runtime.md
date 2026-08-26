@@ -16,8 +16,9 @@ with O30i() as hand:
     hand.angle.set_slice(15, [0x80] * 5, timeout_ms=1000)
 ```
 
-这些方法保持设备协议语义。对屈曲关节而言，协议值增大朝张开方向运动，协议值减小
-朝闭合方向运动；侧摆和横摆关节仍应按实际机械方向进行小幅验证。
+这些方法保持设备协议语义。对后 14 个屈伸关节而言，raw `0` 是伸直，raw `255` 是弯曲。
+前 6 个方向轴的 raw `0 -> 255` 端点依次是：拇指旋转远离食指 -> 靠近食指、拇指横滚
+平行掌心 -> 垂直掌心，以及四指侧摆靠近拇指 -> 远离拇指。
 
 显式百分比 API：
 
@@ -26,9 +27,9 @@ with O30i() as hand:
     hand.angle.set_percentage_angles([50.0] * 20, timeout_ms=1000)
 ```
 
-型号 manager 的百分比 helper 使用实物确认的反向换算：`0%` 对应协议值 `255`，
-`100%` 对应协议值 `0`。它是逻辑归一化值，不是以度为单位的标定角度。统一
-`HandDevice.submit_percentage_angles()` 按每轴 capability 端点换算，方向轴可能不同。
+型号 manager 和统一 `HandDevice.submit_percentage_angles()` 使用相同的逐轴端点。前 6 个
+方向轴正向映射，`0% -> raw 0`、`100% -> raw 255`；后 14 个屈伸轴表示开合，
+`0%（弯曲）-> raw 255`、`100%（伸直）-> raw 0`。百分比不是以度为单位的标定角度。
 
 切片末端不能超过 SDK 关节索引 19。以下调用会抛出 `ValidationError`，不会发帧：
 
@@ -55,15 +56,17 @@ with O30i() as hand:
     target = hand.angle.get_target_blocking(timeout_ms=1000)
     print("目标协议值", target)
 
-    # 实测仅确认完整 72 字节读取；SDK 返回 20 个实际关节
-    raw_i16 = hand.angle.get_i16_blocking(timeout_ms=1000)
+    # 实测仅确认完整 72 字节读取；按无符号小端返回 20 个实际关节
+    raw_u16 = hand.angle.get_u16_blocking(timeout_ms=1000)
 ```
 
 `get_blocking()` 读取 RTS=0 实际值，并更新 `get_snapshot()` 缓存；`get_target_blocking()` 使用 RTS=1 读取设定值。
+主快照角度来自 `MI=0x01`，元数据是 `count/u8`。`get_u16_blocking()` 单独读取实验性的
+`MI=0x20` 完整对象，编码为 `u16_le`，不会更新主快照。
 
 ## 速度、加速度、转矩和运动时间
 
-这些 manager 接受 20 个协议原始字节：
+这些 manager 接受 20 个 `0..255 count` 协议原始字节：
 
 ```python
 with O30i() as hand:
@@ -108,6 +111,8 @@ with O30i() as hand:
 ```
 
 固件报告没有给出故障字节的稳定 bit 定义，SDK 只保留原始值并以“是否非零”判断该槽是否存在故障。
+电流、电压和温度返回值也都是 `count/u8`；协议没有确认 mA、V 或摄氏度比例，默认接口不做
+物理换算。统一 capability 可查询这些单位、编码和值域。
 
 ## 产品信息、传感器能力与诊断
 

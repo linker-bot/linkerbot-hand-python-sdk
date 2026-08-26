@@ -66,8 +66,8 @@ def test_explicit_percentage_angle_write_preserves_protocol_direction() -> None:
         hand.angle.set_percentage_angles([5.0] * 20)
 
     assert [(write.sub_index, write.payload) for write in dispatcher.writes] == [
-        (0, b"\xf2"),
-        (5, b"\xf2" * 10),
+        (0, b"\x0d"),
+        (5, b"\x0d" * 5 + b"\xf2" * 5),
         (16, b"\xf2" * 9),
     ]
 
@@ -131,16 +131,26 @@ def test_motion_time_exact_millisecond_conversion() -> None:
     assert data.milliseconds == tuple(value * 10 for value in expected)
 
 
-def test_full_i16_read_is_reassembled_and_decoded() -> None:
-    values = tuple(range(-18, 18))
-    payload = b"".join(value.to_bytes(2, "little", signed=True) for value in values)
-    dispatcher = FakeO30iDispatcher({protocol.O30I_MI_POSITION_I16: payload})
+def test_full_u16_read_is_reassembled_and_decoded() -> None:
+    values = (0, 1, 32767, 32768, 65535, *range(31))
+    payload = b"".join(value.to_bytes(2, "little") for value in values)
+    dispatcher = FakeO30iDispatcher({protocol.O30I_MI_POSITION_U16: payload})
+
+    with O30i(dispatcher=dispatcher) as hand:
+        result = hand.angle.get_u16_blocking()
+
+    assert result == (values[0], *values[5:15], *values[16:25])
+    assert dispatcher.sent[0].data == bytes.fromhex("20 00 48")
+
+
+def test_historical_i16_manager_uses_protocol_unsigned_semantics() -> None:
+    payload = b"\xff\xff" * protocol.O30I_RUNTIME_SLOT_COUNT
+    dispatcher = FakeO30iDispatcher({protocol.O30I_MI_POSITION_U16: payload})
 
     with O30i(dispatcher=dispatcher) as hand:
         result = hand.angle.get_i16_blocking()
 
-    assert result == (values[0], *values[5:15], *values[16:25])
-    assert dispatcher.sent[0].data == bytes.fromhex("20 00 48")
+    assert result == (65535,) * 20
 
 
 def test_fault_data_preserves_raw_bytes_without_inventing_bit_meanings() -> None:

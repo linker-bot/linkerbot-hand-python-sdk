@@ -120,14 +120,18 @@ class AngleManager:
         )
         return values
 
-    def get_i16_blocking(self, timeout_ms: float = 100) -> tuple[int, ...]:
-        """Read the only measured-safe full 72-byte little-endian position block."""
+    def get_u16_blocking(self, timeout_ms: float = 100) -> tuple[int, ...]:
+        """Read the measured-safe full 72-byte unsigned little-endian block."""
         response = self._client.read(
-            main_index=protocol.O30I_MI_POSITION_I16,
-            length=protocol.O30I_POSITION_I16_BYTE_LENGTH,
+            main_index=protocol.O30I_MI_POSITION_U16,
+            length=protocol.O30I_POSITION_U16_BYTE_LENGTH,
             timeout_ms=timeout_ms,
         )
-        return protocol.decode_i16_position_block(response)
+        return protocol.decode_u16_position_block(response)
+
+    def get_i16_blocking(self, timeout_ms: float = 100) -> tuple[int, ...]:
+        """Read unsigned positions through the historical, misnamed entry point."""
+        return self.get_u16_blocking(timeout_ms=timeout_ms)
 
     def get_snapshot(self) -> O30iAngleData | None:
         return self._relay.snapshot()

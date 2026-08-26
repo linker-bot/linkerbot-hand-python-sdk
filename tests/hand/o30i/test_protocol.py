@@ -73,17 +73,23 @@ def test_sparse_positions_reject_invalid_and_oversized_input() -> None:
         protocol.encode_sparse_positions({20: 0})
 
 
-def test_i16_position_block_is_little_endian_and_signed() -> None:
-    values = [-32768, -2, -1, 0, 1, 32767] + list(range(30))
-    payload = b"".join(value.to_bytes(2, "little", signed=True) for value in values)
+def test_u16_position_block_is_little_endian_and_unsigned() -> None:
+    values = [0, 1, 32767, 32768, 65535] + list(range(31))
+    payload = b"".join(value.to_bytes(2, "little") for value in values)
 
-    assert protocol.decode_i16_position_block(payload) == (
+    assert protocol.decode_u16_position_block(payload) == (
         values[0],
         *values[5:15],
         *values[16:25],
     )
 
 
-def test_i16_position_block_rejects_truncation() -> None:
+def test_historical_i16_decoder_uses_protocol_unsigned_semantics() -> None:
+    payload = b"\xff\xff" * protocol.O30I_RUNTIME_SLOT_COUNT
+
+    assert protocol.decode_i16_position_block(payload) == (65535,) * 20
+
+
+def test_u16_position_block_rejects_truncation() -> None:
     with pytest.raises(HandProtocolError, match="expected 72"):
-        protocol.decode_i16_position_block(bytes(71))
+        protocol.decode_u16_position_block(bytes(71))
