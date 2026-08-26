@@ -29,12 +29,32 @@ try:
     sample = hand.get_snapshot().angles
     if sample is not None and sample.valid:
         print(sample.values)  # 协议 u8 值
-        print(sample.unit)  # protocol_raw
+        print(sample.unit)  # count
         print(sample.encoding)  # u8
 finally:
     hand.stop_polling()
     hand.close()
 ```
+
+## 样本元数据
+
+`unit` 始终描述 `SensorSample.values`，而不是换算后的展示单位。原始协议计数统一使用
+`count`；协议值本身已经是物理量时使用 `mA`、`degree_celsius` 等真实单位。线上编码：
+
+- `u8`：无符号 8 位整数；
+- `i16_le`：有符号 16 位整数，小端字节序；
+- `i16_be`：有符号 16 位整数，大端字节序。
+
+`physical_unit` 表示对应物理量的单位。仅当 `scale` 与 `offset` 同时存在时，转换关系才
+经过协议确认：
+
+```text
+physical = raw * scale + offset
+```
+
+若只有 `physical_unit`，表示物理维度或端点已知，但线性比例缺失或协议资料互相冲突，
+不能据此换算。`value_kind` 区分 `numeric`、`bitmask`、`enum` 和
+`tactile_matrix`；触觉的标量编码仍为 `u8`，每指行列数由 `matrix_shape` 单独声明。
 
 ## 显式百分比接口
 
@@ -80,21 +100,22 @@ O20、L30、O30i 的 manager 规则在部分方向轴或屈伸轴上与统一 ca
 | 型号/数据 | 显式换算 |
 | --- | --- |
 | 能力已标定的角度 | `raw_to_physical_angles()` / `physical_angles_to_raw()` |
-| O6 速度 | `O6Speed.from_raw(...).to_rpm()` / `O6Speed.from_rpm(...).to_raw()` |
+| O6 速度 | `O6Speed.from_raw(...).to_rpm()` / `O6Speed.from_rpm(...).to_raw()`（兼容 helper，协议比例有冲突） |
 | O20 速度 | `protocol_speeds_to_rpm()` / `rpm_to_protocol_speeds()` |
 | L6/O6 电流限制 | 对应 torque helper 的 `from_raw()`、`to_milliamps()`、`from_milliamps()` |
 | O20/L30 电流限制 | `protocol_current_limits_to_milliamps()` / `milliamps_to_protocol_current_limits()` |
 | L30 电流反馈 | `protocol_currents_to_milliamps()` / `milliamps_to_protocol_currents()` |
 
 能力没有可靠物理标定时，转换方法抛出 `UnsupportedOperationError`，不会把协议值
-伪装成物理单位。
+伪装成物理单位。O6 的旧物理 helper 仍可显式调用，但完整协议资料给出的比例互相冲突，
+因此 capability 的 `scale/offset` 保持 `None`，不应把 helper 结果当作已确认标定值。
 
 ## 数据采集边界
 
 遥操、回放和训练数据建议保存：
 
 - 型号、固件、左右手和 `connection_generation`；
-- capability 中的关节顺序、范围、`unit` 和 `encoding`；
+- capability 中的关节顺序、范围、`unit`、`encoding`、物理元数据和值语义；
 - 命令协议值与 `SensorSample.values`；
 - 采集时间、序号、有效性和过期状态。
 

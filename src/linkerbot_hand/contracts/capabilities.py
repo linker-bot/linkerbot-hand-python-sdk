@@ -13,6 +13,7 @@ from .enums import (
     JointMotionType,
     PercentageSemantics,
     SensorType,
+    SensorValueKind,
     TransportType,
 )
 
@@ -24,9 +25,15 @@ class NumericRange:
     Attributes:
         minimum: Inclusive lower bound.
         maximum: Inclusive upper bound.
-        unit: Explicit value unit, such as ``percent`` or ``protocol_raw_u8``.
+        unit: Explicit value unit, such as ``percent`` or ``count``.
         integer_only: Whether values must be Python integers.
         step: Optional increment measured from ``minimum``.
+        physical_unit: Unit of the corresponding physical quantity, when known.
+        physical_minimum: Documented physical lower endpoint, when known.
+        physical_maximum: Documented physical upper endpoint, when known.
+        scale: Linear raw-to-physical multiplier, when verified.
+        offset: Linear raw-to-physical offset, when verified. The conversion is
+            ``physical = raw * scale + offset``.
 
     Raises:
         ValidationError: If endpoints or step are invalid, bounds are reversed,
@@ -38,6 +45,11 @@ class NumericRange:
     unit: str
     integer_only: bool = False
     step: float | None = None
+    physical_unit: str | None = None
+    physical_minimum: float | None = None
+    physical_maximum: float | None = None
+    scale: float | None = None
+    offset: float | None = None
 
     def __post_init__(self) -> None:
         """Validate range bounds, unit, and optional step."""
@@ -57,6 +69,49 @@ class NumericRange:
                 raise ValidationError("range step must be numeric")
             if not is_finite_number(self.step) or self.step <= 0:
                 raise ValidationError("range step must be finite and positive")
+        if self.physical_unit is not None and (
+            not isinstance(self.physical_unit, str) or not self.physical_unit
+        ):
+            raise ValidationError("range physical_unit must be a non-empty str or None")
+        physical_endpoints = (self.physical_minimum, self.physical_maximum)
+        if (self.physical_minimum is None) != (self.physical_maximum is None):
+            raise ValidationError(
+                "range physical endpoints must both be provided or both be None"
+            )
+        for name, value in zip(
+            ("physical_minimum", "physical_maximum"),
+            physical_endpoints,
+            strict=True,
+        ):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not is_finite_number(value)
+            ):
+                raise ValidationError(f"range {name} must be finite numeric or None")
+        if self.physical_minimum is not None and self.physical_maximum is not None:
+            if self.physical_unit is None:
+                raise ValidationError("range physical endpoints require physical_unit")
+            if self.physical_minimum > self.physical_maximum:
+                raise ValidationError(
+                    "range physical_minimum must not exceed physical_maximum"
+                )
+        if (self.scale is None) != (self.offset is None):
+            raise ValidationError(
+                "range scale and offset must both be provided or both be None"
+            )
+        for name, value in (("scale", self.scale), ("offset", self.offset)):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not is_finite_number(value)
+            ):
+                raise ValidationError(f"range {name} must be finite numeric or None")
+        if self.scale is not None:
+            if self.scale == 0:
+                raise ValidationError("range scale must not be zero")
+            if self.physical_unit is None:
+                raise ValidationError("range scale requires physical_unit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +301,14 @@ class SensorCapability:
         encoding: Scalar wire encoding, such as ``u8`` or ``i16_le``.
         value_range: Shared decoded scalar range, when one range applies to all
             values. Angle ranges remain joint-specific.
+        physical_unit: Unit after applying a verified or pending physical
+            interpretation. This may be known even when the scale is unresolved.
+        scale: Verified raw-to-physical multiplier, or ``None``.
+        offset: Verified raw-to-physical offset, or ``None``. The conversion is
+            ``physical = raw * scale + offset``.
+        value_kind: Whether values are numeric, bitmasks, enums, or tactile
+            matrices.
+        matrix_shape: Per-finger ``(rows, columns)`` for tactile matrices.
 
     Raises:
         ValidationError: If the sensor type or either positive finite value is
@@ -258,6 +321,11 @@ class SensorCapability:
     unit: str | None = None
     encoding: str | None = None
     value_range: NumericRange | None = None
+    physical_unit: str | None = None
+    scale: float | None = None
+    offset: float | None = None
+    value_kind: SensorValueKind = SensorValueKind.NUMERIC
+    matrix_shape: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         """Validate sensor metadata and timing values."""
@@ -279,6 +347,66 @@ class SensorCapability:
             and self.value_range.unit != self.unit
         ):
             raise ValidationError("sensor value_range unit must match sensor unit")
+        if self.physical_unit is not None and (
+            not isinstance(self.physical_unit, str) or not self.physical_unit
+        ):
+            raise ValidationError(
+                "sensor physical_unit must be a non-empty str or None"
+            )
+        if (self.scale is None) != (self.offset is None):
+            raise ValidationError(
+                "sensor scale and offset must both be provided or both be None"
+            )
+        for name, value in (("scale", self.scale), ("offset", self.offset)):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not is_finite_number(value)
+            ):
+                raise ValidationError(f"sensor {name} must be finite numeric or None")
+        if self.scale is not None:
+            if self.scale == 0:
+                raise ValidationError("sensor scale must not be zero")
+            if self.physical_unit is None:
+                raise ValidationError("sensor scale requires physical_unit")
+        if self.value_range is not None:
+            if (
+                self.value_range.physical_unit is not None
+                and self.value_range.physical_unit != self.physical_unit
+            ):
+                raise ValidationError(
+                    "sensor value_range physical_unit must match sensor physical_unit"
+                )
+            if self.value_range.scale != self.scale:
+                raise ValidationError(
+                    "sensor value_range scale must match sensor scale"
+                )
+            if self.value_range.offset != self.offset:
+                raise ValidationError(
+                    "sensor value_range offset must match sensor offset"
+                )
+        if not isinstance(self.value_kind, SensorValueKind):
+            raise ValidationError("sensor value_kind must be SensorValueKind")
+        if self.matrix_shape is not None:
+            if (
+                not isinstance(self.matrix_shape, tuple)
+                or len(self.matrix_shape) != 2
+                or any(
+                    type(value) is not int or value <= 0 for value in self.matrix_shape
+                )
+            ):
+                raise ValidationError(
+                    "sensor matrix_shape must be two positive integers or None"
+                )
+            if self.value_kind is not SensorValueKind.TACTILE_MATRIX:
+                raise ValidationError(
+                    "sensor matrix_shape requires tactile_matrix value_kind"
+                )
+        if (
+            self.value_kind is SensorValueKind.TACTILE_MATRIX
+            and self.matrix_shape is None
+        ):
+            raise ValidationError("tactile_matrix value_kind requires matrix_shape")
         for name, value in (
             ("recommended_hz", self.recommended_hz),
             ("stale_after_s", self.stale_after_s),

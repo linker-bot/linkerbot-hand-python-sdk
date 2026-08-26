@@ -34,19 +34,19 @@ class L20liteTemperature:
         thumb_yaw: Thumb yaw motor temperature in °C
     """
 
-    thumb_flex: float
-    thumb_abd: float
-    index_flex: float
-    middle_flex: float
-    ring_flex: float
-    pinky_flex: float
-    index_abd: float
-    ring_abd: float
-    pinky_abd: float
-    thumb_yaw: float
+    thumb_flex: int
+    thumb_abd: int
+    index_flex: int
+    middle_flex: int
+    ring_flex: int
+    pinky_flex: int
+    index_abd: int
+    ring_abd: int
+    pinky_abd: int
+    thumb_yaw: int
 
-    def to_list(self) -> list[float]:
-        """Convert to list of floats in joint order.
+    def to_list(self) -> list[int]:
+        """Convert to list of protocol bytes in joint order.
 
         Returns:
             List of 10 temperatures in °C in order: thumb_flex, thumb_abd,
@@ -71,11 +71,11 @@ class L20liteTemperature:
         return [int(v) for v in self.to_list()]
 
     @classmethod
-    def from_list(cls, values: list[float]) -> "L20liteTemperature":
-        """Construct from list of floats in degrees Celsius.
+    def from_list(cls, values: list[int]) -> "L20liteTemperature":
+        """Construct from integer protocol values in degrees Celsius.
 
         Args:
-            values: List of 10 float values in °C
+            values: List of 10 integer values in °C
 
         Returns:
             L20liteTemperature instance
@@ -106,10 +106,9 @@ class L20liteTemperature:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        temperatures_celsius = [float(v) for v in values]
-        return cls.from_list(temperatures_celsius)
+        return cls.from_list(values)
 
-    def __getitem__(self, index: int) -> float:
+    def __getitem__(self, index: int) -> int:
         """Support indexing: temperatures[0] returns thumb_flex.
 
         Args:
@@ -170,7 +169,7 @@ class TemperatureManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._pending: dict[int, list[float]] = {}
+        self._pending: dict[int, list[int]] = {}
         self._relay = PollingDataRelay[TemperatureData](self._pending.clear)
 
     def get_blocking(self, timeout_ms: float = 100) -> TemperatureData:
@@ -245,15 +244,14 @@ class TemperatureManager:
         if len(raw_temperatures) != len(expected_fields):
             return
 
-        decoded = [float(v) for v in raw_temperatures]
-        self._pending[cmd] = decoded
+        self._pending[cmd] = raw_temperatures
 
         # Check if all frames have been received
         if set(self._pending.keys()) != set(self._FRAME_MAP.keys()):
             return
 
         # All frames received — merge into L20liteTemperature
-        kwargs: dict[str, float] = {}
+        kwargs: dict[str, int] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
             for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 kwargs[field] = value

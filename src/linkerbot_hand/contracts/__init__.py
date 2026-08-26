@@ -21,6 +21,7 @@ from .enums import (
     JointMotionType,
     PercentageSemantics,
     SensorType,
+    SensorValueKind,
     TransportType,
 )
 from .errors import ErrorInfo
@@ -60,6 +61,7 @@ __all__ = [
     "SensorSample",
     "SensorType",
     "SensorValue",
+    "SensorValueKind",
     "SessionConfig",
     "TactileState",
     "TransportType",

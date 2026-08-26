@@ -25,6 +25,9 @@ L25 使用位标志（Flag）表示故障状态，每个关节电机可同时存
 | `SOFT_ROTOR_LOCK`     | 64  | 软件转子锁死 |
 | `MOTOR_COMM_ABNORMAL` | 128 | 电机通讯异常 |
 
+统一样本标注 `unit="dimensionless"`、`encoding="u8"`、
+`value_kind="bitmask"`；组合值按位解释，原始字节不会被归一化。
+
 ## 读取故障
 
 ### 阻塞式读取

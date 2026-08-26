@@ -18,10 +18,11 @@ from linkerbot_transport.relay import DataRelay
 
 @dataclass
 class O6Torque:
-    """Explicit O6 torque-limit percentages with optional mA conversion.
+    """Explicit O6 torque-limit percentages with a legacy mA helper.
 
-    Torques can be specified either as normalized 0-100 values or in milliamp units.
-    The protocol maps raw ``0..255`` to approximately ``0..1000 mA``.
+    The helper retains the SDK's historical mapping from raw ``0..255`` to
+    ``0..1000 mA``. Protocol sources also state 6.5 mA per count, so the
+    capability deliberately leaves the verified linear scale unset.
 
     Attributes:
         thumb_flex: Thumb flexion joint torque (0-100). Higher values = higher torque limit.

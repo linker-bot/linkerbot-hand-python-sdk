@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from ..errors import ValidationError
-from .enums import ConnectionState, SensorType
+from .enums import ConnectionState, SensorType, SensorValueKind
 from .errors import ErrorInfo
 
 
@@ -55,6 +55,11 @@ class SensorSample:
         values: Decoded protocol-native values without transport framing.
         unit: Protocol unit declared by the active capability.
         encoding: Wire scalar encoding declared by the active capability.
+        physical_unit: Unit after the declared physical interpretation, if known.
+        scale: Verified raw-to-physical multiplier, if available.
+        offset: Verified raw-to-physical offset, if available.
+        value_kind: Semantic kind of the published values.
+        matrix_shape: Per-finger tactile matrix shape, when applicable.
         collected_at: Wall-clock collection timestamp, or ``None`` if no valid
             value has been collected in the current connection generation.
         sequence: Per-sensor sequence number, incremented on cache publication.
@@ -67,6 +72,11 @@ class SensorSample:
     values: tuple[SensorValue, ...]
     unit: str | None
     encoding: str | None
+    physical_unit: str | None
+    scale: float | None
+    offset: float | None
+    value_kind: SensorValueKind
+    matrix_shape: tuple[int, int] | None
     collected_at: float | None
     sequence: int
     valid: bool

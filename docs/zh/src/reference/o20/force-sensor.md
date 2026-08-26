@@ -7,6 +7,9 @@
 - **矩阵形状**:`(12, 6)`,`np.uint8`
 - **矩阵值域**:0~255，值越大压力越强
 
+统一 `SensorSample` 标注 `unit="count"`、`encoding="u8"`、
+`value_kind="tactile_matrix"`、`matrix_shape=(12, 6)`；协议未给出牛顿换算比例。
+
 ## 单指读取
 
 `hand.force_sensor.get_finger(Finger.X)` 返回一个 `FingerForceSensor`,再调 `get_blocking()`:

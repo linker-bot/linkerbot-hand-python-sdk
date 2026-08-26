@@ -98,8 +98,12 @@ L6、O6、L20Lite 和 L25 还明确支持 `submit_percentage_speeds()` /
 `set_percentage_speeds()`；O20 的协议速度范围虽然也是 `0..100`，但没有声明为
 百分比，因此该接口会拒绝 O20。
 
-每个 `SensorSample` 通过 `unit` 和 `encoding` 标注协议值含义。需要 RPM、mA 或物理
-角度时，应调用文档列出的显式纯换算函数；SDK 不在命令和遥测主路径隐式换算。
+每个 `SensorSample` 通过 `unit` 和 `encoding` 标注 `values` 的实际单位与线上标量编码，
+并通过 `physical_unit`、`scale`、`offset` 标注已确认的物理解释。仅当 `scale` 和
+`offset` 都不是 `None` 时，才可使用 `physical = raw * scale + offset`；只有
+`physical_unit` 表示物理维度已知但比例尚未确认。`value_kind` 与 `matrix_shape` 用于区分
+普通数值、位掩码、枚举和触觉矩阵。需要 RPM、mA 或物理角度时，应在数据边界显式换算；
+SDK 不在命令和遥测主路径隐式换算。
 
 只有能力描述明确提供标定物理范围时，SDK 才支持物理角度转换；否则会抛出
 `UnsupportedOperationError`，不会把未知原始值伪装成弧度。完整定义见
@@ -125,9 +129,9 @@ L6、O6、L20Lite 和 L25 还明确支持 `submit_percentage_speeds()` /
 ## 快照与健康状态
 
 `get_snapshot()` 只复制 SDK 缓存，不发送 CAN 请求或等待设备。每个
-`SensorSample` 都包含协议解码值、单位、编码、采集时间、序号、有效性、过期状态和
-连接代次。`get_health()` 返回连接状态、成功收发时间、连续错误、最近错误、重连
-次数、连接代次、命令覆盖数、待发送数和各类状态年龄。
+`SensorSample` 都包含协议解码值、原始单位、编码、物理元数据、值类型、矩阵尺寸、
+采集时间、序号、有效性、过期状态和连接代次。`get_health()` 返回连接状态、成功收发
+时间、连续错误、最近错误、重连次数、连接代次、命令覆盖数、待发送数和各类状态年龄。
 
 SDK 统一调度角度、力、温度、电流、速度和故障轮询；上层只提交
 `PollingPlan`，不应再建立第二套周期查询任务。

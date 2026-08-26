@@ -52,10 +52,16 @@ if sample is not None and sample.valid:
     values = sample.values
     unit = sample.unit
     encoding = sample.encoding
+    physical_unit = sample.physical_unit
+    scale = sample.scale
+    offset = sample.offset
 ```
 
 `JointState.angle`、`speed` 和 `torque` 也直接来自这些协议样本。数据集应记录型号、
-固件、关节顺序、范围、单位和编码，不能只保存一个无上下文的数值数组。
+固件、关节顺序、范围、单位、编码、物理元数据和值类型，不能只保存一个无上下文的
+数值数组。`unit` 始终描述 `values`；只有 `scale` 与 `offset` 都存在时才能按
+`physical = raw * scale + offset` 换算。`physical_unit` 存在而比例为空时，表示仅确认了
+物理维度，不能自行根据端点推导比例。
 
 需要百分比或物理量时，在数据边界显式调用转换 helper。角度可使用
 `percent_to_raw()` / `raw_to_percent()`；能力发布物理标定后才可使用
@@ -90,9 +96,9 @@ if handle.stage is CommandStage.SUPERSEDED:
 
 ## 建议迁移顺序
 
-1. 从 capability 读取关节顺序、命令范围、单位、编码和传感器支持。
+1. 从 capability 读取关节顺序、命令范围、单位、编码、物理元数据和值语义。
 2. 将协议值调用保留在默认接口，将百分比调用改成显式 percentage 接口。
-3. 将状态消费者改为读取 `SensorSample.values/unit/encoding` 和 `JointState.angle`。
+3. 将状态消费者改为读取 `SensorSample.values` 及其元数据和 `JointState.angle`。
 4. 删除应用侧的隐式百分比、RPM、mA 和逐型号角度映射。
 5. 把周期查询交给 `PollingPlan`，发布线程只读缓存。
 6. 用 fake backend 验证协议值逐项不变，再按 capability 顺序做实物往返验证。

@@ -7,6 +7,10 @@ SDK 只解码有符号整数，不额外缩放。
 - **单位**:毫安 (mA)
 - **数据类型**:`int16`,可能为负 (表示反向电流)
 
+统一 `SensorSample` 标注 `unit="mA"`、`encoding="i16_le"`、
+`physical_unit="mA"`、`scale=1`、`offset=0`。这里协议解码值本身已经是物理电流，
+不需要再次乘比例。
+
 ## 阻塞读取
 
 ```python

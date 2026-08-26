@@ -8,12 +8,19 @@
   `submit_speeds()` 统一为协议原始值接口；命令值不再隐式归一化或换算物理单位。
 - 新增明确命名的 `set_percentage_angles()` / `submit_percentage_angles()`；L6、O6、
   L20Lite 和 L25 还支持显式百分比速度接口。
-- `SensorSample.values` 只包含协议解码值，并新增 `unit` 与 `encoding`；删除重复的原始值
-  通道，`JointState.angle` 也直接保存协议位置。
+- `SensorSample.values` 只包含协议解码值，并补充 `unit`、`encoding`、`physical_unit`、
+  `scale`、`offset`、`value_kind` 与 `matrix_shape`；删除重复的原始值通道，
+  `JointState.angle` 也直接保存协议位置。
 - 删除用户角度映射实现、持久化依赖、旧 raw-angle 方法和兼容别名。本仓库不兼容旧映射
   行为。
 - 将 RPM、mA 和物理角度转换保留为显式纯函数；O20 的 `0..100` 速度仍按协议范围处理，
   不声明为百分比。
+- 基于完整协议资料补全 L6、O6、L20Lite、L25、L30、O20 的原始编码、物理单位、
+  已确认比例/偏移、故障值语义和触觉矩阵尺寸；资料冲突时不发布推测比例。
+- 修正 L30 反馈编码为大端 `i16_be`，保留经典手故障字节的保留位，并让协议 `u8`
+  温度保持整数类型。O30i 不在本次协议审计范围内。
+- 扩展 `.gitignore`，覆盖常见 Python 构建、测试、类型检查、虚拟环境、编辑器和本地配置
+  产物，并忽略本地 `superpowerdocs/` 协议资料目录。
 
 ## 0.1.3 - 2026-08-25
 

@@ -20,4 +20,5 @@ hand.torque.set_percentage_torques([50] * 10)
 ```
 
 `L20liteTorque` 是同一显式百分比换算的值对象。事件流与 `get_snapshot()` 返回的
-`torques` 都是协议整数；统一快照标注 `unit="protocol_raw"`、`encoding="u8"`。
+`torques` 都是协议整数；统一快照标注 `unit="count"`、`encoding="u8"`，协议未给出
+可靠物理单位或比例。

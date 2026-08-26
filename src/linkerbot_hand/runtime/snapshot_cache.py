@@ -12,6 +12,7 @@ from ..contracts import (
     JointState,
     SensorSample,
     SensorType,
+    SensorValueKind,
 )
 
 _JOINT_VECTOR_SENSORS = frozenset(
@@ -67,6 +68,11 @@ class SnapshotCache:
                 values=(),
                 unit=self._sensor_unit(sensor),
                 encoding=self._sensor_encoding(sensor),
+                physical_unit=self._sensor_physical_unit(sensor),
+                scale=self._sensor_scale(sensor),
+                offset=self._sensor_offset(sensor),
+                value_kind=self._sensor_value_kind(sensor),
+                matrix_shape=self._sensor_matrix_shape(sensor),
                 collected_at=None,
                 sequence=self._sensor_sequences[sensor],
                 valid=False,
@@ -109,6 +115,11 @@ class SnapshotCache:
             values=tuple(reading.values),
             unit=self._sensor_unit(sensor),
             encoding=self._sensor_encoding(sensor),
+            physical_unit=self._sensor_physical_unit(sensor),
+            scale=self._sensor_scale(sensor),
+            offset=self._sensor_offset(sensor),
+            value_kind=self._sensor_value_kind(sensor),
+            matrix_shape=self._sensor_matrix_shape(sensor),
             collected_at=collected_wall,
             sequence=self._sensor_sequences[sensor],
             valid=valid,
@@ -209,6 +220,11 @@ class SnapshotCache:
                 values=(),
                 unit=self._sensor_unit(sensor),
                 encoding=self._sensor_encoding(sensor),
+                physical_unit=self._sensor_physical_unit(sensor),
+                scale=self._sensor_scale(sensor),
+                offset=self._sensor_offset(sensor),
+                value_kind=self._sensor_value_kind(sensor),
+                matrix_shape=self._sensor_matrix_shape(sensor),
                 collected_at=None,
                 sequence=self._sensor_sequences[sensor],
                 valid=False,
@@ -269,6 +285,28 @@ class SnapshotCache:
     def _sensor_encoding(self, sensor: SensorType) -> str | None:
         capability = self._capabilities.sensor(sensor)
         return None if capability is None else capability.encoding
+
+    def _sensor_physical_unit(self, sensor: SensorType) -> str | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.physical_unit
+
+    def _sensor_scale(self, sensor: SensorType) -> float | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.scale
+
+    def _sensor_offset(self, sensor: SensorType) -> float | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.offset
+
+    def _sensor_value_kind(self, sensor: SensorType) -> SensorValueKind:
+        capability = self._capabilities.sensor(sensor)
+        if capability is None:  # pragma: no cover - only supported sensors are cached
+            raise RuntimeError(f"missing capability for sensor {sensor.value}")
+        return capability.value_kind
+
+    def _sensor_matrix_shape(self, sensor: SensorType) -> tuple[int, int] | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.matrix_shape
 
 
 __all__ = ["SnapshotCache"]

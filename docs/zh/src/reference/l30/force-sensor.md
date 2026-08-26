@@ -2,6 +2,9 @@
 
 通过 `hand.force_sensor` 读取 L30 五指触觉传感器。每个手指返回一个 `12 x 6` 的 `numpy.uint8` 矩阵。
 
+统一 `SensorSample` 使用 `unit="count"`、`encoding="u8"`、
+`value_kind="tactile_matrix"`、`matrix_shape=(12, 6)`；协议未给出牛顿换算比例。
+
 触觉矩阵是只读的。如果要修改，请先调用 `.copy()`。
 
 ## 读取单个手指

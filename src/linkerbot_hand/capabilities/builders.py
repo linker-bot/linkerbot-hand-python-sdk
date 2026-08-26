@@ -11,6 +11,7 @@ from ..contracts import (
     PercentageSemantics,
     SensorCapability,
     SensorType,
+    SensorValueKind,
 )
 from ..errors import ValidationError
 
@@ -22,6 +23,11 @@ def sensor(
     unit: str | None = None,
     encoding: str | None = None,
     value_range: NumericRange | None = None,
+    physical_unit: str | None = None,
+    scale: float | None = None,
+    offset: float | None = None,
+    value_kind: SensorValueKind = SensorValueKind.NUMERIC,
+    matrix_shape: tuple[int, int] | None = None,
 ) -> SensorCapability:
     """Build standard sensor capability metadata.
 
@@ -31,6 +37,11 @@ def sensor(
         unit: Unit used by values published for this sensor, when known.
         encoding: Scalar protocol encoding, when known.
         value_range: Shared decoded scalar range, when known.
+        physical_unit: Corresponding physical unit, when known.
+        scale: Verified raw-to-physical multiplier, when available.
+        offset: Verified raw-to-physical offset, when available.
+        value_kind: Semantic kind of published values.
+        matrix_shape: Per-finger tactile matrix shape, when applicable.
 
     Returns:
         Sensor capability whose staleness threshold is three polling periods.
@@ -45,6 +56,11 @@ def sensor(
         unit=unit,
         encoding=encoding,
         value_range=value_range,
+        physical_unit=physical_unit,
+        scale=scale,
+        offset=offset,
+        value_kind=value_kind,
+        matrix_shape=matrix_shape,
     )
 
 
@@ -88,9 +104,9 @@ def classic_joints(
     if direction_endpoints is None:
         direction_endpoints = {}
     if speed_range is None:
-        speed_range = NumericRange(0, 255, "protocol_raw", integer_only=True, step=1)
+        speed_range = NumericRange(0, 255, "count", integer_only=True, step=1)
     if torque_range is None:
-        torque_range = NumericRange(0, 255, "protocol_raw", integer_only=True, step=1)
+        torque_range = NumericRange(0, 255, "count", integer_only=True, step=1)
     if len(endpoints) != len(names) or len(motion_types) != len(names):
         raise ValidationError(
             "classic joint names, endpoints, and motion types must have equal lengths"
@@ -106,9 +122,7 @@ def classic_joints(
         JointCapability(
             index=index,
             name=name,
-            raw_angle_range=NumericRange(
-                0, 255, "protocol_raw_u8", integer_only=True, step=1
-            ),
+            raw_angle_range=NumericRange(0, 255, "count", integer_only=True, step=1),
             percentage_mapping=PercentageMapping(
                 raw_open=endpoints[index][0],
                 raw_closed=endpoints[index][1],

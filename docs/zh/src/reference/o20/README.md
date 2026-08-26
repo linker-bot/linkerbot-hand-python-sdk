@@ -131,11 +131,11 @@ hand.close()
 
 O20 SDK 按电机 ID 顺序使用 16 个关节值 (motor ID 1~16),分布在拇指 (4 DOF)/ 食指 (3 DOF)/ 中指 (3 DOF)/ 无名指 (3 DOF)/ 小指 (3 DOF):
 
-`set_angles()` 与角度读回直接使用下表逐关节的协议整数，协议单位为度，不执行百分比
-换算。需要 `0..100` 输入时显式调用 `set_percentage_angles()`。详见 [angle](./angle.md)。
+`set_angles()` 与角度读回直接使用下表逐关节的协议计数，不执行百分比或物理角度换算。
+需要 `0..100` 输入时显式调用 `set_percentage_angles()`。详见 [angle](./angle.md)。
 
-| 索引 | 关节名       | 手指   | 原始范围 (度) |
-| ---: | ------------ | ------ | ------------- |
+| 索引 | 关节名       | 手指   | 原始范围 (count) |
+| ---: | ------------ | ------ | ---------------- |
 |    0 | `thumb_mcp`  | 拇指   | 0 ~ 120       |
 |    1 | `thumb_ip`   | 拇指   | 0 ~ 150       |
 |    2 | `thumb_abd`  | 拇指   | 0 ~ 180       |
@@ -154,7 +154,7 @@ O20 SDK 按电机 ID 顺序使用 16 个关节值 (motor ID 1~16),分布在拇�
 |   15 | `pinky_dip`  | 小指   | 0 ~ 180       |
 
 型号 manager 的 `set_percentage_angles()` 按每轴 `minimum -> maximum` 线性换算，
-因此四个对称 `*_abd` 轴的 `50%` 是 0 度。统一 `HandDevice` 的百分比方向由
+因此四个对称 `*_abd` 轴的 `50%` 是协议值 0。统一 `HandDevice` 的百分比方向由
 capability 端点定义；两套规则的区别见 [angle](./angle.md)。
 
 查看每个关节的原始范围：

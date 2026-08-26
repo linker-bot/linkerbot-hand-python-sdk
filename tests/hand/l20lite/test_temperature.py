@@ -47,8 +47,8 @@ class TestTemperatureManagerBlocking:
             "pinky_abd",
             "thumb_yaw",
         ]:
-            assert isinstance(getattr(data.temperatures, field), float), (
-                f"{field} should be float"
+            assert isinstance(getattr(data.temperatures, field), int), (
+                f"{field} should be int"
             )
 
 

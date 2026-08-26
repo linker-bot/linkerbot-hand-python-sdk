@@ -1,7 +1,7 @@
 # 角度控制与读取
 
-O20 的默认角度接口直接收发 16 个有符号协议整数，顺序为 motor ID 1..16。该协议字段
-本身以度为单位，因此“协议值”和“度数”数值相同；SDK 不再额外归一化为 `0..100`。
+O20 的默认角度接口直接收发 16 个有符号协议计数，顺序为 motor ID 1..16。SDK 不额外
+归一化为 `0..100`，也不把协议计数隐式换算为度。
 
 ## 协议值控制
 
@@ -45,7 +45,7 @@ with O20(side="right") as hand:
 ```
 
 这个 helper 按每轴 `spec.minimum -> spec.maximum` 线性换算：`0` 是最小值，`100` 是
-最大值；四个对称外展轴的 `50` 是 0 度。`O20Angle.from_list()`、`from_raw()` 和
+最大值；四个对称外展轴的 `50` 是协议值 0。`O20Angle.from_list()`、`from_raw()` 和
 `to_raw()` 提供相同的显式纯换算，不参与默认控制或反馈路径。
 
 统一接口 `HandDevice.submit_percentage_angles()` 使用 capability 的机械端点语义：屈伸轴
@@ -58,7 +58,7 @@ with O20(side="right") as hand:
 ```python
 with O20(side="right") as hand:
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles)  # tuple[int, ...]，16 个协议度数
+    print(data.angles)  # tuple[int, ...]，16 个协议计数
     print(data.timestamp)
 
     cached = hand.angle.get_snapshot()
@@ -72,17 +72,21 @@ with O20(side="right") as hand:
 
 统一 `HandDevice` 快照中的同一数据位于 `snapshot.angles.values`，并标注：
 
-- `unit="degree"`
+- `unit="count"`
 - `encoding="i16_le"`
+- `physical_unit="degree"`
+- `scale=None`、`offset=None`
 
-O20 capability 已确认协议位置单位就是度，因此 `raw_to_physical_angles()` 与
-`physical_angles_to_raw()` 是显式、可逆的物理角度 helper；默认路径仍直接返回协议值。
+协议资料一处写当前位置为 `0.087°/count`，但目标范围和实测端点资料无法与该比例一致
+对应。因此 capability 只确认物理维度为 degree，不发布比例或物理端点；
+`raw_to_physical_angles()` 与 `physical_angles_to_raw()` 会抛出
+`UnsupportedOperationError`。
 
 ## API 摘要
 
 | API | 输入或返回 | 语义 |
 | --- | --- | --- |
-| `set_angles(values)` | 16 个逐轴范围内的 `int` | 直接发送协议位置，单位度 |
+| `set_angles(values)` | 16 个逐轴范围内的 `int` | 直接发送协议位置计数 |
 | `set_percentage_angles(values)` | 16 个 `0..100` 数值 | 显式按 `minimum -> maximum` 换算 |
 | `get_blocking(timeout_ms)` | `O20AngleData` | 读取协议位置并更新缓存 |
 | `get_snapshot()` | `O20AngleData | None` | 只读 manager 缓存 |

@@ -38,6 +38,7 @@ class FaultCode(Flag):
     OVERLOAD_2 = 1 << 4  # BIT4: Overload level 2
     MOTOR_OVERTEMP = 1 << 5  # BIT5: Motor overtemperature
     MCU_OVERTEMP = 1 << 6  # BIT6: MCU overtemperature
+    RESERVED_BIT7 = 1 << 7
 
     def has_fault(self) -> bool:
         """Check if this fault code has any fault.
@@ -52,7 +53,7 @@ class FaultCode(Flag):
             >>> FaultCode.NONE.has_fault()
             False
         """
-        return self != FaultCode.NONE
+        return bool(self.value & 0x7F)
 
     def get_fault_names(self) -> list[str]:
         """Get human-readable fault names for this fault code.
@@ -135,7 +136,7 @@ class L6Fault:
 
     def to_raw(self) -> list[int]:
         # Internal: Convert to hardware communication format
-        return [int(code.value) & 0x7F for code in self.to_list()]
+        return [int(code.value) for code in self.to_list()]
 
     @classmethod
     def from_list(cls, values: list[FaultCode]) -> "L6Fault":
@@ -169,7 +170,7 @@ class L6Fault:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        fault_codes = [FaultCode(v & 0x7F) for v in values]
+        fault_codes = [FaultCode(v) for v in values]
         return cls.from_list(fault_codes)
 
     def has_any_fault(self) -> bool:

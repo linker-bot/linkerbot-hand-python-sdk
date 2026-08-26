@@ -27,5 +27,6 @@ milliamps = L6Current.from_raw(list(data.currents)).to_list()
 print(milliamps)
 ```
 
-统一 `SensorSample` 对该通道标注 `unit="protocol_raw"`、`encoding="u8"`；采集数据时
-应保存这两个字段，不能把协议字节直接标成 mA。
+统一 `SensorSample` 对该通道标注 `unit="count"`、`encoding="u8"`、
+`physical_unit="mA"`、`scale=1400/255`、`offset=0`。`values` 仍是协议整数，不能直接
+标成 mA。

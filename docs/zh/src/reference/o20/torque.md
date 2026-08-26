@@ -84,6 +84,8 @@ with O20(side="right") as hand:
 
 需要 mA 时显式使用 `protocol_current_limits_to_milliamps()` 或
 `milliamps_to_protocol_current_limits()`。`get_snapshot()` 仍只表示目标缓存，不是反馈。
+capability 中该命令范围的 `unit="count"`、`physical_unit="mA"`、`scale=6.5`、
+`offset=0`。
 
 ## 参数校验
 

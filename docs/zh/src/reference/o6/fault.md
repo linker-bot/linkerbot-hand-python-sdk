@@ -19,6 +19,10 @@ O6 灵巧手的故障检测功能。
 | `OVERCURRENT`      | 8  | 电流过流     |
 | `OVERLOAD`         | 32 | 负载过载     |
 
+bit4、bit6、bit7 为协议保留位。SDK 保留完整原始字节，但 `has_fault()` 只检查已定义的
+bit0..3 和 bit5。统一样本标注 `unit="dimensionless"`、`encoding="u8"`、
+`value_kind="bitmask"`。
+
 ## 读取故障
 
 ### 阻塞式读取

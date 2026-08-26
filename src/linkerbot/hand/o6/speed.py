@@ -22,10 +22,11 @@ from linkerbot_transport.relay import DataRelay
 
 @dataclass
 class O6Speed:
-    """Motor speeds for O6 hand (0-100 range or RPM).
+    """Explicit O6 speed percentages with a legacy RPM helper.
 
-    Speeds can be specified either as normalized 0-100 values or in RPM units.
-    The protocol conversion used by this SDK is ``raw * 180 / 255`` RPM.
+    The helper retains the SDK's historical ``raw * 180 / 255`` RPM
+    interpretation. Protocol sources also state 0.732 RPM per count, so the
+    capability deliberately leaves the verified linear scale unset.
 
     Attributes:
         thumb_flex: Thumb flexion motor speed (0-100). Higher values = faster.
@@ -304,10 +305,11 @@ class SpeedManager:
 
 @dataclass
 class O6Acceleration:
-    """Motor accelerations for O6 hand (0-100 range or deg/s²).
+    """Explicit O6 acceleration percentages with a legacy physical helper.
 
-    Accelerations can be specified either as normalized 0-100 values or in deg/s² units.
-    Maximum acceleration: 2209.8 deg/s² (corresponds to 100).
+    The physical helper retains the historical 8.7 deg/s² interpretation.
+    Protocol sources conflict and raw zero is a special maximum value, so the
+    capability deliberately leaves the verified linear scale unset.
 
     Attributes:
         thumb_flex: Thumb flexion motor acceleration (0-100). Higher values = faster acceleration.
@@ -325,7 +327,7 @@ class O6Acceleration:
     ring: float
     pinky: float
 
-    # Hardware conversion constant: 1 hardware unit = 8.7 deg/s²
+    # Compatibility interpretation retained by the explicit helper.
     _DEG_PER_SEC2_PER_UNIT: float = 8.7
     _MAX_DEG_PER_SEC2: float = 254 * _DEG_PER_SEC2_PER_UNIT  # 2209.8 deg/s²
 

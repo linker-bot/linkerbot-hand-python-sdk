@@ -19,7 +19,7 @@ class O20AngleData:
     """Immutable O20 protocol position data.
 
     Attributes:
-        angles: 16 decoded signed protocol values in motor-ID order, in degrees.
+        angles: 16 decoded signed protocol counts in motor-ID order.
         timestamp: Unix timestamp when the data was decoded.
     """
 
@@ -40,7 +40,7 @@ class AngleManager:
         self._relay = DataRelay[O20AngleData]()
 
     def set_angles(self, angles: list[int] | tuple[int, ...]) -> None:
-        """Send 16 protocol-native target positions in degrees.
+        """Send 16 protocol-native target position counts.
 
         Args:
             angles: 16 protocol integers in motor-ID order. Each value must be
@@ -66,7 +66,7 @@ class AngleManager:
             timeout_ms: Time to wait for the read response.
 
         Returns:
-            O20AngleData containing decoded signed protocol values in degrees.
+            O20AngleData containing decoded signed protocol counts.
 
         Raises:
             ValidationError: If timeout_ms is not positive.

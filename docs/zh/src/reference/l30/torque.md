@@ -32,4 +32,5 @@ hand.torque.set_torques(list(protocol_target))
 print(protocol_current_limits_to_milliamps(list(protocol_target)))
 ```
 
-capability 将命令单位标为 `protocol_current_limit`，范围 `60..800`。
+capability 将命令单位标为 `count`，范围 `60..800`，并声明 `physical_unit="mA"`、
+`scale=6.5`、`offset=0`。

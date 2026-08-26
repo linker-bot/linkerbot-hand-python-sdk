@@ -41,25 +41,25 @@ class L25Temperature:
         pinky_tip: Pinky finger tip motor temperature in °C
     """
 
-    thumb_abd: float
-    thumb_yaw: float
-    thumb_root1: float
-    thumb_tip: float
-    index_abd: float
-    index_root1: float
-    index_tip: float
-    middle_abd: float
-    middle_root1: float
-    middle_tip: float
-    ring_abd: float
-    ring_root1: float
-    ring_tip: float
-    pinky_abd: float
-    pinky_root1: float
-    pinky_tip: float
+    thumb_abd: int
+    thumb_yaw: int
+    thumb_root1: int
+    thumb_tip: int
+    index_abd: int
+    index_root1: int
+    index_tip: int
+    middle_abd: int
+    middle_root1: int
+    middle_tip: int
+    ring_abd: int
+    ring_root1: int
+    ring_tip: int
+    pinky_abd: int
+    pinky_root1: int
+    pinky_tip: int
 
-    def to_list(self) -> list[float]:
-        """Convert to list of floats in joint order.
+    def to_list(self) -> list[int]:
+        """Convert to list of protocol bytes in joint order.
 
         Returns:
             List of 16 temperatures in °C in order: thumb_abd, thumb_yaw,
@@ -91,11 +91,11 @@ class L25Temperature:
         return [int(v) for v in self.to_list()]
 
     @classmethod
-    def from_list(cls, values: list[float]) -> "L25Temperature":
-        """Construct from list of floats in degrees Celsius.
+    def from_list(cls, values: list[int]) -> "L25Temperature":
+        """Construct from integer protocol values in degrees Celsius.
 
         Args:
-            values: List of 16 float values in °C
+            values: List of 16 integer values in °C
 
         Returns:
             L25Temperature instance
@@ -132,10 +132,9 @@ class L25Temperature:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        temperatures_celsius = [float(v) for v in values]
-        return cls.from_list(temperatures_celsius)
+        return cls.from_list(values)
 
-    def __getitem__(self, index: int) -> float:
+    def __getitem__(self, index: int) -> int:
         """Support indexing: temperatures[0] returns thumb_abd (abduction).
 
         Args:
@@ -203,7 +202,7 @@ class TemperatureManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._pending: dict[int, list[float]] = {}
+        self._pending: dict[int, list[int]] = {}
         self._relay = PollingDataRelay[TemperatureData](self._pending.clear)
 
     def get_blocking(self, timeout_ms: float = 100) -> TemperatureData:
@@ -278,15 +277,14 @@ class TemperatureManager:
         if len(raw_temperatures) != len(expected_fields):
             return
 
-        decoded = [float(v) for v in raw_temperatures]
-        self._pending[cmd] = decoded
+        self._pending[cmd] = raw_temperatures
 
         # Check if all frames have been received
         if set(self._pending.keys()) != set(self._FRAME_MAP.keys()):
             return
 
         # All frames received — merge into L25Temperature
-        kwargs: dict[str, float] = {}
+        kwargs: dict[str, int] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
             for field, value in zip(fields, self._pending[frame_cmd], strict=True):
                 if field is not None:

@@ -960,7 +960,7 @@ MODEL_CONTRACTS = {
             SensorType.FAULTS: 5,
         },
         "features": (False, True, False, False),
-        "physical_angles": True,
+        "physical_angles": False,
     },
     "O30i": {
         "joint_count": 20,
@@ -1142,51 +1142,28 @@ def test_o20_thumb_axes_publish_physical_motion_and_coupling() -> None:
     assert joints[3].coupled_with == ("thumb_abd",)
 
 
-def test_o20_physical_angle_conversion_and_l30_unsupported_contract() -> None:
-    o20_capabilities = get_model_capabilities("O20")
-    o20 = HandDevice(o20_capabilities, FakeBackendFactory(o20_capabilities))
-    o20_position_capabilities = []
-    for joint in o20_capabilities.joints:
+@pytest.mark.parametrize("model", ("O20", "L30"))
+def test_unverified_physical_angle_conversions_are_unsupported(model: str) -> None:
+    capabilities = get_model_capabilities(model, side=HandSide.LEFT)
+    device = HandDevice(capabilities, FakeBackendFactory(capabilities))
+    raw_ranges = []
+    for joint in capabilities.joints:
         raw_range = joint.raw_angle_range
         mapping = joint.percentage_mapping
         assert raw_range is not None
         assert mapping is not None
-        assert mapping.physical_angle is not None
-        o20_position_capabilities.append((raw_range, mapping.physical_angle))
-    raw_minimums = tuple(
-        int(raw_range.minimum) for raw_range, _ in o20_position_capabilities
-    )
-    raw_maximums = tuple(
-        int(raw_range.maximum) for raw_range, _ in o20_position_capabilities
-    )
-    physical_minimums = tuple(
-        physical.minimum for _, physical in o20_position_capabilities
-    )
-    physical_maximums = tuple(
-        physical.maximum for _, physical in o20_position_capabilities
-    )
+        assert mapping.physical_angle is None
+        raw_ranges.append(raw_range)
+    raw_values = tuple(int(raw_range.minimum) for raw_range in raw_ranges)
 
-    assert o20.raw_to_physical_angles(raw_minimums) == physical_minimums
-    assert o20.raw_to_physical_angles(raw_maximums) == physical_maximums
-    assert o20.physical_angles_to_raw(physical_minimums) == raw_minimums
-    assert o20.physical_angles_to_raw(physical_maximums) == raw_maximums
-
-    l30_capabilities = get_model_capabilities("L30", side=HandSide.LEFT)
-    l30 = HandDevice(l30_capabilities, FakeBackendFactory(l30_capabilities))
-    l30_raw_ranges = []
-    for joint in l30_capabilities.joints:
-        raw_range = joint.raw_angle_range
-        assert raw_range is not None
-        l30_raw_ranges.append(raw_range)
-    l30_raw = tuple(int(raw_range.minimum) for raw_range in l30_raw_ranges)
     with pytest.raises(
         UnsupportedOperationError, match="no calibrated physical angle mapping"
     ):
-        l30.raw_to_physical_angles(l30_raw)
+        device.raw_to_physical_angles(raw_values)
     with pytest.raises(
         UnsupportedOperationError, match="no calibrated physical angle mapping"
     ):
-        l30.physical_angles_to_raw((0,) * l30_capabilities.joint_count)
+        device.physical_angles_to_raw((0,) * capabilities.joint_count)
 
 
 @pytest.mark.parametrize("side", tuple(HandSide))

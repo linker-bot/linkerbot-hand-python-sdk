@@ -19,9 +19,10 @@ with O6(side="left", interface_name="can0") as hand:
 hand.speed.set_percentage_speeds([50, 50, 75, 75, 75, 75])
 ```
 
-## 显式 RPM 换算
+## 显式兼容换算
 
-O6 文档给出的换算为 `protocol * 180 / 255`。`O6Speed` 只作为显式转换 helper：
+完整协议资料同时写有 `0.732 RPM/count` 和 `raw * 180 / 255`，两种比例并不一致。
+`O6Speed` 保留既有的 `raw * 180 / 255` 显式 helper，供兼容场景使用：
 
 ```python
 from linkerbot.hand.o6 import O6Speed
@@ -31,5 +32,6 @@ protocol_target = O6Speed.from_rpm([90.0] * 6).to_raw()
 hand.speed.set_speeds(protocol_target)
 ```
 
-事件流中的 `SpeedEvent.data.speeds` 仍是协议整数。统一快照标注
-`unit="protocol_raw"`、`encoding="u8"`。
+事件流中的 `SpeedEvent.data.speeds` 仍是协议整数。统一快照标注 `unit="count"`、
+`encoding="u8"`、`physical_unit="rpm"`；由于比例冲突，`scale/offset=None`。在固件侧
+确认比例前，不应把 helper 结果当作已标定 RPM。

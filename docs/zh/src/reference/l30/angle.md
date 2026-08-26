@@ -75,8 +75,9 @@ with L30() as hand:
 
 统一 `HandDevice` 快照中的同一数据位于 `snapshot.angles.values`，并标注：
 
-- `unit="protocol_position"`
-- `encoding="i16_le"`
+- `unit="count"`
+- `encoding="i16_be"`
+- `physical_unit=None`、`scale=None`、`offset=None`
 
 L30 当前没有可靠的物理角度标定，因此 `raw_to_physical_angles()` 和
 `physical_angles_to_raw()` 会抛出 `UnsupportedOperationError`。

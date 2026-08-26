@@ -35,6 +35,15 @@ class SensorType(str, Enum):
     MOTION_TIME = "motion_time"
 
 
+class SensorValueKind(str, Enum):
+    """Semantic shape of values published for a sensor channel."""
+
+    NUMERIC = "numeric"
+    BITMASK = "bitmask"
+    ENUM = "enum"
+    TACTILE_MATRIX = "tactile_matrix"
+
+
 class CommandKind(str, Enum):
     """Operation accepted by the unified command scheduler."""
 
@@ -143,5 +152,6 @@ __all__ = [
     "JointMotionType",
     "PercentageSemantics",
     "SensorType",
+    "SensorValueKind",
     "TransportType",
 ]

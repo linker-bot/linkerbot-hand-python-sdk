@@ -52,12 +52,14 @@ from .types import (
     SensorSample,
     SensorType,
     SensorValue,
+    SensorValueKind,
     SessionConfig,
     TactileState,
     TransportType,
 )
 
 __all__ = [
+    "MODEL_CAPABILITIES",
     "AckSupport",
     "BackendFactory",
     "BackendReading",
@@ -91,7 +93,6 @@ __all__ = [
     "JointEndpoint",
     "JointMotionType",
     "JointState",
-    "MODEL_CAPABILITIES",
     "NumericRange",
     "PercentageMapping",
     "PercentageSemantics",
@@ -101,6 +102,7 @@ __all__ = [
     "SensorSample",
     "SensorType",
     "SensorValue",
+    "SensorValueKind",
     "SessionConfig",
     "SystemClock",
     "TactileState",

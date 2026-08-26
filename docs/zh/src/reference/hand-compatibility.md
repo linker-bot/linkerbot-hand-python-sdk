@@ -42,7 +42,9 @@ activate/deactivate 边界，不应依赖构造器隐式启动。
 | 发送百分比位置 | `set_percentage_angles()` / `submit_percentage_angles()` |
 | 发送百分比速度 | `set_percentage_speeds()` / `submit_percentage_speeds()`，先检查 capability |
 | 读取协议反馈 | manager 数据对象或 `SensorSample.values` |
-| 获取单位和编码 | `SensorSample.unit` / `encoding`，或 capability |
+| 获取原始单位和编码 | `SensorSample.unit` / `encoding`，或 capability |
+| 获取物理解释 | `physical_unit` / `scale` / `offset`；比例为空时禁止自行换算 |
+| 获取值语义和触觉尺寸 | `value_kind` / `matrix_shape` |
 
 这是面向遥操与训练数据一致性的有意破坏性变更，不提供旧行为兼容层。迁移细节见
 [统一协议值接口迁移说明](./hand-migration.md)。

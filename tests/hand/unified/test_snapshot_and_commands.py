@@ -112,9 +112,23 @@ def test_snapshot_is_cached_complete_and_p95_below_one_millisecond() -> None:
         assert snapshot.temperature is not None and snapshot.temperature.valid
         assert snapshot.current is not None and snapshot.current.valid
         assert snapshot.faults is not None and snapshot.faults.valid
+        assert snapshot.force.value_kind.value == "tactile_matrix"
+        assert snapshot.force.matrix_shape == (12, 6)
+        assert snapshot.temperature.unit == "degree_celsius"
+        assert snapshot.temperature.scale == 1
+        assert snapshot.current.unit == "count"
+        assert snapshot.current.physical_unit == "mA"
+        assert snapshot.current.scale == 1400 / 255
+        assert snapshot.current.offset == 0
+        assert snapshot.faults.value_kind.value == "bitmask"
         assert sample.values == angles
-        assert sample.unit == "protocol_raw"
+        assert sample.unit == "count"
         assert sample.encoding == "u8"
+        assert sample.physical_unit is None
+        assert sample.scale is None
+        assert sample.offset is None
+        assert sample.value_kind.value == "numeric"
+        assert sample.matrix_shape is None
         assert snapshot.joints[0].angle == angles[0]
         assert snapshot.joints[0].torque == 20
         assert snapshot.joints[0].fault == 0

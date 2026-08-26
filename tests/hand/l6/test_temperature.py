@@ -34,16 +34,12 @@ class TestTemperatureManagerBlocking:
         """Should be able to access temperature fields by name."""
         data = l6_hand.temperature.get_blocking(timeout_ms=100)
 
-        assert isinstance(data.temperatures.thumb_flex, float), (
-            "thumb_flex should be float"
-        )
-        assert isinstance(data.temperatures.thumb_abd, float), (
-            "thumb_abd should be float"
-        )
-        assert isinstance(data.temperatures.index, float), "index should be float"
-        assert isinstance(data.temperatures.middle, float), "middle should be float"
-        assert isinstance(data.temperatures.ring, float), "ring should be float"
-        assert isinstance(data.temperatures.pinky, float), "pinky should be float"
+        assert isinstance(data.temperatures.thumb_flex, int), "thumb_flex should be int"
+        assert isinstance(data.temperatures.thumb_abd, int), "thumb_abd should be int"
+        assert isinstance(data.temperatures.index, int), "index should be int"
+        assert isinstance(data.temperatures.middle, int), "middle should be int"
+        assert isinstance(data.temperatures.ring, int), "ring should be int"
+        assert isinstance(data.temperatures.pinky, int), "pinky should be int"
 
 
 class TestTemperatureManagerSnapshot:

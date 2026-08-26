@@ -22,6 +22,9 @@ L6 灵巧手的故障检测与清除功能。
 | `MOTOR_OVERTEMP`      | 32 | 关节电机过温 |
 | `MCU_OVERTEMP`        | 64 | MCU 过温     |
 
+bit7 为协议保留位。SDK 保留完整原始字节，但 `has_fault()` 不把单独的 bit7 视为故障。
+统一样本标注 `unit="dimensionless"`、`encoding="u8"`、`value_kind="bitmask"`。
+
 ## 清除故障
 
 ```python

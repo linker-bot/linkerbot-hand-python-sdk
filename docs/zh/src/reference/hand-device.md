@@ -315,26 +315,34 @@ if angles is not None and angles.valid and not angles.stale:
 
 ### `SensorSample`
 
-| 字段                    | 类型                      | 含义                                             |
-| ----------------------- | ------------------------- | ------------------------------------------------ |
-| `sensor`                | `SensorType`              | 数据源。                                         |
-| `values`                | `tuple[SensorValue, ...]` | 解码后的协议值；力传感器元素为 `TactileState`。 |
-| `unit`                  | `str \| None`             | capability 声明的协议单位。                      |
-| `encoding`              | `str \| None`             | 标量线上编码，例如 `u8` 或 `i16_le`。            |
-| `collected_at`          | `float \| None`           | 成功采集时的 wall-clock 秒数。                   |
-| `sequence`              | `int`                     | 该数据源成功更新的序号。                         |
-| `valid`                 | `bool`                    | 是否属于当前连接代次且可用。                     |
-| `stale`                 | `bool`                    | 年龄是否超过能力的 `stale_after_s`。             |
-| `connection_generation` | `int`                     | 产生该样本的连接代次。                           |
+| 字段                    | 类型                       | 含义                                                       |
+| ----------------------- | -------------------------- | ---------------------------------------------------------- |
+| `sensor`                | `SensorType`               | 数据源。                                                   |
+| `values`                | `tuple[SensorValue, ...]`  | 解码后的协议值；力传感器元素为 `TactileState`。           |
+| `unit`                  | `str \| None`              | `values` 的单位；原始协议计数统一为 `count`。              |
+| `encoding`              | `str \| None`              | 标量线上编码，例如 `u8`、`i16_le` 或 `i16_be`。            |
+| `physical_unit`         | `str \| None`              | 对应物理量单位；存在不代表比例已确认。                     |
+| `scale` / `offset`      | `float \| None`            | 已确认的 `physical = raw * scale + offset` 参数。          |
+| `value_kind`            | `SensorValueKind`          | `numeric`、`bitmask`、`enum` 或 `tactile_matrix`。         |
+| `matrix_shape`          | `tuple[int, int] \| None`  | 每指触觉矩阵的 `(rows, columns)`。                          |
+| `collected_at`          | `float \| None`            | 成功采集时的 wall-clock 秒数。                             |
+| `sequence`              | `int`                      | 该数据源成功更新的序号。                                   |
+| `valid`                 | `bool`                     | 是否属于当前连接代次且可用。                               |
+| `stale`                 | `bool`                     | 年龄是否超过能力的 `stale_after_s`。                       |
+| `connection_generation` | `int`                      | 产生该样本的连接代次。                                     |
 
 `JointState` 字段为 `name`、`angle`、`speed`、`torque`、`fault`；前三者直接取自有效的
 协议值样本。
 `TactileState` 字段为 `finger`、`rows`、`columns`、二维 `values` 和可选 `online`。
 
-每个 `SensorSample` 包含 `collected_at`、`sequence`、`valid`、`stale`、
-`connection_generation`、协议 `values`、`unit` 和 `encoding`。从未成功采集、断线或属于
-旧连接代次的数据会标记为无效；是否过期由能力中的 `stale_after_s` 判定。触觉阵列使用普通
-数据类 `TactileState`，调用方不需要导入型号专用类型。
+每个 `SensorSample` 同时携带协议值、原始单位/编码、物理元数据和值语义。从未成功采集、
+断线或属于旧连接代次的数据会标记为无效；是否过期由能力中的 `stale_after_s` 判定。触觉
+阵列使用普通数据类 `TactileState`，调用方不需要导入型号专用类型。
+
+`unit` 始终是 `values` 当前使用的单位。仅当 `scale` 与 `offset` 都不是 `None` 时，调用方
+才可执行 `physical = raw * scale + offset`。只有 `physical_unit` 表示物理维度已知但协议
+比例尚未确认。触觉编码描述单个点，因此是 `u8`；矩阵语义和尺寸分别由 `value_kind` 与
+`matrix_shape` 表示。
 
 角度、速度、力矩和电流样本的 `values` 都是协议解码值，不隐式归一化或换算物理单位。
 完整定义见[协议值、百分比与显式换算](./angle-coordinates.md)。L6 的速度传感器样本不存在，
@@ -377,9 +385,9 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 | `sensor(sensor)`       | 返回对应 `SensorCapability`，不支持时为 `None`。                                                         |
 | `supports_sensor(...)` | 是否支持指定数据源。                                                                                     |
 | `JointCapability`      | `index/name/raw_angle_range/percentage_mapping/speed_range/torque_range/percentage_speed_supported/motion_type/coupled_with` |
-| `SensorCapability`     | `sensor/recommended_hz/stale_after_s/unit/encoding/value_range`                                          |
+| `SensorCapability`     | `sensor/recommended_hz/stale_after_s/unit/encoding/value_range/physical_unit/scale/offset/value_kind/matrix_shape` |
 | `DeviceFeatures`       | `device_ack/clear_faults/enable/calibration/acknowledged_commands`                                       |
-| `NumericRange`         | `minimum/maximum/unit/integer_only/step`                                                                 |
+| `NumericRange`         | `minimum/maximum/unit/integer_only/step/physical_unit/physical_minimum/physical_maximum/scale/offset`    |
 | `PercentageMapping`    | `raw_open/raw_closed/raw_at_zero/raw_at_hundred/physical_angle/semantics/zero_endpoint/hundred_endpoint` |
 | `DeviceIdentity`       | `model/firmware/side/serial_number`；供 backend 的 `open()` 返回                                         |
 
@@ -448,6 +456,7 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 | `AckSupport`          | `supported`, `unsupported`                                                                                           |
 | `ConnectionState`     | `closed`, `connecting`, `connected`, `reconnecting`, `error`                                                         |
 | `PercentageSemantics` | `openness`, `position`, `grip_pose_interpolation`                                                                    |
+| `SensorValueKind`     | `numeric`, `bitmask`, `enum`, `tactile_matrix`                                                                      |
 | `JointMotionType`     | `unknown`, `flexion`, `abduction`, `roll`, `rotation`, `wrist`                                                       |
 | `JointEndpoint`       | 每轴 0/100 对应的物理姿态端点；包括弯曲、伸直、掌心方向及相邻手指方向等稳定枚举值。                                  |
 

@@ -2,6 +2,7 @@
 
 L6 的默认角度接口收发 6 个协议 `u8` 值，范围均为 `0..255`。顺序为
 `thumb_flex`、`thumb_abd`、`index`、`middle`、`ring`、`pinky`。
+统一样本标注 `unit="count"`、`encoding="u8"`；协议未给出可靠物理角度标定。
 
 ## 协议值控制
 

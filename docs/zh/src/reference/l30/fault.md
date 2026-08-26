@@ -2,6 +2,10 @@
 
 通过 `hand.fault` 读取 L30 的 17 个关节故障字节，并判断具体故障类型。
 
+统一 `SensorSample` 标注 `unit="dimensionless"`、`encoding="u8"`、
+`value_kind="bitmask"`。bit0、1、2、3、5 分别表示电压、磁编码器、温度、电流和负载
+异常；bit4、6、7 保留，返回原始字节时不会被清除。
+
 ## 阻塞读取故障字节
 
 ```python

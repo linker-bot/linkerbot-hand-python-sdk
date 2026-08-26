@@ -117,8 +117,7 @@ class L20liteFault:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        # Mask with 0x2F to extract meaningful bits (BIT0-3, BIT5)
-        fault_codes = [FaultCode(v & 0x2F) for v in values]
+        fault_codes = [FaultCode(v) for v in values]
         return cls.from_list(fault_codes)
 
     def has_any_fault(self) -> bool:
@@ -271,7 +270,7 @@ class FaultManager:
         if len(raw_codes) != len(expected_fields):
             return
 
-        decoded = [FaultCode(v & 0x2F) for v in raw_codes]
+        decoded = [FaultCode(v) for v in raw_codes]
         self._pending[cmd] = decoded
 
         # Check if all frames have been received

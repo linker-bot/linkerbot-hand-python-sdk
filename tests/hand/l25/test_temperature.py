@@ -57,7 +57,7 @@ class TestTemperatureManagerBlocking:
             "pinky_tip",
         ]
         for name in joint_names:
-            assert isinstance(getattr(temps, name), float), f"{name} should be float"
+            assert isinstance(getattr(temps, name), int), f"{name} should be int"
 
 
 class TestTemperatureManagerSnapshot:

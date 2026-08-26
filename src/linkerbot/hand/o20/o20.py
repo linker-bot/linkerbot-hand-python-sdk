@@ -81,7 +81,7 @@ class O20:
         info = hand.version.get_device_info()
         hand.speed.set_all(50)
         hand.torque.set_all(400)
-        hand.angle.set_angles([30] * 16)  # protocol-native degrees
+        hand.angle.set_angles([30] * 16)  # protocol-native position counts
         print(hand.angle.get_blocking())
     ```
 

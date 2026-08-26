@@ -4,7 +4,7 @@
 order: 0 maps to each joint's ``spec.minimum`` and 100 maps to
 ``spec.maximum``. This explicit helper does not implement the unified hand
 direction contract. Default manager control and readback use protocol integers
-in degrees directly.
+without applying an angle scale.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ class JointSpec:
     Attributes:
         name: Joint name in motor-ID order.
         finger: Finger that the joint belongs to.
-        minimum: Minimum commandable raw angle value in degrees.
-        maximum: Maximum commandable raw angle value in degrees.
+        minimum: Minimum commandable protocol position count.
+        maximum: Maximum commandable protocol position count.
     """
 
     name: str

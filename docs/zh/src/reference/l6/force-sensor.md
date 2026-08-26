@@ -20,6 +20,9 @@ with L6(side="left", interface_name="can0") as hand:
 - `values`: 形状 (12, 6) 的 NumPy 数组（uint8）
 - `timestamp`: Unix 时间戳
 
+统一 `SensorSample` 使用 `unit="count"`、`encoding="u8"`、
+`value_kind="tactile_matrix"`、`matrix_shape=(12, 6)`；协议未给出牛顿换算比例。
+
 **AllFingersData** - 全部 5 个手指的数据：
 
 - `thumb`, `index`, `middle`, `ring`, `pinky`: 各手指的 `ForceSensorData`

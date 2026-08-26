@@ -35,7 +35,10 @@ class FaultCode(Flag):
     ENCODER_ABNORMAL = 1 << 1  # BIT1: Magnetic encoder abnormal
     OVERTEMPERATURE = 1 << 2  # BIT2: Temperature overheating
     OVERCURRENT = 1 << 3  # BIT3: Current overcurrent
+    RESERVED_BIT4 = 1 << 4
     OVERLOAD = 1 << 5  # BIT5: Load overload
+    RESERVED_BIT6 = 1 << 6
+    RESERVED_BIT7 = 1 << 7
 
     def has_fault(self) -> bool:
         """Check if this fault code has any fault.
@@ -50,7 +53,7 @@ class FaultCode(Flag):
             >>> FaultCode.NONE.has_fault()
             False
         """
-        return self != FaultCode.NONE
+        return bool(self.value & 0x2F)
 
     def get_fault_names(self) -> list[str]:
         """Get human-readable fault names for this fault code.
@@ -133,7 +136,7 @@ class O6Fault:
 
     def to_raw(self) -> list[int]:
         # Internal: Convert to hardware communication format
-        return [int(code.value) & 0x2F for code in self.to_list()]
+        return [int(code.value) for code in self.to_list()]
 
     @classmethod
     def from_list(cls, values: list[FaultCode]) -> "O6Fault":
@@ -167,8 +170,7 @@ class O6Fault:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        # Mask with 0x2F to extract meaningful bits (BIT0-3, BIT5)
-        fault_codes = [FaultCode(v & 0x2F) for v in values]
+        fault_codes = [FaultCode(v) for v in values]
         return cls.from_list(fault_codes)
 
     def has_any_fault(self) -> bool:

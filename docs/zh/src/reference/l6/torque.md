@@ -44,4 +44,5 @@ protocol_target = L6Torque.from_milliamps([700.0] * 6).to_raw()
 hand.torque.set_torques(protocol_target)
 ```
 
-统一 capability 将命令范围和反馈标记为 `protocol_raw` / `u8`。
+统一 capability 将命令范围和反馈标记为 `count` / `u8`，并声明
+`physical_unit="mA"`、`scale=1400/255`、`offset=0`。

@@ -24,8 +24,10 @@ from linkerbot_hand import (
     PollingPlan,
     SensorCapability,
     SensorType,
+    SensorValueKind,
     SessionConfig,
     TransportType,
+    UnsupportedOperationError,
     ValidationError,
     get_model_capabilities,
 )
@@ -91,6 +93,34 @@ def test_numeric_range_rejects_malformed_field_types(
 
     with pytest.raises(ValidationError, match=message):
         NumericRange(**values)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"physical_unit": ""}, "physical_unit must be"),
+        ({"physical_minimum": 0}, "physical endpoints must both"),
+        (
+            {"physical_minimum": 2, "physical_maximum": 1, "physical_unit": "mA"},
+            "physical_minimum must not exceed",
+        ),
+        ({"scale": 1}, "scale and offset must both"),
+        ({"scale": 0, "offset": 0, "physical_unit": "mA"}, "must not be zero"),
+        ({"scale": 1, "offset": 0}, "scale requires physical_unit"),
+    ],
+)
+def test_numeric_range_rejects_invalid_physical_metadata(
+    changes: dict[str, object], message: str
+) -> None:
+    values: dict[str, object] = {
+        "minimum": 0,
+        "maximum": 255,
+        "unit": "count",
+    }
+    values.update(changes)
+
+    with pytest.raises(ValidationError, match=message):
+        NumericRange(**cast(Any, values))
 
 
 @pytest.mark.parametrize(
@@ -271,6 +301,59 @@ def test_sensor_capability_requires_matching_value_range_unit() -> None:
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
+        ({"physical_unit": ""}, "physical_unit must be"),
+        ({"scale": 1}, "scale and offset must both"),
+        ({"scale": 0, "offset": 0, "physical_unit": "mA"}, "must not be zero"),
+        ({"scale": 1, "offset": 0}, "scale requires physical_unit"),
+        ({"value_kind": "numeric"}, "value_kind must be SensorValueKind"),
+        ({"matrix_shape": (12, 0)}, "matrix_shape must be"),
+        ({"matrix_shape": (12, 6)}, "requires tactile_matrix"),
+        (
+            {"value_kind": SensorValueKind.TACTILE_MATRIX},
+            "requires matrix_shape",
+        ),
+    ],
+)
+def test_sensor_capability_rejects_invalid_value_metadata(
+    changes: dict[str, object], message: str
+) -> None:
+    values: dict[str, object] = {
+        "sensor": SensorType.FORCE,
+        "recommended_hz": 30,
+        "stale_after_s": 0.1,
+    }
+    values.update(changes)
+
+    with pytest.raises(ValidationError, match=message):
+        SensorCapability(**cast(Any, values))
+
+
+def test_sensor_capability_requires_matching_physical_conversion() -> None:
+    value_range = NumericRange(
+        0,
+        255,
+        "count",
+        physical_unit="mA",
+        scale=6.5,
+        offset=0,
+    )
+
+    with pytest.raises(ValidationError, match="physical_unit must match"):
+        SensorCapability(
+            SensorType.CURRENT,
+            10,
+            0.3,
+            unit="count",
+            value_range=value_range,
+            physical_unit="ampere",
+            scale=6.5,
+            offset=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
         ({"device_ack": 1}, "device_ack must be bool"),
         ({"clear_faults": None}, "clear_faults must be bool"),
         ({"acknowledged_commands": [CommandKind.ANGLES]}, "must be a tuple"),
@@ -402,8 +485,6 @@ def test_command_submission_rejects_unrepresentable_integers(
     [
         "percent_to_raw",
         "raw_to_percent",
-        "raw_to_physical_angles",
-        "physical_angles_to_raw",
     ],
 )
 def test_angle_conversions_reject_unrepresentable_integers(
@@ -414,3 +495,14 @@ def test_angle_conversions_reject_unrepresentable_integers(
 
     with pytest.raises(ValidationError, match="must be finite"):
         method((10**400,) * rig.device.get_capabilities().joint_count)
+
+
+@pytest.mark.parametrize(
+    "method_name", ["raw_to_physical_angles", "physical_angles_to_raw"]
+)
+def test_o20_rejects_unverified_physical_angle_conversion(method_name: str) -> None:
+    rig = make_rig("O20")
+    method = getattr(rig.device, method_name)
+
+    with pytest.raises(UnsupportedOperationError, match="physical angle mapping"):
+        method((0,) * rig.device.get_capabilities().joint_count)

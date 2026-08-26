@@ -28,15 +28,15 @@ class O6Temperature:
         pinky: Pinky finger motor temperature in deg C
     """
 
-    thumb_flex: float
-    thumb_abd: float
-    index: float
-    middle: float
-    ring: float
-    pinky: float
+    thumb_flex: int
+    thumb_abd: int
+    index: int
+    middle: int
+    ring: int
+    pinky: int
 
-    def to_list(self) -> list[float]:
-        """Convert to list of floats in joint order.
+    def to_list(self) -> list[int]:
+        """Convert to list of protocol bytes in joint order.
 
         Returns:
             List of 6 temperatures in deg C [thumb_flex, thumb_abd, index, middle, ring, pinky]
@@ -55,11 +55,11 @@ class O6Temperature:
         return [int(v) for v in self.to_list()]
 
     @classmethod
-    def from_list(cls, values: list[float]) -> "O6Temperature":
-        """Construct from list of floats in degrees Celsius.
+    def from_list(cls, values: list[int]) -> "O6Temperature":
+        """Construct from integer protocol values in degrees Celsius.
 
         Args:
-            values: List of 6 float values in deg C
+            values: List of 6 integer values in deg C
 
         Returns:
             O6Temperature instance
@@ -86,10 +86,9 @@ class O6Temperature:
         for value in values:
             if value < 0 or value > 255:
                 raise ValueError(f"Value {value} out of range [0, 255]")
-        temperatures_celsius = [float(v) for v in values]
-        return cls.from_list(temperatures_celsius)
+        return cls.from_list(values)
 
-    def __getitem__(self, index: int) -> float:
+    def __getitem__(self, index: int) -> int:
         """Support indexing: temperatures[0] returns thumb_flex.
 
         Args:

@@ -37,14 +37,15 @@
 
 ## 控制范围与单位
 
-| 型号                    | 协议位置范围                         | 协议速度范围                  | 协议力矩/限制范围                       | 物理角度换算             |
-| ----------------------- | ------------------------------------ | ----------------------------- | --------------------------------------- | ------------------------ |
-| L6                      | 每轴 `0..255 protocol_raw_u8`，整数  | `0..255 protocol_raw`         | `0..255 protocol_raw`                   | 不支持                   |
-| O6                      | 每轴 `0..255 protocol_raw_u8`，整数  | `0..255 protocol_raw`         | `0..255 protocol_raw`                   | 不支持                   |
-| L20Lite / L25           | 每轴 `0..255 protocol_raw_u8`，整数  | `0..255 protocol_raw`         | `0..255 protocol_raw`                   | 不支持                   |
-| L30                     | 逐轴见下表，`protocol_position` 整数 | `1..250 protocol_speed`，整数 | `60..800 protocol_current_limit`，整数  | 不支持，不得视为度或弧度 |
-| O20                     | 逐轴见下表，整数度                   | `0..100 protocol_unit`，整数  | `0..1000 protocol_current_limit`，整数  | 支持，单位为度           |
-| O30i                    | 每轴 `0..255 protocol_raw_u8`，整数  | `0..255 protocol_raw_u8`，整数 | `0..255 protocol_raw_u8`，整数          | 不支持                   |
+| 型号          | 协议位置范围             | 协议速度范围        | 协议力矩/限制范围                  | 物理角度换算             |
+| ------------- | ------------------------ | ------------------- | ---------------------------------- | ------------------------ |
+| L6            | 每轴 `0..255 count`      | `0..255 count`      | `0..255 count`，`1400/255 mA/count` | 不支持                   |
+| O6            | 每轴 `0..255 count`      | `0..255 count`      | `0..255 count`                     | 不支持                   |
+| L20Lite       | 每轴 `0..255 count`      | `0..255 count`      | `0..255 count`                     | 不支持                   |
+| L25           | 每轴 `0..255 count`      | `0..255 count`      | `0..255 count`                     | 不支持；仅有逐轴物理端点 |
+| L30           | 逐轴见下表，`count` 整数 | `1..250 count`      | `60..800 count`，`6.5 mA/count`    | 不支持，不得视为度或弧度 |
+| O20           | 逐轴见下表，`count` 整数 | `0..100 count`      | `0..1000 count`，`6.5 mA/count`    | 不支持；角度比例有冲突   |
+| O30i（未审计） | 每轴 `0..255 protocol_raw_u8` | `0..255 protocol_raw_u8` | `0..255 protocol_raw_u8` | 不支持                   |
 
 L30 不按左右手区分角度映射。`side=left`、`side=right` 和 `side=unknown` 均使用以下同一套
 原始位置范围与百分比映射；设备上报的左右手信息只更新能力中的身份字段，不改变关节能力。
@@ -66,17 +67,18 @@ L30 不按左右手区分角度映射。`side=left`、`side=right` 和 `side=unk
 L30、O20 的角度反馈按逐关节范围解释，因此不发布一个会掩盖轴间差异的共享范围；调用方
 应读取对应的 `JointCapability.raw_angle_range`。
 
-O20 速度反馈为 `protocol_speed` / `i16_le`，需要 RPM 时显式调用
+O20 速度反馈为 `count` / `i16_le`，比例为 `0.732 rpm/count`；需要 RPM 时显式调用
 `protocol_speeds_to_rpm()`。L30 的“扭矩”字段实际是协议电流上限，范围 `60..800`；
-电流反馈为 `protocol_current` / `i16_le`。二者每协议单位对应 6.5 mA，物理量换算必须
-显式调用相应的 `*_to_milliamps()` 函数。
+电流反馈为 `count` / `i16_be`。二者每协议计数对应 6.5 mA，物理量换算必须显式调用
+相应的 `*_to_milliamps()` 函数。L30 速度反馈同为 `i16_be`，比例为
+`0.732 rpm/count`。
 
 O6 加速度反馈保留 `0..254` 协议值，其中 `0` 特殊表示最大加速度；需要度/秒²时使用
 `O6Acceleration` 的显式 helper。O30i 当前也只发布协议值，不将其伪装成 RPM 或 mA。
 
-O20 原始/物理角度范围：
+O20 协议位置范围：
 
-| 关节         | 度      | 关节         | 度      |
+| 关节         | count   | 关节         | count   |
 | ------------ | ------- | ------------ | ------- |
 | `thumb_mcp`  | 0..120  | `thumb_ip`   | 0..150  |
 | `thumb_abd`  | 0..180  | `thumb_cmc`  | 0..130  |
@@ -86,6 +88,57 @@ O20 原始/物理角度范围：
 | `ring_abd`   | -20..20 | `ring_mcp`   | 0..180  |
 | `ring_pip`   | 0..180  | `pinky_abd`  | -20..20 |
 | `pinky_mcp`  | 0..180  | `pinky_dip`  | 0..180  |
+
+O20 协议文档一处将当前位置写为 `0.087°/count`，但目标位置范围和实测方向资料使用
+`0..120`、`0..180` 等协议端点，无法与该比例一致对应。capability 因此仅声明
+`physical_unit="degree"`，`scale/offset` 和物理端点保持 `None`，不得把 count 直接标为度。
+
+## 反馈编码与物理元数据
+
+`unit` 描述 `SensorSample.values`，原始协议计数统一为 `count`。只有 `scale` 和 `offset`
+同时存在时才可使用 `physical = raw * scale + offset`；`physical_unit` 单独存在只说明物理
+维度已知。触觉点始终按标量 `u8` 编码，矩阵结构由 `value_kind=tactile_matrix` 与
+`matrix_shape` 描述。
+
+| 型号 | 数据源 | `unit` / `encoding` | 物理元数据 | 值语义 |
+| ---- | ------ | ------------------- | ---------- | ------ |
+| L6 | 角度 | `count` / `u8` | 未知 | `numeric` |
+| L6 | 力矩限制、当前电流 | `count` / `u8` | `mA`，`scale=1400/255`，`offset=0` | `numeric` |
+| L6 | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| L6 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `12x6` |
+| L6 | 故障 | `dimensionless` / `u8` | 无 | `bitmask`，bit7 保留但原值不丢失 |
+| O6 | 角度 | `count` / `u8` | 未知 | `numeric` |
+| O6 | 速度 | `count` / `u8` | `rpm`，比例冲突，`scale=None` | `numeric` |
+| O6 | 力矩限制 | `count` / `u8` | `mA`，比例冲突，`scale=None` | `numeric` |
+| O6 | 加速度 | `count` / `u8` | `degree_per_second_squared`，比例冲突；raw 0 为特殊最大值 | `numeric` |
+| O6 | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| O6 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `10x4` |
+| O6 | 故障 | `dimensionless` / `u8` | 无 | `bitmask`，保留位原值不丢失 |
+| L20Lite | 角度、速度、力矩 | `count` / `u8` | 未知 | `numeric` |
+| L20Lite | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| L20Lite | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `12x6` |
+| L20Lite | 故障 | `dimensionless` / `u8` | 无 | `bitmask`，保留位原值不丢失 |
+| L25 | 角度 | `count` / `u8` | `degree`，逐轴只有端点，`scale=None` | `numeric` |
+| L25 | 速度 | `count` / `u8` | 逐轴为 `rpm`、`millimeter_per_second` 或未知，`scale=None` | `numeric` |
+| L25 | 力矩限制 | `count` / `u8` | `mA`，逐轴只有端点，`scale=None` | `numeric` |
+| L25 | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| L25 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `12x6` |
+| L25 | 故障 | `dimensionless` / `u8` | 无 | `bitmask` |
+| L30 | 角度 | `count` / `i16_be` | 未知 | `numeric` |
+| L30 | 速度 | `count` / `i16_be` | `rpm`，`scale=0.732`，`offset=0` | `numeric` |
+| L30 | 当前电流 | `count` / `i16_be` | `mA`，`scale=6.5`，`offset=0` | `numeric` |
+| L30 | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| L30 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `12x6` |
+| L30 | 故障 | `dimensionless` / `u8` | 无 | `bitmask` |
+| O20 | 角度 | `count` / `i16_le` | `degree`，比例冲突，`scale=None` | `numeric` |
+| O20 | 速度 | `count` / `i16_le` | `rpm`，`scale=0.732`，`offset=0` | `numeric` |
+| O20 | 当前电流 | `mA` / `i16_le` | 同原值，`scale=1`，`offset=0` | `numeric` |
+| O20 | 温度 | `count` / `u8` | 协议未给单位 | `numeric` |
+| O20 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `12x6` |
+| O20 | 故障 | `dimensionless` / `u8` | 无；有效值 `0..4` | `enum` |
+
+编码含义：`u8` 是无符号 8 位整数；`i16_le` 是有符号 16 位小端；`i16_be` 是有符号
+16 位大端。O30i capability 与文档未在本次审计中修改。
 
 ## 百分比映射
 
@@ -157,7 +210,16 @@ for joint in caps.joints:
     )
 
 for sensor in caps.sensors:
-    print(sensor.sensor.value, sensor.recommended_hz, sensor.stale_after_s)
+    print(
+        sensor.sensor.value,
+        sensor.unit,
+        sensor.encoding,
+        sensor.physical_unit,
+        sensor.scale,
+        sensor.offset,
+        sensor.value_kind.value,
+        sensor.matrix_shape,
+    )
 
 print(caps.features.clear_faults)
 print(caps.features.acknowledged_commands)

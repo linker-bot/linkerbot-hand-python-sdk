@@ -19,9 +19,11 @@ with O6(side="left", interface_name="can0") as hand:
 hand.acceleration.set_percentage_accelerations([80] * 6)
 ```
 
-## 显式物理量换算
+## 显式兼容换算
 
-`O6Acceleration` 提供百分比、协议值和度/秒²之间的显式 helper：
+协议资料同时给出 `8.7 度/秒²`、另一条不一致的换算式，并规定 raw `0` 表示最大值，
+因此不存在可发布为统一线性 `scale/offset` 的关系。`O6Acceleration` 保留既有的显式
+兼容 helper：
 
 ```python
 from linkerbot.hand.o6 import O6Acceleration
@@ -32,5 +34,6 @@ hand.acceleration.set_accelerations(protocol_target)
 ```
 
 事件流中的 `AccelerationEvent.data.accelerations` 仍是协议整数。统一快照只保存
-`SensorSample.values`，并标注 `unit="protocol_raw"`、`encoding="u8"`；不存在第二份
-`raw_values`。
+`SensorSample.values`，并标注 `unit="count"`、`encoding="u8"`、
+`physical_unit="degree_per_second_squared"`，`scale/offset=None`；不存在第二份
+`raw_values`，也不应把兼容 helper 结果当作已确认标定值。

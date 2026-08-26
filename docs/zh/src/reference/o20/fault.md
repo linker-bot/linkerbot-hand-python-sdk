@@ -6,6 +6,9 @@
 - **单位**:每电机 1 字节，值为下表定义的故障码
 - **协议**:寄存器 `SYS_ERROR_STATUS`(0x02),读回 uint8[16];写回可清故障
 
+统一 `SensorSample` 使用 `unit="dimensionless"`、`encoding="u8"`、
+`value_kind="enum"`，有效值为 `0..4`。这些值是互斥枚举，不是可组合位掩码。
+
 ## 故障码
 
 |  值 | 名称                         | 说明                    |

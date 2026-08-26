@@ -29,7 +29,8 @@ with O20(side="right") as hand:
         print(cached.speeds)
 ```
 
-统一 `SensorSample` 标注 `unit="protocol_speed"`、`encoding="i16_le"`。
+统一 `SensorSample` 标注 `unit="count"`、`encoding="i16_le"`、
+`physical_unit="rpm"`、`scale=0.732`、`offset=0`。`values` 仍是协议整数。
 
 ## 显式 RPM 换算
 

@@ -1,6 +1,8 @@
 # 温度读取
 
 通过 `hand.temperature` 读取 O6 灵巧手 6 个关节电机的温度数据（单位：°C）。
+协议使用 `u8` 且每计数为 1°C；返回值保持整数。统一样本标注
+`unit="degree_celsius"`、`physical_unit="degree_celsius"`、`scale=1`、`offset=0`。
 
 **温度属性**
 
