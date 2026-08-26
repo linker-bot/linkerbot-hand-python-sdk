@@ -399,6 +399,11 @@ def test_device_capabilities_rejects_malformed_field_types(
         ("firmware", 123, "identity firmware must be str or None"),
         ("side", "right", "identity side must be HandSide"),
         ("serial_number", 123, "serial_number must be str or None"),
+        (
+            "capability_variant",
+            4,
+            "capability_variant must be str or None",
+        ),
     ],
 )
 def test_device_identity_rejects_malformed_field_types(

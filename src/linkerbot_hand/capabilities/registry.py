@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from ..contracts import DeviceCapabilities, HandSide, TransportType
+from ..contracts import DeviceCapabilities, DeviceIdentity, HandSide, TransportType
 from ..errors import ValidationError
 from .models import (
     L6_CAPABILITIES,
@@ -15,6 +15,7 @@ from .models import (
     O20_CAPABILITIES,
     O30I_CAPABILITIES,
 )
+from .models.o6 import specialize_capabilities as specialize_o6_capabilities
 
 MODEL_CAPABILITIES: dict[str, DeviceCapabilities] = {
     capabilities.model: capabilities
@@ -86,4 +87,22 @@ def get_model_capabilities(
     )
 
 
-__all__ = ["MODEL_CAPABILITIES", "get_model_capabilities"]
+def specialize_model_capabilities(
+    capabilities: DeviceCapabilities,
+    identity: DeviceIdentity,
+) -> DeviceCapabilities:
+    """Apply model-owned hardware variants to detected device capabilities."""
+    specialized = capabilities.with_identity(identity)
+    if specialized.model == "O6":
+        return specialize_o6_capabilities(
+            specialized,
+            identity.capability_variant,
+        )
+    return specialized
+
+
+__all__ = [
+    "MODEL_CAPABILITIES",
+    "get_model_capabilities",
+    "specialize_model_capabilities",
+]

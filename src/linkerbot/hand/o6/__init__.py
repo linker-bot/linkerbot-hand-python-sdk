@@ -24,6 +24,7 @@ from linkerbot.hand.o6.force_sensor import (
     ForceSensorManager,
     SingleForceSensorManager,
 )
+from linkerbot.hand.o6.identity import O6SerialIdentity, parse_o6_serial_identity
 from linkerbot.hand.o6.o6 import O6
 from linkerbot.hand.o6.speed import (
     AccelerationData,
@@ -82,4 +83,6 @@ __all__ = [
     "FaultCode",
     "Version",
     "DeviceInfo",
+    "O6SerialIdentity",
+    "parse_o6_serial_identity",
 ]

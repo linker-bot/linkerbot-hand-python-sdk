@@ -645,6 +645,7 @@ class DeviceIdentity:
         firmware: Protocol-reported firmware version, if available.
         side: Protocol-reported hand side, if available.
         serial_number: Protocol-reported serial number, if available.
+        capability_variant: Opaque model-owned hardware variant, if detected.
 
     Raises:
         ValidationError: If identity fields have invalid types or model is empty.
@@ -654,6 +655,7 @@ class DeviceIdentity:
     firmware: str | None = None
     side: HandSide = HandSide.UNKNOWN
     serial_number: str | None = None
+    capability_variant: str | None = None
 
     def __post_init__(self) -> None:
         """Validate device identity fields."""
@@ -665,6 +667,10 @@ class DeviceIdentity:
             raise ValidationError("identity side must be HandSide")
         if self.serial_number is not None and not isinstance(self.serial_number, str):
             raise ValidationError("serial_number must be str or None")
+        if self.capability_variant is not None and not isinstance(
+            self.capability_variant, str
+        ):
+            raise ValidationError("capability_variant must be str or None")
 
 
 __all__ = [

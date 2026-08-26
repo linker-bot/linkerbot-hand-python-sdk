@@ -1,4 +1,6 @@
-"""O6 capability declaration."""
+"""O6 base and identity-specialized capability declarations."""
+
+from dataclasses import replace
 
 from ...contracts import (
     DeviceCapabilities,
@@ -142,4 +144,30 @@ CAPABILITIES = DeviceCapabilities(
     transport=TransportType.CAN,
 )
 
-__all__ = ["CAPABILITIES"]
+
+def specialize_capabilities(
+    capabilities: DeviceCapabilities,
+    capability_variant: str | None,
+) -> DeviceCapabilities:
+    """Apply O6 hardware-variant sensor availability after identity read.
+
+    The verified ``04-B`` variant uses five ``10x4`` tactile matrices queried
+    with ``B1..B5 A4``. Other 04-series sensor options are not implemented by
+    this backend and therefore must not be advertised as ``FORCE`` support.
+    Unknown and pre-04 identities retain the historical base declaration.
+    """
+    if capability_variant is None or not capability_variant.startswith("04-"):
+        return capabilities
+    if capability_variant == "04-B":
+        return capabilities
+    return replace(
+        capabilities,
+        sensors=tuple(
+            sensor
+            for sensor in capabilities.sensors
+            if sensor.sensor is not SensorType.FORCE
+        ),
+    )
+
+
+__all__ = ["CAPABILITIES", "specialize_capabilities"]

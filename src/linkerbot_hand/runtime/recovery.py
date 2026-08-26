@@ -6,6 +6,7 @@ import threading
 import time
 
 from ..backend import BackendReading, HandBackend
+from ..capabilities import specialize_model_capabilities
 from ..commands.model import coerce_timeout
 from ..contracts import CommandStage, ConnectionState, SensorType
 from ..errors import (
@@ -230,7 +231,10 @@ class _RecoveryRuntime(_SessionState):
                 self._backend = backend
                 self._connection_generation = prospective_generation
                 self._last_identity = identity
-                self._capabilities = self._base_capabilities.with_identity(identity)
+                self._capabilities = specialize_model_capabilities(
+                    self._base_capabilities,
+                    identity,
+                )
                 self._snapshot_cache.reset(
                     self._capabilities,
                     generation=prospective_generation,

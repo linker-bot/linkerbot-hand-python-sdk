@@ -70,11 +70,22 @@ class ClassicAdapter:
             raise DeviceNotReadyError(
                 f"serial number {serial_number!r} does not identify {self.model}"
             )
+        serial_identity = getattr(info, "serial_identity", None)
+        reported_side = getattr(serial_identity, "hand_side", None)
+        try:
+            side = (
+                HandSide(reported_side)
+                if reported_side is not None
+                else HandSide.UNKNOWN
+            )
+        except ValueError:
+            side = HandSide.UNKNOWN
         return DeviceIdentity(
             model=self.model,
             firmware=str(info.firmware_version),
-            side=HandSide.UNKNOWN,
+            side=side,
             serial_number=serial_number,
+            capability_variant=getattr(serial_identity, "capability_variant", None),
         )
 
 

@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ...backend import BackendReading, DispatchResult
+from ...capabilities import specialize_model_capabilities
 from ...commands.model import HandCommand
 from ...contracts import CommandKind, DeviceIdentity, HandSide, SensorType
 from ...errors import DeviceNotReadyError, TransportError, ValidationError
@@ -63,7 +64,10 @@ class LegacyHandBackend:
         """
         if self._hand is not None:
             identity = self._adapter.read_identity(self._hand)
-            self._capabilities = self._capabilities.with_identity(identity)
+            self._capabilities = specialize_model_capabilities(
+                self._capabilities,
+                identity,
+            )
             return identity
         hand_class = getattr(
             importlib.import_module(self._adapter.module_name),
@@ -78,7 +82,10 @@ class LegacyHandBackend:
         try:
             self._hand = hand_class(**options)
             identity = self._adapter.read_identity(self._hand)
-            self._capabilities = self._capabilities.with_identity(identity)
+            self._capabilities = specialize_model_capabilities(
+                self._capabilities,
+                identity,
+            )
             return identity
         except BaseException as exc:
             try:

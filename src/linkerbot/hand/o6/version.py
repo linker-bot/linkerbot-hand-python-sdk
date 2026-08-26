@@ -13,6 +13,7 @@ from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.relay import DataRelay
 
 from .._serial_number import SerialNumberCollector
+from .identity import O6SerialIdentity, parse_o6_serial_identity
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class DeviceInfo:
         firmware_version: Embedded firmware version.
         mechanical_version: Mechanical structure version.
         timestamp: Unix timestamp when the data was retrieved.
+        serial_identity: Parsed product revision, side, and sensor option.
     """
 
     serial_number: str
@@ -51,6 +53,7 @@ class DeviceInfo:
     firmware_version: Version
     mechanical_version: Version
     timestamp: float
+    serial_identity: O6SerialIdentity | None = None
 
 
 class VersionManager:
@@ -112,6 +115,7 @@ class VersionManager:
             mech = self._get_mechanical_version_blocking(timeout)
             pcb = self._get_pcb_version_blocking(timeout)
             sn = self._get_serial_number_blocking(timeout)
+            serial_identity = parse_o6_serial_identity(sn)
 
             return DeviceInfo(
                 serial_number=sn,
@@ -119,6 +123,7 @@ class VersionManager:
                 firmware_version=fw,
                 mechanical_version=mech,
                 timestamp=time.time(),
+                serial_identity=serial_identity,
             )
 
     def _get_serial_number_blocking(self, timeout_ms: float) -> str:

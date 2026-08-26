@@ -6,6 +6,7 @@ import threading
 import time
 
 from ..backend import HandBackend
+from ..capabilities import specialize_model_capabilities
 from ..contracts import CommandStage, ConnectionState, PollingPlan
 from ..errors import (
     ClosedError,
@@ -88,7 +89,10 @@ class _LifecycleRuntime(_WorkerRuntime):
                 self._candidate_backend = None
                 self._connection_generation += 1
                 self._last_identity = identity
-                self._capabilities = self._base_capabilities.with_identity(identity)
+                self._capabilities = specialize_model_capabilities(
+                    self._base_capabilities,
+                    identity,
+                )
                 self._snapshot_cache.reset(
                     self._capabilities,
                     generation=self._connection_generation,
