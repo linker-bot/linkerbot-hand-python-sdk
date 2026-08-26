@@ -7,8 +7,6 @@ from numbers import Integral, Real
 from typing import Any, NoReturn
 
 from ...contracts import (
-    CommandKind,
-    DeviceCapabilities,
     SensorType,
     SensorValue,
     TactileState,
@@ -19,7 +17,6 @@ from ...errors import (
     DeviceStateError,
     HandSDKError,
     TransportError,
-    UnsupportedOperationError,
     ValidationError,
     normalize_error,
 )
@@ -50,94 +47,15 @@ _VALUE_ATTRIBUTES = {
 }
 
 
-def command_values_for_legacy(
-    model: str, kind: CommandKind, values: list[float | int]
-) -> object:
-    """Convert unified physical command values to legacy manager values.
-
-    Legacy managers intentionally keep their historical public conventions:
-    classic hands use normalized percentages, O6 exposes helper objects, and
-    L30 accepts protocol current-limit integers.  The unified capability
-    contract is allowed to use physical units, so this conversion is the one
-    boundary where those conventions are translated.
-    """
-    if kind is CommandKind.SPEEDS and model == "O6":
-        from linkerbot.hand.o6.speed import O6Speed
-
-        return O6Speed.from_rpm(list(values))
-    if kind is CommandKind.TORQUES:
-        if model == "L6":
-            from linkerbot.hand.l6.torque import L6Torque
-
-            return L6Torque.from_milliamps(list(values))
-        if model == "O6":
-            from linkerbot.hand.o6.torque import O6Torque
-
-            return O6Torque.from_milliamps(list(values))
-        if model == "L30":
-            # L30's so-called torque field is a current limit, 6.5 mA/LSB.
-            return [round(float(value) / 6.5) for value in values]
-    return values
-
-
-def _raw_vector(data: Any, payload: Any, sensor: SensorType) -> tuple[int, ...]:
-    """Extract exact protocol vector values from a legacy response object."""
-    raw_attribute = {
-        SensorType.SPEEDS: "raw_speeds",
-        SensorType.TORQUES: "raw_torques",
-        SensorType.ACCELERATION: "raw_accelerations",
-    }.get(sensor)
-    if raw_attribute is not None:
-        raw_values = getattr(data, raw_attribute, None)
-        if raw_values is not None:
-            return tuple(int(value) for value in raw_values)
-    to_raw = getattr(payload, "to_raw", None)
-    if callable(to_raw):
-        return tuple(int(value) for value in to_raw())
-    return tuple(int(value) for value in as_tuple(payload))
-
-
-def normalize_vector_sensor(
-    data: Any,
+def protocol_vector_values(
     payload: Any,
     *,
     sensor: SensorType,
     model: str,
-) -> tuple[tuple[SensorValue, ...], tuple[int, ...] | None]:
-    """Normalize vector telemetry and retain exact protocol values."""
-    if sensor not in (
-        SensorType.SPEEDS,
-        SensorType.TORQUES,
-        SensorType.ACCELERATION,
-        SensorType.CURRENT,
-    ):
-        values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
-        return values, None
-
-    raw_values = _raw_vector(data, payload, sensor)
-    if sensor is SensorType.SPEEDS:
-        if model == "O6":
-            values = tuple(value * 180.0 / 255.0 for value in raw_values)
-        elif model == "O20":
-            values = tuple(value * 0.732 for value in raw_values)
-        else:
-            values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
-    elif sensor is SensorType.ACCELERATION:
-        if model == "O6":
-            values = tuple(
-                254.0 * 8.7 if value == 0 else value * 8.7 for value in raw_values
-            )
-        else:
-            values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
-    elif sensor is SensorType.TORQUES and model == "L6":
-        values = tuple(value * 1400.0 / 255.0 for value in raw_values)
-    elif sensor is SensorType.TORQUES and model == "O6":
-        values = tuple(value * 1000.0 / 255.0 for value in raw_values)
-    elif sensor is SensorType.CURRENT and model == "L30":
-        values = tuple(value * 6.5 for value in raw_values)
-    else:
-        values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
-    return tuple(normalize_sensor_value(value) for value in values), raw_values
+) -> tuple[SensorValue, ...]:
+    """Extract decoded protocol-native vector values without unit conversion."""
+    values = _protocol_sequence(payload, sensor=sensor, model=model)
+    return _integer_protocol_values(values, sensor=sensor, model=model)
 
 
 def poll_manager_name(sensor: SensorType) -> str:
@@ -152,123 +70,58 @@ def poll_manager_name(sensor: SensorType) -> str:
     return _POLL_MANAGERS[sensor]
 
 
-def percent_to_raw(
-    values: list[float | int], capabilities: DeviceCapabilities
-) -> tuple[int, ...]:
-    """Convert validated normalized targets to legacy protocol values.
-
-    Args:
-        values: One normalized target per joint.
-        capabilities: Active model and side mapping metadata.
-
-    Returns:
-        Rounded raw protocol values in joint order.
-
-    Raises:
-        ValidationError: If the joint value count is incorrect.
-        UnsupportedOperationError: If any joint lacks a verified mapping.
-    """
-    if len(values) != capabilities.joint_count:
-        raise ValidationError(f"expected {capabilities.joint_count} joint values")
-    result: list[int] = []
-    for value, joint in zip(values, capabilities.joints, strict=True):
-        mapping = joint.percentage_mapping
-        if mapping is None:
-            raise UnsupportedOperationError(
-                "percentage angle control is not supported for this hand side"
-            )
-        result.append(
-            round(
-                mapping.raw_closed
-                + float(value) / 100.0 * (mapping.raw_open - mapping.raw_closed)
-            )
-        )
-    return tuple(result)
-
-
-def raw_to_percent(
-    values: tuple[int, ...], capabilities: DeviceCapabilities
-) -> tuple[float | None, ...]:
-    """Convert legacy raw angle readings to normalized positions.
-
-    Args:
-        values: Exact raw protocol readings in joint order.
-        capabilities: Active model and side mapping metadata.
-
-    Returns:
-        Normalized values, with ``None`` only for joints without a mapping.
-
-    Raises:
-        TransportError: If the response joint count is incorrect.
-    """
-    if len(values) != capabilities.joint_count:
-        raise TransportError(
-            f"expected {capabilities.joint_count} angle values, got {len(values)}"
-        )
-    percentages: list[float | None] = []
-    for value, joint in zip(values, capabilities.joints, strict=True):
-        mapping = joint.percentage_mapping
-        if mapping is None:
-            percentages.append(None)
-            continue
-        span = mapping.raw_open - mapping.raw_closed
-        percentages.append(
-            None if span == 0 else 100.0 * (value - mapping.raw_closed) / span
-        )
-    return tuple(percentages)
-
-
-def raw_angles(
-    data: Any,
+def protocol_angle_values(
     payload: Any,
     *,
     model: str,
-    classic_raw_fallback: bool,
 ) -> tuple[int, ...]:
     """Extract exact protocol angles from a legacy response.
 
     Args:
-        data: Full legacy manager response.
         payload: Angle payload extracted from the response.
         model: Model name included in errors.
-        classic_raw_fallback: Whether classic percent-like payloads may be
-            converted back to unsigned-byte protocol values.
-
     Returns:
         Exact integer protocol values in response order.
 
     Raises:
-        TransportError: If no raw representation exists or values are invalid.
+        TransportError: If no explicit protocol sequence exists or values are invalid.
     """
-    hardware_raw = getattr(data, "raw_angles", None)
-    to_raw = getattr(payload, "to_raw", None)
-    if hardware_raw is not None:
-        values = tuple(hardware_raw)
-    elif callable(to_raw):
-        values = tuple(to_raw())
-    elif classic_raw_fallback:
-        values = tuple(
-            round(float(value) * 255.0 / 100.0) for value in as_tuple(payload)
-        )
-    else:
-        raise TransportError(f"{model} angle response has no raw representation")
-    try:
-        return tuple(int(value) for value in values)
-    except (TypeError, ValueError) as exc:
-        raise TransportError("angle response contains non-integer raw values") from exc
+    values = _protocol_sequence(payload, sensor=SensorType.ANGLES, model=model)
+    return _integer_protocol_values(values, sensor=SensorType.ANGLES, model=model)
 
 
-def set_protocol_raw_angles(manager: Any, values: list[float | int]) -> None:
-    """Send exact raw positions through a legacy angle manager.
+def _protocol_sequence(
+    payload: Any,
+    *,
+    sensor: SensorType,
+    model: str,
+) -> tuple[Any, ...]:
+    """Require an explicit decoded protocol sequence without conversion hooks."""
+    if isinstance(payload, (list, tuple)):
+        return tuple(payload)
+    values = getattr(payload, "values", None)
+    if isinstance(values, (list, tuple)):
+        return tuple(values)
+    raise TransportError(
+        f"{model} {sensor.value} response has no explicit protocol sequence"
+    )
 
-    Args:
-        manager: Legacy angle manager instance.
-        values: Raw protocol targets in joint order.
-    """
-    setter = getattr(manager, "set_hardware_raw_angles", None)
-    if not callable(setter):
-        setter = manager.set_raw_angles
-    setter(values)
+
+def _integer_protocol_values(
+    values: tuple[Any, ...],
+    *,
+    sensor: SensorType,
+    model: str,
+) -> tuple[int, ...]:
+    result: list[int] = []
+    for value in values:
+        normalized = normalize_sensor_value(value)
+        if not isinstance(normalized, int) or isinstance(normalized, bool):
+            raise TransportError(
+                f"{model} {sensor.value} response contains non-integer protocol values"
+            )
+        result.append(normalized)
+    return tuple(result)
 
 
 def normalize_tactile(data: Any) -> tuple[TactileState, ...]:
@@ -352,9 +205,6 @@ def as_tuple(payload: Any) -> tuple[Any, ...]:
     values = getattr(payload, "values", None)
     if isinstance(values, (tuple, list)):
         return tuple(values)
-    to_raw = getattr(payload, "to_raw", None)
-    if callable(to_raw):
-        return tuple(to_raw())
     return (payload,)
 
 
@@ -415,10 +265,8 @@ __all__ = [
     "extract_payload",
     "normalize_sensor_value",
     "normalize_tactile",
-    "percent_to_raw",
     "poll_manager_name",
+    "protocol_angle_values",
+    "protocol_vector_values",
     "raise_mapped",
-    "raw_angles",
-    "raw_to_percent",
-    "set_protocol_raw_angles",
 ]

@@ -4,33 +4,36 @@ O30i 的常用运行时对象在协议线上都是 36 槽向量，但实际只�
 
 ## 位置控制
 
-百分比 API：
+默认协议字节 API：
 
 ```python
 from linkerbot.hand import O30i
 
 with O30i() as hand:
-    hand.angle.set_angles([50.0] * 20, timeout_ms=1000)
+    hand.angle.set_angles([0x80] * 20, timeout_ms=1000)
+
+    # 只改五指指尖：SDK 关节索引 15～19
+    hand.angle.set_slice(15, [0x80] * 5, timeout_ms=1000)
 ```
 
-实物验证确认 O30i 的百分比与原始字节反向换算：`0%`（张开端）对应 raw `255`，`100%`（闭合端）对应 raw `0`。百分比仍是逻辑归一化值，不是以度为单位的标定角度。
+这些方法保持设备协议语义。对屈曲关节而言，协议值增大朝张开方向运动，协议值减小
+朝闭合方向运动；侧摆和横摆关节仍应按实际机械方向进行小幅验证。
 
-原始字节 API：
+显式百分比 API：
 
 ```python
 with O30i() as hand:
-    hand.angle.set_raw_angles([0x80] * 20, timeout_ms=1000)
-
-    # 只改五指指尖：SDK 关节索引 15～19
-    hand.angle.set_raw_slice(15, [0x80] * 5, timeout_ms=1000)
+    hand.angle.set_percentage_angles([50.0] * 20, timeout_ms=1000)
 ```
 
-原始 API 保持设备协议语义，不执行上述反转。对屈曲关节而言，raw 增大朝张开方向运动，raw 减小朝闭合方向运动；侧摆和横摆关节仍应按实际机械方向进行小幅验证。
+型号 manager 的百分比 helper 使用实物确认的反向换算：`0%` 对应协议值 `255`，
+`100%` 对应协议值 `0`。它是逻辑归一化值，不是以度为单位的标定角度。统一
+`HandDevice.submit_percentage_angles()` 按每轴 capability 端点换算，方向轴可能不同。
 
 切片末端不能超过 SDK 关节索引 19。以下调用会抛出 `ValidationError`，不会发帧：
 
 ```python
-hand.angle.set_raw_slice(19, [1, 2])
+hand.angle.set_slice(19, [1, 2])
 ```
 
 稀疏位置对象 `MI=0x30` 使用与完整向量不同的固件关节编号。`set_sparse()` 的 key 使用 SDK 的 0～19 关节索引，SDK 自动转换。例如索引 15/16 是拇指/食指指尖，线上会变成稀疏关节号 4/9：
@@ -40,18 +43,17 @@ hand.angle.set_sparse({15: 0x80, 16: 0x80})
 # HOP data: 30 00 04 04 80 09 80
 ```
 
-每个关节占两个 payload 字节；需要一次设置全部 20 个实际关节时使用 `set_raw_angles()`。
+每个关节占两个 payload 字节；需要一次设置全部 20 个实际关节时使用 `set_angles()`。
 
 ## 位置读取
 
 ```python
 with O30i() as hand:
     actual = hand.angle.get_blocking(timeout_ms=1000)
-    print("百分比", actual.angles.to_list())
-    print("原始值", actual.angles.to_raw())
+    print("实际协议值", actual.angles)
 
     target = hand.angle.get_target_blocking(timeout_ms=1000)
-    print("设定值", target.to_raw())
+    print("目标协议值", target)
 
     # 实测仅确认完整 72 字节读取；SDK 返回 20 个实际关节
     raw_i16 = hand.angle.get_i16_blocking(timeout_ms=1000)
@@ -142,7 +144,7 @@ with O30i() as hand:
 
     for event in stream:
         if isinstance(event, AngleEvent):
-            print(event.data.angles.to_raw())
+            print(event.data.angles)
             break
 
     snapshot = hand.get_snapshot()

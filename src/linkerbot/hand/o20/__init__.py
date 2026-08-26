@@ -33,12 +33,25 @@ from .protocol import (
     build_can_id,
     parse_can_id,
 )
-from .speed import O20SpeedData, SpeedManager
+from .speed import (
+    O20SpeedData,
+    SpeedManager,
+    protocol_speeds_to_rpm,
+    rpm_to_protocol_speeds,
+)
 from .temperature import O20TemperatureData, TemperatureManager
-from .torque import O20TorqueData, TorqueManager
+from .torque import (
+    O20TorqueData,
+    TorqueManager,
+    milliamps_to_protocol_current_limits,
+    protocol_current_limits_to_milliamps,
+)
 from .version import O20DeviceInfo, O20HandSide, VersionManager
 
 __all__ = [
+    "O20",
+    "O20_JOINT_COUNT",
+    "O20_JOINT_SPECS",
     "AngleEvent",
     "AngleManager",
     "CurrentEvent",
@@ -49,7 +62,6 @@ __all__ = [
     "FingerForceSensor",
     "ForceSensorEvent",
     "ForceSensorManager",
-    "O20",
     "O20AllFingersData",
     "O20Angle",
     "O20AngleData",
@@ -64,8 +76,6 @@ __all__ = [
     "O20SpeedData",
     "O20TemperatureData",
     "O20TorqueData",
-    "O20_JOINT_COUNT",
-    "O20_JOINT_SPECS",
     "ProtocolError",
     "SensorEvent",
     "SensorSource",
@@ -77,5 +87,9 @@ __all__ = [
     "TorqueManager",
     "VersionManager",
     "build_can_id",
+    "milliamps_to_protocol_current_limits",
     "parse_can_id",
+    "protocol_current_limits_to_milliamps",
+    "protocol_speeds_to_rpm",
+    "rpm_to_protocol_speeds",
 ]

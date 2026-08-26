@@ -39,7 +39,6 @@ class CommandKind(str, Enum):
     """Operation accepted by the unified command scheduler."""
 
     ANGLES = "angles"
-    RAW_ANGLES = "raw_angles"
     SPEEDS = "speeds"
     TORQUES = "torques"
     CLEAR_FAULTS = "clear_faults"
@@ -52,7 +51,6 @@ class CommandKind(str, Enum):
         """Whether newer targets may supersede this command before dispatch."""
         return self in {
             CommandKind.ANGLES,
-            CommandKind.RAW_ANGLES,
             CommandKind.SPEEDS,
             CommandKind.TORQUES,
         }

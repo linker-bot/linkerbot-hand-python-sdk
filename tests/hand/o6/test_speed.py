@@ -29,7 +29,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(target)
+    hand.angle.set_percentage_angles(target)
     start = time.perf_counter()
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
@@ -55,7 +55,7 @@ def _move_and_time(
     data = hand.angle.get_blocking(timeout_ms=500)
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)]}"
     )
     return elapsed, timed_out
 
@@ -69,7 +69,7 @@ class TestSpeedManagerBlocking:
 
         assert data is not None
         assert len(data.speeds) == 6
-        for speed in data.speeds.to_list():
+        for speed in list(data.speeds):
             assert 0 <= speed <= 100, f"Speed {speed} out of range [0, 100]"
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
@@ -85,11 +85,11 @@ class TestSpeedManagerSet:
 
     def test_set_speeds_with_list(self, o6_hand: O6):
         """set_speeds should accept a list of floats without error."""
-        o6_hand.speed.set_speeds([50.0] * 6)
+        o6_hand.speed.set_percentage_speeds([50.0] * 6)
 
     def test_set_speeds_with_o6speed(self, o6_hand: O6):
         """set_speeds should accept an O6Speed instance without error."""
-        o6_hand.speed.set_speeds(
+        o6_hand.speed.set_percentage_speeds(
             O6Speed(
                 thumb_flex=50.0,
                 thumb_abd=50.0,
@@ -102,7 +102,7 @@ class TestSpeedManagerSet:
 
     def test_set_different_speeds(self, o6_hand: O6):
         """set_speeds should accept different per-motor speeds without error."""
-        o6_hand.speed.set_speeds([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
+        o6_hand.speed.set_percentage_speeds([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
 
 
 class TestSpeedManagerSnapshot:
@@ -137,7 +137,7 @@ class TestSpeedInteractive:
             session.step(
                 instruction=f"[{level} speed={speed_val}] Closing fingers",
                 action=lambda lbl=f"{level} close", sv=speed_val: (
-                    o6_hand.speed.set_speeds([sv] * 6),
+                    o6_hand.speed.set_percentage_speeds([sv] * 6),
                     track(lbl, CLOSED),
                 ),
                 expected=(

@@ -1,16 +1,8 @@
-"""Legacy angle control and sensing for O20.
-
-``set_angles`` uses the historic 0-100 numeric normalization where 0 maps to
-each joint's ``spec.minimum`` and 100 maps to ``spec.maximum``. This is not the
-unified hand direction contract. ``set_raw_angles`` takes protocol-native raw
-integers, while sensor readback returns ``O20Angle`` in the same legacy numeric
-space.
-"""
+"""O20 protocol-native position control and sensing."""
 
 from __future__ import annotations
 
 import time
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -21,36 +13,22 @@ from . import protocol
 from .client import O20Client
 from .joints import O20Angle, validate_raw_command_values
 
-_LEGACY_PERCENTAGE_WARNING = (
-    "O20 AngleManager.set_angles() uses legacy 0=minimum, 100=maximum "
-    "semantics and is deprecated; use HandDevice.submit_angles() for "
-    "100=open, 0=closed"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class O20AngleData:
-    """Immutable O20 angle sensor data.
+    """Immutable O20 protocol position data.
 
     Attributes:
-        angles: Joint angles as 0-100 float percentages in motor-ID order.
-            Values may occasionally lie slightly outside [0, 100] when the
-            hardware calibrates or overshoots the documented command range.
+        angles: 16 decoded signed protocol values in motor-ID order, in degrees.
         timestamp: Unix timestamp when the data was decoded.
     """
 
-    angles: O20Angle
+    angles: tuple[int, ...]
     timestamp: float
 
 
 class AngleManager:
-    """Manager for O20 joint angle commands and angle sensor data.
-
-    ``set_angles`` accepts the legacy 0-100 normalization where 0 maps to
-    ``spec.minimum`` and 100 maps to ``spec.maximum``. Use ``set_raw_angles``
-    for exact protocol integers from :data:`O20_JOINT_SPECS`. Sensor readback
-    returns the same legacy normalization via :class:`O20AngleData`.
-    """
+    """Manage O20 protocol-native target and measured joint positions."""
 
     def __init__(self, client: O20Client) -> None:
         """Initialize the angle manager.
@@ -61,50 +39,25 @@ class AngleManager:
         self._client = client
         self._relay = DataRelay[O20AngleData]()
 
-    def set_angles(self, angles: O20Angle | Sequence[int | float]) -> None:
-        """Send 16 target joint angles as 0-100 percentages.
-
-        This legacy API accepts 16 floats between 0 and 100, where 0 maps to
-        ``spec.minimum`` and 100 maps to ``spec.maximum`` for each joint. The
-        manager converts them to raw integers using each joint's spec range.
+    def set_angles(self, angles: list[int] | tuple[int, ...]) -> None:
+        """Send 16 protocol-native target positions in degrees.
 
         Args:
-            angles: :class:`O20Angle` or 16-element sequence of 0-100 numbers
-                in motor-ID order.
+            angles: 16 protocol integers in motor-ID order. Each value must be
+                within the corresponding :data:`O20_JOINT_SPECS` range.
 
         Raises:
-            ValidationError: If the value count, type, or 0-100 range is invalid.
+            ValidationError: If count, type, or a per-joint range is invalid.
         """
-        warnings.warn(
-            _LEGACY_PERCENTAGE_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
+        validated = validate_raw_command_values(angles)
+        self._send_angles(list(validated))
+
+    def set_percentage_angles(self, angles: O20Angle | Sequence[int | float]) -> None:
+        """Convert explicit 0..100 targets and send protocol values."""
+        percentages = (
+            angles if isinstance(angles, O20Angle) else O20Angle.from_list(angles)
         )
-        if isinstance(angles, O20Angle):
-            raw_values = angles.to_raw()
-        elif isinstance(angles, Sequence):
-            raw_values = O20Angle.from_list(angles).to_raw()
-        else:
-            raise ValidationError(
-                f"Expected O20Angle or a sequence of numbers, "
-                f"got {type(angles).__name__}"
-            )
-        self._send_raw_angles(raw_values)
-
-    def set_raw_angles(self, raw_angles: list[int] | tuple[int, ...]) -> None:
-        """Send 16 target joint angles as raw protocol integers.
-
-        Each value must lie in its joint's documented
-        ``[spec.minimum, spec.maximum]`` range (see :data:`O20_JOINT_SPECS`).
-
-        Args:
-            raw_angles: 16-element sequence of ints in motor-ID order.
-
-        Raises:
-            ValidationError: If count, type, or per-joint spec range is invalid.
-        """
-        validated = validate_raw_command_values(raw_angles)
-        self._send_raw_angles(list(validated))
+        self.set_angles(percentages.to_raw())
 
     def get_blocking(self, timeout_ms: float = 100) -> O20AngleData:
         """Read current joint angles and update the cached snapshot.
@@ -113,8 +66,7 @@ class AngleManager:
             timeout_ms: Time to wait for the read response.
 
         Returns:
-            O20AngleData whose ``angles`` are 0-100 percentages (may slightly
-            exceed the range on hardware calibration overshoot).
+            O20AngleData containing decoded signed protocol values in degrees.
 
         Raises:
             ValidationError: If timeout_ms is not positive.
@@ -127,9 +79,7 @@ class AngleManager:
             register=protocol.O20_REG_CURRENT_POS, timeout_ms=timeout_ms
         )
         data = O20AngleData(
-            angles=O20Angle.from_sensor_raw(
-                list(protocol.decode_i16_vector_response(response))
-            ),
+            angles=protocol.decode_i16_vector_response(response),
             timestamp=time.time(),
         )
         self._relay.push(data)
@@ -143,10 +93,10 @@ class AngleManager:
         """
         return self._relay.snapshot()
 
-    def _send_raw_angles(self, raw_values: list[int]) -> None:
+    def _send_angles(self, values: list[int]) -> None:
         self._client.write(
             register=protocol.O20_REG_TARGET_POS,
-            payload=protocol.encode_i16_vector(tuple(raw_values)),
+            payload=protocol.encode_i16_vector(tuple(values)),
             dlc=protocol.O20_VECTOR_DLC,
         )
 

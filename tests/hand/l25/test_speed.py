@@ -64,7 +64,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(
+    hand.angle.set_percentage_angles(
         target
     )  # HACK: set_angles after stream() may race with polling
     start = time.perf_counter()
@@ -92,7 +92,7 @@ def _move_and_time(
     data = hand.angle.get_blocking(timeout_ms=500)
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)]}"
     )
     return elapsed, timed_out
 
@@ -102,11 +102,11 @@ class TestSpeedManagerSet:
 
     def test_set_speeds_with_list(self, l25_hand: L25):
         """set_speeds should accept a list of floats without error."""
-        l25_hand.speed.set_speeds([50.0] * 16)
+        l25_hand.speed.set_percentage_speeds([50.0] * 16)
 
     def test_set_speeds_with_l25_speed(self, l25_hand: L25):
         """set_speeds should accept an L25Speed instance without error."""
-        l25_hand.speed.set_speeds(
+        l25_hand.speed.set_percentage_speeds(
             L25Speed(
                 thumb_abd=100.0,
                 thumb_yaw=100.0,
@@ -129,7 +129,7 @@ class TestSpeedManagerSet:
 
     def test_set_different_speeds(self, l25_hand: L25):
         """set_speeds should accept different per-motor speeds without error."""
-        l25_hand.speed.set_speeds(
+        l25_hand.speed.set_percentage_speeds(
             [
                 20.0,
                 40.0,
@@ -160,7 +160,7 @@ class TestSpeedManagerBlocking:
 
         assert data is not None
         assert len(data.speeds) == 16
-        print(f"\n  Speeds: {[f'{s:.1f}' for s in data.speeds.to_list()]}")
+        print(f"\n  Speeds: {[f'{s:.1f}' for s in list(data.speeds)]}")
 
     def test_get_blocking_has_timestamp(self, l25_hand: L25):
         """Speed data should have a valid timestamp."""
@@ -199,7 +199,7 @@ class TestSpeedInteractive:
             session.step(
                 instruction=f"[{level} speed={speed_val}] Closing fingers",
                 action=lambda lbl=f"{level} close", sv=speed_val: (
-                    l25_hand.speed.set_speeds([sv] * 16),
+                    l25_hand.speed.set_percentage_speeds([sv] * 16),
                     track(lbl, CLOSED),
                 ),
                 expected=(

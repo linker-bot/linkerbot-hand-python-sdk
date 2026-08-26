@@ -182,11 +182,7 @@ class _PausedRecoveryFactory:
 
 
 def _seed_complete_angles(state, joint_count: int) -> None:
-    state.set_reading(
-        SensorType.ANGLES,
-        (100.0,) * joint_count,
-        raw_values=(255,) * joint_count,
-    )
+    state.set_reading(SensorType.ANGLES, (255,) * joint_count)
 
 
 def _recent_error_message(device: HandDevice) -> str | None:
@@ -420,20 +416,10 @@ def test_recovery_rejects_empty_angles_without_advancing_generation() -> None:
         rig.device.close()
 
 
-@pytest.mark.parametrize(
-    ("value_count", "raw_count"),
-    (
-        (5, None),
-        (6, 5),
-    ),
-)
-def test_polling_caches_incomplete_joint_readings_as_invalid(
-    value_count: int, raw_count: int | None
-) -> None:
+def test_polling_caches_incomplete_joint_readings_as_invalid() -> None:
     rig = make_rig()
-    values = (25.0,) * value_count
-    raw_values = None if raw_count is None else (64,) * raw_count
-    rig.state.set_reading(SensorType.ANGLES, values, raw_values=raw_values)
+    values = (64,) * 5
+    rig.state.set_reading(SensorType.ANGLES, values)
     rig.device.open()
     try:
 
@@ -449,7 +435,6 @@ def test_polling_caches_incomplete_joint_readings_as_invalid(
         health = rig.device.get_health()
         assert sample is not None
         assert sample.values == values
-        assert sample.raw_values == raw_values
         assert not sample.valid and sample.stale
         assert health.connection_state is ConnectionState.CONNECTED
         assert health.last_successful_send_at is not None
@@ -461,11 +446,7 @@ def test_polling_caches_incomplete_joint_readings_as_invalid(
 def test_recovery_requires_angles_but_tolerates_optional_sensor_timeout() -> None:
     capabilities = get_model_capabilities("L6", side=HandSide.RIGHT)
     state = fake_state("L6")
-    state.set_reading(
-        SensorType.ANGLES,
-        (100.0,) * capabilities.joint_count,
-        raw_values=(255,) * capabilities.joint_count,
-    )
+    state.set_reading(SensorType.ANGLES, (255,) * capabilities.joint_count)
     device = HandDevice(
         capabilities,
         lambda: _OptionalForceTimeoutBackend(state),
@@ -998,7 +979,6 @@ MODEL_CONTRACTS = {
         "features": (True, False, False, False),
         "acknowledged_commands": (
             CommandKind.ANGLES,
-            CommandKind.RAW_ANGLES,
             CommandKind.SPEEDS,
             CommandKind.TORQUES,
         ),
@@ -1268,11 +1248,49 @@ def test_l30_right_position_commands_use_shared_mapping() -> None:
 
     device.open()
     try:
-        assert device.submit_angles(percentages).wait(1.0) is CommandStage.DISPATCHED
-        assert device.submit_raw_angles(raw_values).wait(1.0) is CommandStage.DISPATCHED
+        assert (
+            device.submit_percentage_angles(percentages).wait(1.0)
+            is CommandStage.DISPATCHED
+        )
+        assert device.submit_angles(raw_values).wait(1.0) is CommandStage.DISPATCHED
         assert [command.kind for command in factory.state.dispatched_commands] == [
             CommandKind.ANGLES,
-            CommandKind.RAW_ANGLES,
+            CommandKind.ANGLES,
         ]
     finally:
         device.close()
+
+
+@pytest.mark.parametrize("model", ("L6", "O6", "L20Lite", "L25"))
+def test_percentage_speed_conversion_is_explicitly_supported_for_classic_models(
+    model: str,
+) -> None:
+    capabilities = get_model_capabilities(model)
+    device = HandDevice(capabilities, FakeBackendFactory(capabilities))
+    percentages = tuple(
+        (0, 50, 100)[index % 3] for index in range(capabilities.joint_count)
+    )
+
+    protocol_values = device.percentage_speeds_to_raw(percentages)
+
+    assert all(joint.percentage_speed_supported for joint in capabilities.joints)
+    assert protocol_values == tuple(
+        (0, 128, 255)[index % 3] for index in range(capabilities.joint_count)
+    )
+    assert device.raw_speeds_to_percentage(protocol_values) == pytest.approx(
+        tuple((0, 128 * 100 / 255, 100)[index % 3] for index in range(len(percentages)))
+    )
+
+
+@pytest.mark.parametrize("model", ("O20", "O30i", "L30"))
+def test_percentage_speed_conversion_rejects_models_without_declared_mapping(
+    model: str,
+) -> None:
+    capabilities = get_model_capabilities(model)
+    device = HandDevice(capabilities, FakeBackendFactory(capabilities))
+
+    assert not any(joint.percentage_speed_supported for joint in capabilities.joints)
+    with pytest.raises(
+        UnsupportedOperationError, match="no verified percentage speed mapping"
+    ):
+        device.percentage_speeds_to_raw((50,) * capabilities.joint_count)

@@ -81,7 +81,7 @@ class O20:
         info = hand.version.get_device_info()
         hand.speed.set_all(50)
         hand.torque.set_all(400)
-        hand.angle.set_angles([30] * 16)   # 0-100 percentages, like L6/L30
+        hand.angle.set_angles([30] * 16)  # protocol-native degrees
         print(hand.angle.get_blocking())
     ```
 

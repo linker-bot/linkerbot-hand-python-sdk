@@ -2,7 +2,6 @@
 
 import os
 import time
-from pathlib import Path
 from typing import Literal, cast
 
 import pytest
@@ -24,7 +23,7 @@ L25_TEST_ORDER: dict[str, int] = {
     "test_force_sensor": 12,
     "test_stress": 13,
 }
-_NON_HARDWARE_TEST_MODULES = frozenset({"test_angle_mapping", "test_validation"})
+_NON_HARDWARE_TEST_MODULES = frozenset({"test_validation"})
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -49,7 +48,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(scope="module")
-def l25_hand(isolate_hand_config: Path):
+def l25_hand():
     """Create L25 hand instance for the test module.
 
     Uses environment variables for configuration:
@@ -79,42 +78,34 @@ def l25_hand(isolate_hand_config: Path):
         100.0,  # pinky
     ]
 
-    with L25(
-        side=side,
-        interface_name=interface,
-        angle_mapping_path=isolate_hand_config / "l25.toml",
-    ) as hand:
-        hand.speed.set_speeds([100.0] * 16)
-        hand.angle.set_angles(open_pose)
+    with L25(side=side, interface_name=interface) as hand:
+        hand.speed.set_percentage_speeds([100.0] * 16)
+        hand.angle.set_percentage_angles(open_pose)
         time.sleep(2.0)
         yield hand
 
 
 @pytest.fixture(scope="session")
-def closed_hand(isolate_hand_config: Path):
+def closed_hand():
     """Create a closed L25 hand instance for post-close tests."""
     interface = os.environ.get("CAN_INTERFACE", "can0")
     side = cast(Literal["left", "right"], os.environ.get("L25_SIDE", "left"))
 
-    with L25(
-        side=side,
-        interface_name=interface,
-        angle_mapping_path=isolate_hand_config / "l25.toml",
-    ) as hand:
+    with L25(side=side, interface_name=interface) as hand:
         pass
     return hand
 
 
 def move_and_wait(hand: L25, angles: list[float], wait_sec: float = 2.0) -> None:
     """Move hand to target angles and wait for completion."""
-    hand.angle.set_angles(angles)
+    hand.angle.set_percentage_angles(angles)
     time.sleep(wait_sec)
 
 
 def move_and_print(hand: L25, angles: list[float], wait_sec: float = 2.0):
     """Move hand to target angles, wait, then print current angles."""
-    hand.angle.set_angles(angles)
+    hand.angle.set_percentage_angles(angles)
     time.sleep(wait_sec)
     data = hand.angle.get_blocking(timeout_ms=500)
-    print(f"\n  Current angles: {[f'{a:.1f}' for a in data.angles.to_list()]}")
+    print(f"\n  Current protocol angles: {data.angles}")
     return data

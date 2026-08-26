@@ -63,22 +63,14 @@ class _AngleManager:
         self._dispatcher = dispatcher
         self._timeout_after_send = timeout_after_send
         self.data = None
-        self.raw_submissions: list[tuple[int | float, ...]] = []
-        self.hardware_raw_submissions: list[tuple[int | float, ...]] = []
+        self.submissions: list[tuple[int | float, ...]] = []
 
     def get_blocking(self):
         return self.data
 
-    def set_raw_angles(self, values) -> None:
+    def set_angles(self, values) -> None:
         submitted = tuple(values)
-        self.raw_submissions.append(submitted)
-        self._dispatcher.send(submitted)
-        if self._timeout_after_send:
-            raise builtins.TimeoutError("injected device ACK timeout")
-
-    def set_hardware_raw_angles(self, values) -> None:
-        submitted = tuple(values)
-        self.hardware_raw_submissions.append(submitted)
+        self.submissions.append(submitted)
         self._dispatcher.send(submitted)
         if self._timeout_after_send:
             raise builtins.TimeoutError("injected device ACK timeout")
@@ -257,19 +249,17 @@ def test_legacy_dispatch_is_immediate_without_replacing_shared_send(
     backend, dispatcher, hand = _open_l6_backend(monkeypatch)
     original_send = dispatcher.send.__func__
     marked = []
-    percentages = (0, 1, 25, 50, 75, 100)
-    expected_raw = (0, 3, 64, 128, 191, 255)
+    protocol_values = (0, 3, 64, 128, 191, 255)
     try:
         result = backend.dispatch(
-            HandCommand(CommandKind.ANGLES, percentages),
+            HandCommand(CommandKind.ANGLES, protocol_values),
             claim_dispatch=lambda: True,
             mark_dispatched=lambda: marked.append(True),
         )
 
         assert result.acknowledged is None
-        assert hand.angle.hardware_raw_submissions == [expected_raw]
-        assert hand.angle.raw_submissions == []
-        assert dispatcher.sent_now == [expected_raw]
+        assert hand.angle.submissions == [protocol_values]
+        assert dispatcher.sent_now == [protocol_values]
         assert dispatcher.queued == []
         assert marked == [True]
         assert dispatcher.send.__func__ is original_send
@@ -280,45 +270,32 @@ def test_legacy_dispatch_is_immediate_without_replacing_shared_send(
         backend.close()
 
 
-def test_unified_raw_submission_uses_protocol_values_without_legacy_mapping(
+def test_unified_angle_submission_does_not_apply_percentage_conversion(
     monkeypatch,
 ) -> None:
     backend, dispatcher, hand = _open_l6_backend(monkeypatch)
-    raw = (1, 2, 3, 4, 5, 6)
+    protocol_values = (1, 2, 3, 4, 5, 6)
     try:
         backend.dispatch(
-            HandCommand(CommandKind.RAW_ANGLES, raw),
+            HandCommand(CommandKind.ANGLES, protocol_values),
             claim_dispatch=lambda: True,
             mark_dispatched=lambda: None,
         )
 
-        assert hand.angle.hardware_raw_submissions == [raw]
-        assert hand.angle.raw_submissions == []
-        assert dispatcher.sent_now == [raw]
+        assert hand.angle.submissions == [protocol_values]
+        assert dispatcher.sent_now == [protocol_values]
     finally:
         backend.close()
 
 
-def test_unified_angle_poll_preserves_protocol_raw_values(monkeypatch) -> None:
+def test_unified_angle_poll_returns_protocol_values(monkeypatch) -> None:
     backend, _dispatcher, hand = _open_l6_backend(monkeypatch)
-    hand.angle.data = SimpleNamespace(
-        angles=(100.0, 50.0, 0.0, 25.0, 75.0, 10.0),
-        raw_angles=(255, 123, 0, 64, 191, 26),
-    )
+    protocol_values = (255, 123, 0, 64, 191, 26)
+    hand.angle.data = SimpleNamespace(angles=protocol_values)
     try:
         reading = backend.poll(SensorType.ANGLES)
 
-        assert reading.raw_values == (255, 123, 0, 64, 191, 26)
-        assert reading.values == pytest.approx(
-            (
-                100.0,
-                123 * 100 / 255,
-                0.0,
-                64 * 100 / 255,
-                191 * 100 / 255,
-                26 * 100 / 255,
-            )
-        )
+        assert reading.values == protocol_values
     finally:
         backend.close()
 
@@ -448,13 +425,13 @@ def test_first_successful_frame_stays_dispatched_when_later_frame_fails(
     backend, dispatcher, hand = _open_l6_backend(monkeypatch)
     dispatcher.send_now_error = OSError("injected second-frame failure")
     dispatcher.send_now_error_at = 2
-    original_set_raw_angles = hand.angle.set_hardware_raw_angles
+    original_set_angles = hand.angle.set_angles
 
     def send_two_frames(values) -> None:
-        original_set_raw_angles(values)
-        original_set_raw_angles(values)
+        original_set_angles(values)
+        original_set_angles(values)
 
-    monkeypatch.setattr(hand.angle, "set_hardware_raw_angles", send_two_frames)
+    monkeypatch.setattr(hand.angle, "set_angles", send_two_frames)
     claimed = []
     marked = []
     try:
@@ -520,7 +497,6 @@ def test_force_poll_normalizes_five_fingers_to_tactile_states(monkeypatch) -> No
         reading = backend.poll(SensorType.FORCE)
 
         assert reading.sensor is SensorType.FORCE
-        assert reading.raw_values is None
         assert reading.values == tuple(
             TactileState(
                 finger=finger,
@@ -596,7 +572,7 @@ def test_l30_identity_accepts_protocol_product_id(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("hand_side", ("left", "right"))
-def test_l30_identity_preserves_shared_backend_position_mapping(
+def test_l30_identity_preserves_protocol_position_values(
     monkeypatch, hand_side: str
 ) -> None:
     _install_model(
@@ -610,45 +586,32 @@ def test_l30_identity_preserves_shared_backend_position_mapping(
         side=HandSide.UNKNOWN,
         options={"dispatcher": dispatcher},
     )
-    percentages = tuple((index * 7) % 101 for index in range(17))
     capabilities = get_model_capabilities("L30")
-    mappings = []
-    for joint in capabilities.joints:
-        mapping = joint.percentage_mapping
-        assert mapping is not None
-        mappings.append(mapping)
-    expected_raw = tuple(
-        round(
-            mapping.raw_closed
-            + percentage / 100.0 * (mapping.raw_open - mapping.raw_closed)
-        )
-        for mapping, percentage in zip(mappings, percentages, strict=True)
+    protocol_values = tuple(
+        round((joint.raw_angle_range.minimum + joint.raw_angle_range.maximum) / 2)
+        for joint in capabilities.joints
+        if joint.raw_angle_range is not None
     )
     try:
         assert backend.open().side is HandSide(hand_side)
         hand = _LegacyL30.instances[-1]
 
         backend.dispatch(
-            HandCommand(CommandKind.ANGLES, percentages),
+            HandCommand(CommandKind.ANGLES, protocol_values),
             claim_dispatch=lambda: True,
             mark_dispatched=lambda: None,
         )
-        assert hand.angle.hardware_raw_submissions == [expected_raw]
-        assert dispatcher.sent_now == [expected_raw]
+        assert hand.angle.submissions == [protocol_values]
+        assert dispatcher.sent_now == [protocol_values]
 
-        hand.angle.data = SimpleNamespace(raw_angles=expected_raw)
+        hand.angle.data = SimpleNamespace(angles=protocol_values)
         reading = backend.poll(SensorType.ANGLES)
-        assert reading.raw_values == expected_raw
-        for actual, raw, mapping in zip(
-            reading.values, expected_raw, mappings, strict=True
-        ):
-            span = mapping.raw_open - mapping.raw_closed
-            assert actual == pytest.approx(100.0 * (raw - mapping.raw_closed) / span)
+        assert reading.values == protocol_values
     finally:
         backend.close()
 
 
-def test_l30_current_poll_returns_milliamps_and_protocol_raw_values(
+def test_l30_current_poll_returns_protocol_values(
     monkeypatch,
 ) -> None:
     _install_model(
@@ -668,8 +631,7 @@ def test_l30_current_poll_returns_milliamps_and_protocol_raw_values(
 
         reading = backend.poll(SensorType.CURRENT)
 
-        assert reading.values[:3] == (390.0, 650.0, 5200.0)
-        assert reading.raw_values == (60, 100, 800) + (60,) * 14
+        assert reading.values == (60, 100, 800) + (60,) * 14
     finally:
         backend.close()
 

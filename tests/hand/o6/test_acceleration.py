@@ -29,7 +29,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(target)
+    hand.angle.set_percentage_angles(target)
     start = time.perf_counter()
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
@@ -55,7 +55,7 @@ def _move_and_time(
     data = hand.angle.get_blocking(timeout_ms=500)
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)]}"
     )
     return elapsed, timed_out
 
@@ -69,7 +69,7 @@ class TestAccelerationManagerBlocking:
 
         assert data is not None
         assert len(data.accelerations) == 6
-        for accel in data.accelerations.to_list():
+        for accel in list(data.accelerations):
             assert 0 <= accel <= 100, f"Acceleration {accel} out of range [0, 100]"
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
@@ -85,11 +85,11 @@ class TestAccelerationManagerSet:
 
     def test_set_accelerations_with_list(self, o6_hand: O6):
         """set_accelerations should accept a list of floats without error."""
-        o6_hand.acceleration.set_accelerations([50.0] * 6)
+        o6_hand.acceleration.set_percentage_accelerations([50.0] * 6)
 
     def test_set_accelerations_with_o6acceleration(self, o6_hand: O6):
         """set_accelerations should accept an O6Acceleration instance without error."""
-        o6_hand.acceleration.set_accelerations(
+        o6_hand.acceleration.set_percentage_accelerations(
             O6Acceleration(
                 thumb_flex=50.0,
                 thumb_abd=50.0,
@@ -102,7 +102,9 @@ class TestAccelerationManagerSet:
 
     def test_set_different_accelerations(self, o6_hand: O6):
         """set_accelerations should accept different per-motor values without error."""
-        o6_hand.acceleration.set_accelerations([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
+        o6_hand.acceleration.set_percentage_accelerations(
+            [20.0, 40.0, 60.0, 80.0, 100.0, 50.0]
+        )
 
 
 class TestAccelerationManagerSnapshot:
@@ -137,7 +139,7 @@ class TestAccelerationInteractive:
             session.step(
                 instruction=f"[{level} acceleration={accel_val}] Closing fingers",
                 action=lambda lbl=f"{level} close", av=accel_val: (
-                    o6_hand.acceleration.set_accelerations([av] * 6),
+                    o6_hand.acceleration.set_percentage_accelerations([av] * 6),
                     track(lbl, CLOSED),
                 ),
                 expected=(

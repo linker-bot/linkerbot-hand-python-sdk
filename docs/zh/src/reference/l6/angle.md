@@ -1,124 +1,42 @@
 # 角度控制
 
-通过 `hand.angle` 控制和读取 L6 灵巧手的 6 个关节电机角度。
+L6 的默认角度接口收发 6 个协议 `u8` 值，范围均为 `0..255`。顺序为
+`thumb_flex`、`thumb_abd`、`index`、`middle`、`ring`、`pinky`。
 
-- **角度范围**: 0-100
-- **单位**: 无量纲（映射到关节电机实际角度）
-
-## 设置角度
-
-```python
-from linkerbot.hand import L6
-from linkerbot.hand.l6 import L6Angle
-
-# 使用列表
-hand.angle.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-
-# 使用 L6Angle 对象
-angles = L6Angle(
-    thumb_flex=50.0,  # 拇指屈曲
-    thumb_abd=30.0,  # 拇指侧摆
-    index=60.0,  # 食指
-    middle=60.0,  # 中指
-    ring=60.0,  # 无名指
-    pinky=60.0,  # 小指
-)
-hand.angle.set_angles(angles)
-```
-
-## 原始角度与映射
-
-除了 0-100 的百分比角度，`hand.angle` 还支持直接设置标准 raw 角度：
-
-```python
-# 6 个关节，标准 raw 范围为 0-255
-hand.angle.set_raw_angles([128, 96, 160, 160, 160, 160])
-```
-
-SDK 发送控制帧前会将“标准 raw 值”通过角度映射表转换为“硬件 raw 值”。默认映射是线性直通：`0 -> 0`，`255 -> 255`。
-
-“标准 raw”是旧 manager 的逻辑校准坐标，不是精确 CAN 协议值。绕过用户映射并发送协议
-原值时使用 `hand.angle.set_hardware_raw_angles(...)`。读取结果的 `raw_angles` 是协议原值，
-`standard_raw_angles` 是逆映射后的逻辑值。完整定义与 unified API 对照见
-[角度坐标、方向与用户映射](../angle-coordinates.md)。
-
-L6 的映射表形状为 `6 x 256`：
-
-- 行：关节索引，顺序与 [关节说明](./README.md#关节说明) 一致。
-- 列：标准 raw 输入值 `0-255`。
-- 值：实际发送给硬件的 raw 值 `0-255`。
-
-```python
-# 查询当前映射表
-mapping = hand.angle.get_angle_mapping()
-
-# 修改完整映射表后保存到 TOML
-mapping[0] = list(reversed(range(256)))
-hand.angle.set_angle_mapping(mapping)
-
-# 恢复默认线性映射
-hand.angle.reset_angle_mapping()
-```
-
-映射表默认保存到 `$XDG_CONFIG_HOME/linkerbot/hand_angle_mappings.toml`（未设置时为 `~/.config/linkerbot/hand_angle_mappings.toml`）。保存时会按手型号、左右手和 CAN 接口区分，例如 `l6:left:can0`。也可以在构造手对象时通过 `angle_mapping_path` 指定 TOML 路径。
-
-## 读取角度
-
-### 阻塞读取
-
-```python
-from linkerbot.hand import L6
-from linkerbot.exceptions import TimeoutError
-
-try:
-    data = hand.angle.get_blocking(timeout_ms=500)
-    print(f"拇指屈曲：{data.angles.thumb_flex}")
-    print(f"全部角度：{data.angles.to_list()}")
-except TimeoutError:
-    print("读取超时")
-```
-
-### 缓存读取
-
-```python
-data = hand.angle.get_snapshot()
-if data:
-    print(f"角度：{data.angles.to_list()}")
-    print(f"时间戳：{data.timestamp}")
-```
-
-## 流式读取
-
-通过顶层 `hand.stream()` 统一接收所有传感器事件：
-
-```python
-from linkerbot.hand.l6 import SensorSource, AngleEvent
-
-hand.start_polling({SensorSource.ANGLE: 0.1})
-
-for event in hand.stream():
-    match event:
-        case AngleEvent(data=data):
-            print(f"角度：{data.angles.to_list()}")
-
-hand.stop_polling()
-hand.stop_stream()
-```
-
-## 完整示例
+## 协议值控制
 
 ```python
 from linkerbot.hand import L6
 
 with L6(side="left", interface_name="can0") as hand:
-    # 设置角度
-    hand.angle.set_angles([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-
-    # 读取当前角度
-    data = hand.angle.get_blocking(timeout_ms=500)
-    print(f"当前角度：{data.angles.to_list()}")
-
-    # 渐进移动
-    for i in range(0, 101, 10):
-        hand.angle.set_angles([float(i)] * 6)
+    hand.angle.set_angles([128, 96, 160, 160, 160, 160])
 ```
+
+`set_angles()` 要求恰好 6 个 Python `int`，不会进行百分比或物理角度换算。超出
+`0..255`、传入浮点数或数量错误时抛出 `ValidationError`。
+
+## 显式百分比控制
+
+```python
+from linkerbot.hand.l6 import L6Angle
+
+hand.angle.set_percentage_angles([50, 30, 60, 60, 60, 60])
+hand.angle.set_percentage_angles(L6Angle(50, 30, 60, 60, 60, 60))
+```
+
+该 helper 把每轴 `0..100` 线性映射到协议 `0..255`。默认读取仍返回协议值；需要
+百分比反馈时，由调用方显式使用统一接口的 `raw_to_percent()` 或
+`L6Angle.from_raw()`。
+
+## 读取与缓存
+
+```python
+data = hand.angle.get_blocking(timeout_ms=500)
+print(data.angles)  # tuple[int, ...]，协议值
+print(data.timestamp)
+
+cached = hand.angle.get_snapshot()  # 不产生新查询
+```
+
+流式事件中的 `event.data.angles` 也是相同的协议元组。完整的统一接口数据契约见
+[协议值、百分比与显式换算](../angle-coordinates.md)。

@@ -105,7 +105,7 @@ with L30Bus(device_index=0, channel_index=0, auto_start_periodic=False) as bus:
 
     for hand in hands:
         print("NodeID:", hand.node_id)
-        print("角度：", hand.angle.get_blocking(timeout_ms=1000).angles.to_list())
+        print("协议角度：", hand.angle.get_blocking(timeout_ms=1000).angles)
 ```
 
 按 NodeID 字典访问：
@@ -182,8 +182,8 @@ with ExitStack() as stack:
         (1, 0, 1): bus1.create_hand(1),
     }
 
-    print(hands[(0, 0, 1)].angle.get_blocking(timeout_ms=1000).angles.to_list())
-    print(hands[(1, 0, 1)].angle.get_blocking(timeout_ms=1000).angles.to_list())
+    print(hands[(0, 0, 1)].angle.get_blocking(timeout_ms=1000).angles)
+    print(hands[(1, 0, 1)].angle.get_blocking(timeout_ms=1000).angles)
 ```
 
 ## 通讯拓扑规则

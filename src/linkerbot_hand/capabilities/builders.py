@@ -16,7 +16,12 @@ from ..errors import ValidationError
 
 
 def sensor(
-    sensor_type: SensorType, hz: float, *, unit: str | None = None
+    sensor_type: SensorType,
+    hz: float,
+    *,
+    unit: str | None = None,
+    encoding: str | None = None,
+    value_range: NumericRange | None = None,
 ) -> SensorCapability:
     """Build standard sensor capability metadata.
 
@@ -24,6 +29,8 @@ def sensor(
         sensor_type: Sensor channel implemented by the model.
         hz: Recommended polling frequency in hertz.
         unit: Unit used by values published for this sensor, when known.
+        encoding: Scalar protocol encoding, when known.
+        value_range: Shared decoded scalar range, when known.
 
     Returns:
         Sensor capability whose staleness threshold is three polling periods.
@@ -36,6 +43,8 @@ def sensor(
         recommended_hz=hz,
         stale_after_s=3 / hz,
         unit=unit,
+        encoding=encoding,
+        value_range=value_range,
     )
 
 
@@ -48,6 +57,7 @@ def classic_joints(
     direction_endpoints: dict[int, tuple[JointEndpoint, JointEndpoint]] | None = None,
     speed_range: NumericRange | None = None,
     torque_range: NumericRange | None = None,
+    percentage_speed_supported: bool = True,
 ) -> tuple[JointCapability, ...]:
     """Build capabilities for classic unsigned-byte hand protocols.
 
@@ -59,10 +69,12 @@ def classic_joints(
         motion_types: Optional mechanical motion type for each joint. Defaults
             to flexion for every axis.
         direction_endpoints: Physical endpoint names for every directional axis.
-        speed_range: Shared speed command range. Defaults to the historical
-            dimensionless ``0..100`` range.
-        torque_range: Shared torque command range. Defaults to the historical
-            dimensionless ``0..100`` range.
+        speed_range: Shared protocol speed command range. Defaults to unsigned
+            byte values.
+        torque_range: Shared protocol torque command range. Defaults to unsigned
+            byte values.
+        percentage_speed_supported: Whether an explicit 0..100 speed mapping
+            is explicitly available as a conversion helper.
 
     Returns:
         Ordered joint capabilities with raw, normalized, speed, and torque ranges.
@@ -76,9 +88,9 @@ def classic_joints(
     if direction_endpoints is None:
         direction_endpoints = {}
     if speed_range is None:
-        speed_range = NumericRange(0, 100, "percent")
+        speed_range = NumericRange(0, 255, "protocol_raw", integer_only=True, step=1)
     if torque_range is None:
-        torque_range = NumericRange(0, 100, "percent")
+        torque_range = NumericRange(0, 255, "protocol_raw", integer_only=True, step=1)
     if len(endpoints) != len(names) or len(motion_types) != len(names):
         raise ValidationError(
             "classic joint names, endpoints, and motion types must have equal lengths"
@@ -116,6 +128,7 @@ def classic_joints(
             ),
             speed_range=speed_range,
             torque_range=torque_range,
+            percentage_speed_supported=percentage_speed_supported,
             motion_type=motion_types[index],
         )
         for index, name in enumerate(names)

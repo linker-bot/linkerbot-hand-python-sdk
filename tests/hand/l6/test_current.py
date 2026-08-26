@@ -18,8 +18,8 @@ class TestCurrentManagerBlocking:
 
         assert data is not None
         assert len(data.currents) == 6
-        for current in data.currents.to_list():
-            assert current >= 0, f"Current {current} mA should be non-negative"
+        for current in data.currents:
+            assert current >= 0, f"Protocol current {current} should be non-negative"
 
     def test_get_blocking_has_timestamp(self, l6_hand: L6):
         """Current data should have a valid timestamp."""
@@ -28,16 +28,12 @@ class TestCurrentManagerBlocking:
         assert data.timestamp > 0, "Timestamp should be positive"
         assert data.timestamp <= time.time(), "Timestamp should not be in the future"
 
-    def test_current_field_access(self, l6_hand: L6):
-        """Should be able to access current fields by name."""
+    def test_current_values_are_protocol_integers(self, l6_hand: L6):
+        """Current readback should expose six protocol-native integers."""
         data = l6_hand.current.get_blocking(timeout_ms=100)
 
-        assert isinstance(data.currents.thumb_flex, float), "thumb_flex should be float"
-        assert isinstance(data.currents.thumb_abd, float), "thumb_abd should be float"
-        assert isinstance(data.currents.index, float), "index should be float"
-        assert isinstance(data.currents.middle, float), "middle should be float"
-        assert isinstance(data.currents.ring, float), "ring should be float"
-        assert isinstance(data.currents.pinky, float), "pinky should be float"
+        assert len(data.currents) == 6
+        assert all(type(current) is int for current in data.currents)
 
 
 class TestCurrentManagerSnapshot:

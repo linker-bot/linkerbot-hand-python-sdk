@@ -2,9 +2,7 @@
 
 Each hand model is loaded on first attribute access via PEP 562
 ``__getattr__`` so that ``import linkerbot.hand`` (or ``from linkerbot.hand
-import L6``) does not force every other model — and every dependency that
-those models pull in transitively, like ``tomli_w`` for ``angle_mapping`` —
-to load.
+import L6``) does not force every other model and its dependencies to load.
 """
 
 from __future__ import annotations
@@ -63,18 +61,18 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
-    "HandDevice",
-    "HandSession",
-    "PollingPlan",
-    "CommandPolicy",
-    "CommandStage",
-    "create_hand_device",
     "L6",
-    "O6",
-    "L20lite",
     "L25",
     "L30",
-    "L30Bus",
+    "O6",
     "O20",
+    "CommandPolicy",
+    "CommandStage",
+    "HandDevice",
+    "HandSession",
+    "L20lite",
+    "L30Bus",
     "O30i",
+    "PollingPlan",
+    "create_hand_device",
 ]

@@ -64,7 +64,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(
+    hand.angle.set_percentage_angles(
         target
     )  # HACK: set_angles after stream() may race with polling
     start = time.perf_counter()
@@ -90,7 +90,7 @@ def _move_and_time(
     data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)] if data else 'N/A'}"
     )
     return elapsed, timed_out
 
@@ -103,7 +103,7 @@ class TestTorqueManagerBlocking:
         data = l25_hand.torque.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.torques) == 16
-        print(f"\n  Torques: {[f'{t:.1f}' for t in data.torques.to_list()]}")
+        print(f"\n  Torques: {[f'{t:.1f}' for t in list(data.torques)]}")
 
     def test_get_blocking_has_timestamp(self, l25_hand: L25):
         """Torque data should have a valid timestamp."""
@@ -113,11 +113,11 @@ class TestTorqueManagerBlocking:
 
     def test_set_torques_with_list(self, l25_hand: L25):
         """set_torques should accept list[float] without error."""
-        l25_hand.torque.set_torques([50.0] * 16)
+        l25_hand.torque.set_percentage_torques([50.0] * 16)
 
     def test_set_torques_with_l25_torque(self, l25_hand: L25):
         """set_torques should accept L25Torque instance without error."""
-        l25_hand.torque.set_torques(L25Torque.from_list([50.0] * 16))
+        l25_hand.torque.set_percentage_torques(L25Torque.from_list([50.0] * 16))
 
 
 class TestTorqueManagerSnapshot:
@@ -143,7 +143,7 @@ class TestTorqueInteractive:
         motion_results: list[tuple[str, float, bool]] = []
 
         # Set speed to max for consistent observation
-        l25_hand.speed.set_speeds([100.0] * 16)
+        l25_hand.speed.set_percentage_speeds([100.0] * 16)
 
         def track(label: str, target: list[float]) -> None:
             elapsed, timed_out = _move_and_time(l25_hand, target)
@@ -154,7 +154,7 @@ class TestTorqueInteractive:
             session.step(
                 instruction=f"[{level} torque={torque_val}] Closing grip",
                 action=lambda lbl=f"{level} close", tv=torque_val: (
-                    l25_hand.torque.set_torques([tv] * 16),
+                    l25_hand.torque.set_percentage_torques([tv] * 16),
                     track(lbl, CLOSED),
                 ),
                 expected=(

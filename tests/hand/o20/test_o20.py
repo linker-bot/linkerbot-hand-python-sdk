@@ -38,7 +38,7 @@ def test_o20_defaults_to_can_fd_without_bitrate_switching() -> None:
     dispatcher = FakeDispatcher()
 
     with O20(dispatcher=dispatcher) as hand:
-        hand.angle.set_angles([0.0] * 16)
+        hand.angle.set_angles([0] * 16)
 
     assert dispatcher.sent[-1].frame_type == 0x04
 
@@ -216,7 +216,7 @@ def test_stream_emits_angle_event_after_blocking_read() -> None:
         event = stream.get(timeout=1)
 
         assert isinstance(event, AngleEvent)
-        assert event.data.angles.to_raw() == list(range(1, 17))
+        assert event.data.angles == tuple(range(1, 17))
 
 
 @pytest.mark.parametrize("interval", [0.0, True, float("nan"), float("inf")])

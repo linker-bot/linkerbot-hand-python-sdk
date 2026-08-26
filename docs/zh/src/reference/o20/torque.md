@@ -1,6 +1,7 @@
 # 力矩控制
 
-通过 `hand.torque` 设置和读取 O20 的 16 个电机力矩目标。力矩值走**整数**通道，范围 **0 ~ 1000**,单位约 **6.5 mA / lsb**(协议标注)。
+通过 `hand.torque` 设置 O20 的 16 个协议电流上限目标。协议整数范围为 `0..1000`；
+默认接口不换算为 mA。协议标注的比例约为 6.5 mA/LSB。
 
 - **数量**:16 个电机，按 motor ID 1~16 顺序
 - **范围**:0 ~ 1000(`O20_TORQUE_MIN` / `O20_TORQUE_MAX`)
@@ -75,11 +76,14 @@ from linkerbot.hand.o20 import O20
 with O20(side="right") as hand:
     hand.speed.set_all(40)
     hand.torque.set_all(400)  # 力矩上限
-    hand.angle.set_angles([30.0] * 16)
+    hand.angle.set_angles([60, 75, 90, 65, 0, 90, 90, 0, 90, 90, 0, 90, 90, 0, 90, 90])
 
     print("已下发力矩：", hand.torque.get_snapshot().torques)
     print("实测电流： ", hand.current.get_blocking(timeout_ms=1000).currents)
 ```
+
+需要 mA 时显式使用 `protocol_current_limits_to_milliamps()` 或
+`milliamps_to_protocol_current_limits()`。`get_snapshot()` 仍只表示目标缓存，不是反馈。
 
 ## 参数校验
 

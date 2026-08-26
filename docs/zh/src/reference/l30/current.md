@@ -1,37 +1,30 @@
 # 电流读取
 
-通过 `hand.current` 读取 L30 的 17 个关节电流协议原值。旧兼容入口返回整数原值，
-每单位为 6.5 mA；统一 `HandDevice` 快照的 `current.values` 返回 mA，并在
-`current.raw_values` 保留同次采集的协议原值。
-
-## 阻塞读取
+L30 电流反馈是 17 个有符号 `i16_le` 协议值，顺序为 `J1..J17`。manager 和统一快照
+都保留协议整数，不隐式换算为 mA，也不提供第二份 `raw_values`。
 
 ```python
 from linkerbot.hand import L30
 
 with L30() as hand:
     data = hand.current.get_blocking(timeout_ms=1000)
-    print(data.currents)  # 协议原值；乘 6.5 得到 mA
+    print(data.currents)  # tuple[int, ...]
+
+    cached = hand.current.get_snapshot()
+    if cached is not None:
+        print(cached.currents)
 ```
 
-## 缓存读取
+协议文档给出的比例为每单位 6.5 mA。需要物理量时显式调用纯转换函数：
 
 ```python
-from linkerbot.hand import L30
+from linkerbot.hand.l30 import (
+    milliamps_to_protocol_currents,
+    protocol_currents_to_milliamps,
+)
 
-with L30() as hand:
-    hand.current.get_blocking(timeout_ms=1000)
-    data = hand.current.get_snapshot()
-    if data is not None:
-        print(data.currents)  # 协议原值
+milliamps = protocol_currents_to_milliamps(list(data.currents))
+protocol_values = milliamps_to_protocol_currents(list(milliamps))
 ```
 
-## 完整示例
-
-```python
-from linkerbot.hand import L30
-
-with L30() as hand:
-    current = hand.current.get_blocking(timeout_ms=1000)
-    print("电流协议原值：", current.currents)
-```
+统一 `SensorSample` 标注 `unit="protocol_current"`、`encoding="i16_le"`。

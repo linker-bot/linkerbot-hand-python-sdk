@@ -21,7 +21,9 @@ def test_write_propagates_physical_send_failure() -> None:
     receipt.set_exception(expected)
 
     class ReceiptDispatcher(FakeDispatcher):
-        def send(self, message: CANFDMessage) -> Future[None]:
+        def send(  # ty: ignore[invalid-method-override]
+            self, message: CANFDMessage
+        ) -> Future[None]:
             super().send(message)
             return receipt
 

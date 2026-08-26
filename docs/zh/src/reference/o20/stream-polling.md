@@ -21,7 +21,7 @@ with O20(side="right") as hand:
 
     snapshot = hand.get_snapshot()
     if snapshot.angle is not None:
-        print("angle:  ", snapshot.angle.angles.to_list())
+        print("angle:  ", snapshot.angle.angles)
     if snapshot.current is not None:
         print("current:", snapshot.current.currents)
     if snapshot.temperature is not None:
@@ -51,7 +51,7 @@ with O20(side="right") as hand:
     time.sleep(5)
 
     snap = hand.get_snapshot()
-    print("最近 angle:", snap.angle.angles.to_list())
+    print("最近 angle:", snap.angle.angles)
 
     hand.stop_polling()
 ```
@@ -83,7 +83,7 @@ with O20(side="right") as hand:
         key = type(event).__name__  # AngleEvent / CurrentEvent / ...
         counts[key] = counts.get(key, 0) + 1
         if isinstance(event, AngleEvent):
-            latest_angle = event.data.angles.to_list()[:4]
+            latest_angle = event.data.angles[:4]
         if isinstance(event, CurrentEvent):
             latest_current = event.data.currents[:4]
         if time.monotonic() >= stop_at:
@@ -138,7 +138,7 @@ with O20(side="right") as hand:
     def consume() -> None:
         for event in stream:
             if isinstance(event, AngleEvent):
-                nonlocal_holder[0] = event.data.angles.to_list()
+                nonlocal_holder[0] = list(event.data.angles)
 
     nonlocal_holder = [None]
     consumer = threading.Thread(target=consume, daemon=True)
@@ -146,7 +146,7 @@ with O20(side="right") as hand:
 
     # 主线程慢慢改目标
     for percent in (0, 15, 30, 15, 0):
-        hand.angle.set_angles([float(percent)] * 16)
+        hand.angle.set_percentage_angles([float(percent)] * 16)
         time.sleep(1.0)
         if nonlocal_holder[0] is not None:
             print("最近实测角度 [:4]:", [round(v, 1) for v in nonlocal_holder[0][:4]])

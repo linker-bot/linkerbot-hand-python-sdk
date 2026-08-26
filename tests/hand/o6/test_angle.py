@@ -25,7 +25,7 @@ def _move_until_settled(
     """Set target angles, stream until within tolerance or timeout. Returns True if timed out."""
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(target)
+    hand.angle.set_percentage_angles(target)
     start = time.perf_counter()
     deadline = start + timeout_sec
     timed_out = False
@@ -49,7 +49,7 @@ def _move_until_settled(
     data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)] if data else 'N/A'}"
     )
     return timed_out
 
@@ -63,10 +63,10 @@ class TestAngleManagerBlocking:
 
         assert data is not None
         assert len(data.angles) == 6
-        for angle in data.angles.to_list():
+        for angle in list(data.angles):
             assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"
 
-        print(f"\n  Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}")
+        print(f"\n  Angles: {[f'{a:.1f}' for a in list(data.angles)]}")
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
         """Angle data timestamp should be positive and not in the future."""
@@ -83,14 +83,14 @@ class TestAngleManagerSetAngles:
         """set_angles should accept list[float] without error and allow read-back."""
         target = [50.0, 100.0, 50.0, 50.0, 50.0, 50.0]
 
-        o6_hand.angle.set_angles(target)
+        o6_hand.angle.set_percentage_angles(target)
         time.sleep(2.0)
 
         data = o6_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 6
         print(
-            f"\n  Read-back after set_angles (list): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+            f"\n  Read-back after set_angles (list): {[f'{a:.1f}' for a in list(data.angles)]}"
         )
 
     def test_set_angles_with_o6angle(self, o6_hand: O6):
@@ -104,14 +104,14 @@ class TestAngleManagerSetAngles:
             pinky=50.0,
         )
 
-        o6_hand.angle.set_angles(target)
+        o6_hand.angle.set_percentage_angles(target)
         time.sleep(2.0)
 
         data = o6_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 6
         print(
-            f"\n  Read-back after set_angles (O6Angle): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+            f"\n  Read-back after set_angles (O6Angle): {[f'{a:.1f}' for a in list(data.angles)]}"
         )
 
     def test_set_all_closed(self, o6_hand: O6):
@@ -159,7 +159,7 @@ class TestAngleManagerSnapshot:
         """Set [50]*6, read back, each angle should be within tolerance of target."""
         target = [50.0] * 6
 
-        o6_hand.angle.set_angles(target)
+        o6_hand.angle.set_percentage_angles(target)
         time.sleep(4.0)
 
         data = o6_hand.angle.get_blocking(timeout_ms=500)

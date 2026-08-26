@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any, cast
 
 import can
@@ -58,7 +57,6 @@ def _response(request: can.Message, data: list[int]) -> can.Message:
     ),
 )
 def test_classic_angle_managers_capture_synchronous_responses(
-    tmp_path: Path,
     manager_type: type[Any],
     frame_sizes: dict[int, int],
     joint_count: int,
@@ -68,15 +66,11 @@ def test_classic_angle_managers_capture_synchronous_responses(
         return (_response(request, [command, *([128] * frame_sizes[command])]),)
 
     dispatcher = _SynchronousDispatcher(responses)
-    manager = manager_type(
-        0x28,
-        dispatcher,
-        angle_mapping_path=tmp_path / f"{manager_type.__module__}.toml",
-    )
+    manager = manager_type(0x28, dispatcher)
 
     data = manager.get_blocking(timeout_ms=20)
 
-    assert data.raw_angles == (128,) * joint_count
+    assert data.angles == (128,) * joint_count
     assert [int(message.data[0]) for message in dispatcher.sent] == list(frame_sizes)
 
 
@@ -124,7 +118,7 @@ def test_version_manager_captures_all_synchronous_responses() -> None:
     assert (info.pcb_version.major, info.pcb_version.minor) == (7, 8)
 
 
-def test_manager_recovers_after_synchronous_send_error(tmp_path: Path) -> None:
+def test_manager_recovers_after_synchronous_send_error() -> None:
     error = RuntimeError("send failed")
     attempts = 0
 
@@ -135,20 +129,16 @@ def test_manager_recovers_after_synchronous_send_error(tmp_path: Path) -> None:
             raise error
         return (_response(request, [0x01, 1, 2, 3, 4, 5, 6]),)
 
-    manager = L6AngleManager(
-        0x28,
-        _SynchronousDispatcher(responses),
-        angle_mapping_path=tmp_path / "l6.toml",
-    )
+    manager = L6AngleManager(0x28, _SynchronousDispatcher(responses))
 
     with pytest.raises(RuntimeError) as raised:
         manager.get_blocking(timeout_ms=20)
     assert raised.value is error
 
-    assert manager.get_blocking(timeout_ms=20).raw_angles == (1, 2, 3, 4, 5, 6)
+    assert manager.get_blocking(timeout_ms=20).angles == (1, 2, 3, 4, 5, 6)
 
 
-def test_manager_recovers_after_timeout(tmp_path: Path) -> None:
+def test_manager_recovers_after_timeout() -> None:
     attempts = 0
 
     def responses(request: can.Message) -> tuple[can.Message, ...]:
@@ -158,21 +148,15 @@ def test_manager_recovers_after_timeout(tmp_path: Path) -> None:
             return ()
         return (_response(request, [0x01, 1, 2, 3, 4, 5, 6]),)
 
-    manager = L6AngleManager(
-        0x28,
-        _SynchronousDispatcher(responses),
-        angle_mapping_path=tmp_path / "l6.toml",
-    )
+    manager = L6AngleManager(0x28, _SynchronousDispatcher(responses))
 
     with pytest.raises(TimeoutError, match="within 1ms"):
         manager.get_blocking(timeout_ms=1)
 
-    assert manager.get_blocking(timeout_ms=20).raw_angles == (1, 2, 3, 4, 5, 6)
+    assert manager.get_blocking(timeout_ms=20).angles == (1, 2, 3, 4, 5, 6)
 
 
-def test_multiframe_manager_serializes_concurrent_blocking_requests(
-    tmp_path: Path,
-) -> None:
+def test_multiframe_manager_serializes_concurrent_blocking_requests() -> None:
     first_send_started = threading.Event()
     release_first_send = threading.Event()
     blocked_once = False
@@ -188,11 +172,7 @@ def test_multiframe_manager_serializes_concurrent_blocking_requests(
         return (_response(request, [command, *([128] * frame_size)]),)
 
     dispatcher = _SynchronousDispatcher(responses)
-    manager = L20LiteAngleManager(
-        0x28,
-        dispatcher,
-        angle_mapping_path=tmp_path / "l20lite.toml",
-    )
+    manager = L20LiteAngleManager(0x28, dispatcher)
     second_started = threading.Event()
 
     def second_request() -> Any:
@@ -210,8 +190,8 @@ def test_multiframe_manager_serializes_concurrent_blocking_requests(
         first_result = first.result(timeout=1.0)
         second_result = second.result(timeout=1.0)
 
-    assert first_result.raw_angles == (128,) * 10
-    assert second_result.raw_angles == (128,) * 10
+    assert first_result.angles == (128,) * 10
+    assert second_result.angles == (128,) * 10
     assert [int(message.data[0]) for message in dispatcher.sent] == [
         0x01,
         0x04,

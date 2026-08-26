@@ -11,10 +11,23 @@ from dataclasses import dataclass
 import can
 
 from linkerbot.hand._polling_relay import PollingDataRelay
+from linkerbot.hand._values import percentage_to_u8_vector, validate_u8_vector
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
 
 _JOINT_COUNT = 10
+_JOINT_NAMES = (
+    "thumb_flex",
+    "thumb_abd",
+    "index_flex",
+    "middle_flex",
+    "ring_flex",
+    "pinky_flex",
+    "index_abd",
+    "ring_abd",
+    "pinky_abd",
+    "thumb_yaw",
+)
 
 
 @dataclass
@@ -123,11 +136,11 @@ class TorqueData:
     """Immutable torque data container.
 
     Attributes:
-        torques: L20liteTorque instance containing joint torques (0-100 range).
+        torques: Ten protocol-native unsigned-byte torque/current-limit values.
         timestamp: Unix timestamp when the data was received.
     """
 
-    torques: L20liteTorque
+    torques: tuple[int, ...]
     timestamp: float
 
 
@@ -161,37 +174,45 @@ class TorqueManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._pending: dict[int, list[float]] = {}
+        self._pending: dict[int, list[int]] = {}
         self._relay = PollingDataRelay[TorqueData](self._pending.clear)
 
-    def set_torques(self, torques: L20liteTorque | list[float]) -> None:
-        """Send target torques to the robotic hand.
+    def set_torques(self, torques: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte torque/current-limit targets.
 
         This method sends 10 target torques to the hand. The hand
         will respond with the current torques, which are automatically cached
         and can be retrieved via get_snapshot().
 
         Args:
-            torques: L20liteTorque instance or list of 10 target torques (range 0-100 each).
+            torques: Ten integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If torques count is not 10 or values are out of range.
 
-        Example:
-            >>> manager.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0, 20.0, 20.0, 20.0, 20.0])
+        Use :meth:`set_percentage_torques` for explicit 0..100 targets.
         """
-        if not isinstance(torques, L20liteTorque):
-            torques = L20liteTorque.from_list(torques)
-
+        raw_torques = validate_u8_vector(torques, count=_JOINT_COUNT, name="torques")
+        raw_by_field = dict(zip(_JOINT_NAMES, raw_torques, strict=True))
         for cmd, fields in self._FRAME_MAP.items():
-            raw_values = [round(getattr(torques, f) * 255 / 100) for f in fields]
-            data = [cmd, *raw_values]
+            data = [cmd, *[raw_by_field[field] for field in fields]]
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
                 data=data,
                 is_extended_id=False,
             )
             self._dispatcher.send(msg)
+
+    def set_percentage_torques(
+        self, torques: L20liteTorque | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 torque limits and send protocol values."""
+        values = torques.to_list() if isinstance(torques, L20liteTorque) else torques
+        self.set_torques(
+            percentage_to_u8_vector(
+                values, count=_JOINT_COUNT, name="torque percentages"
+            )
+        )
 
     def get_blocking(self, timeout_ms: float = 100) -> TorqueData:
         """Request and wait for current joint torques (blocking).
@@ -265,19 +286,19 @@ class TorqueManager:
         if len(raw_torques) != len(expected_fields):
             return
 
-        decoded = [v * 100 / 255 for v in raw_torques]
-        self._pending[cmd] = decoded
+        self._pending[cmd] = raw_torques
 
         # Check if all frames have been received
         if set(self._pending.keys()) != set(self._FRAME_MAP.keys()):
             return
 
-        # All frames received — merge into L20liteTorque
-        kwargs: dict[str, float] = {}
+        raw_by_field: dict[str, int] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
             for field, value in zip(fields, self._pending[frame_cmd], strict=True):
-                kwargs[field] = value
+                raw_by_field[field] = value
 
-        torques = L20liteTorque(**kwargs)
-        torque_data = TorqueData(torques=torques, timestamp=time.time())
+        torque_data = TorqueData(
+            torques=tuple(raw_by_field[name] for name in _JOINT_NAMES),
+            timestamp=time.time(),
+        )
         self._relay.push(torque_data)

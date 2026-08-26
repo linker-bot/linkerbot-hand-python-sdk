@@ -65,7 +65,7 @@ def test_stream_receives_periodic_angle_events() -> None:
     event = stream.get(timeout=1)
 
     assert isinstance(event, AngleEvent)
-    assert event.data.angles.to_raw() == [7] * 17
+    assert event.data.angles == (7,) * 17
     hand.close()
 
 

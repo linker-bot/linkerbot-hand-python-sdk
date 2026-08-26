@@ -1,16 +1,8 @@
-"""Legacy angle control and sensing for L30.
-
-``set_angles`` uses the historic 0-100 numeric normalization where 0 maps to
-each joint's ``spec.minimum`` and 100 maps to ``spec.maximum``. This is not the
-unified hand direction contract. ``set_raw_angles`` takes protocol-native raw
-integers, while sensor readback returns ``L30Angle`` in the same legacy numeric
-space.
-"""
+"""L30 protocol-native position control and sensing."""
 
 from __future__ import annotations
 
 import time
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -21,36 +13,22 @@ from . import protocol
 from .client import L30Client
 from .joints import L30Angle, validate_raw_command_values
 
-_LEGACY_PERCENTAGE_WARNING = (
-    "L30 AngleManager.set_angles() uses legacy 0=minimum, 100=maximum "
-    "semantics and is deprecated; use HandDevice.submit_angles() for "
-    "100=open, 0=closed"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class AngleData:
-    """Immutable L30 angle sensor data.
+    """Immutable L30 protocol position data.
 
     Attributes:
-        angles: Joint angles as 0-100 float percentages in J1..J17 order.
-            Values may occasionally lie slightly outside [0, 100] when the
-            hardware calibrates or overshoots the documented command range.
+        angles: 17 decoded signed protocol values in J1..J17 order.
         timestamp: Unix timestamp when the data was received or decoded.
     """
 
-    angles: L30Angle
+    angles: tuple[int, ...]
     timestamp: float
 
 
 class AngleManager:
-    """Manager for L30 joint angle commands and angle sensor data.
-
-    ``set_angles`` accepts the legacy 0-100 normalization where 0 maps to
-    ``spec.minimum`` and 100 maps to ``spec.maximum``. Use ``set_raw_angles``
-    for exact protocol integers from :data:`L30_JOINT_SPECS`. Sensor readback
-    returns the same legacy normalization via :class:`AngleData`.
-    """
+    """Manage L30 protocol-native target and measured joint positions."""
 
     def __init__(self, client: L30Client) -> None:
         """Initialize the angle manager.
@@ -64,50 +42,25 @@ class AngleManager:
             protocol.L30_SUBCMD_POSITION, self._on_periodic_report
         )
 
-    def set_angles(self, angles: L30Angle | Sequence[int | float]) -> None:
-        """Send 17 target joint angles as 0-100 percentages.
-
-        This legacy API accepts 17 floats between 0 and 100, where 0 maps to
-        ``spec.minimum`` and 100 maps to ``spec.maximum`` for each joint. The
-        manager converts them to raw integers using each joint's spec range.
+    def set_angles(self, angles: list[int] | tuple[int, ...]) -> None:
+        """Send 17 protocol-native target positions.
 
         Args:
-            angles: :class:`L30Angle` or 17-element sequence of 0-100 numbers
-                in J1..J17 order.
+            angles: 17 protocol integers in J1..J17 order. Each value must be
+                within the corresponding :data:`L30_JOINT_SPECS` range.
 
         Raises:
-            ValidationError: If the value count, type, or 0-100 range is invalid.
+            ValidationError: If count, type, or a per-joint range is invalid.
         """
-        warnings.warn(
-            _LEGACY_PERCENTAGE_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
+        validated = validate_raw_command_values(angles)
+        self._send_angles(list(validated))
+
+    def set_percentage_angles(self, angles: L30Angle | Sequence[int | float]) -> None:
+        """Convert explicit 0..100 targets and send protocol values."""
+        percentages = (
+            angles if isinstance(angles, L30Angle) else L30Angle.from_list(angles)
         )
-        if isinstance(angles, L30Angle):
-            raw_values = angles.to_raw()
-        elif isinstance(angles, Sequence):
-            raw_values = L30Angle.from_list(angles).to_raw()
-        else:
-            raise ValidationError(
-                f"Expected L30Angle or a sequence of numbers, "
-                f"got {type(angles).__name__}"
-            )
-        self._send_raw_angles(raw_values)
-
-    def set_raw_angles(self, raw_angles: list[int] | tuple[int, ...]) -> None:
-        """Send 17 target joint angles as raw protocol integers.
-
-        Each value must lie in its joint's documented
-        ``[spec.minimum, spec.maximum]`` range (see :data:`L30_JOINT_SPECS`).
-
-        Args:
-            raw_angles: 17-element sequence of ints in J1..J17 order.
-
-        Raises:
-            ValidationError: If count, type, or per-joint spec range is invalid.
-        """
-        validated = validate_raw_command_values(raw_angles)
-        self._send_raw_angles(list(validated))
+        self.set_angles(percentages.to_raw())
 
     def get_blocking(self, timeout_ms: float = 100) -> AngleData:
         """Read current joint angles and update the cached snapshot.
@@ -116,8 +69,7 @@ class AngleManager:
             timeout_ms: Time to wait for the query response.
 
         Returns:
-            AngleData whose ``angles`` are 0-100 percentages (may slightly
-            exceed the range on hardware calibration overshoot).
+            AngleData containing decoded signed protocol values.
 
         Raises:
             ValidationError: If timeout_ms is not positive.
@@ -132,10 +84,7 @@ class AngleManager:
             timeout_ms=timeout_ms,
         )
         data = AngleData(
-            angles=L30Angle.from_sensor_raw(
-                list(protocol.decode_i16_response(response))
-            ),
-            timestamp=time.time(),
+            angles=protocol.decode_i16_response(response), timestamp=time.time()
         )
         self._relay.push(data)
         return data
@@ -148,11 +97,11 @@ class AngleManager:
         """
         return self._relay.snapshot()
 
-    def _send_raw_angles(self, raw_values: list[int]) -> None:
+    def _send_angles(self, values: list[int]) -> None:
         self._client.send_no_ack(
             parent=protocol.L30_PARENT_CONTROL,
             subcmd=protocol.L30_SUBCMD_POSITION,
-            payload=protocol.encode_i16_vector(tuple(raw_values)),
+            payload=protocol.encode_i16_vector(tuple(values)),
             dlc=protocol.L30_VECTOR_DLC,
         )
 
@@ -174,7 +123,7 @@ class AngleManager:
         )
         self._relay.push(
             AngleData(
-                angles=L30Angle.from_sensor_raw(list(values)),
+                angles=values,
                 timestamp=time.time(),
             )
         )

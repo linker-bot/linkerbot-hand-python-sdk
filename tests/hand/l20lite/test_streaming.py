@@ -119,7 +119,7 @@ class TestStreaming:
             )
 
             first = angle_events[0]
-            angles = first.data.angles.to_list()
+            angles = list(first.data.angles)
             assert len(angles) == 10, f"Expected 10 angles, got {len(angles)}"
             for angle in angles:
                 assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"
@@ -162,7 +162,7 @@ class TestStreaming:
             # Verify re-opened stream delivered valid angle data
             assert len(angle_events) >= 1, "Re-opened stream should deliver events"
             first = angle_events[0]
-            angles = first.data.angles.to_list()
+            angles = list(first.data.angles)
             assert len(angles) == 10
             for angle in angles:
                 assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"

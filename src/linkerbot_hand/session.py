@@ -22,6 +22,10 @@ from .runtime.angle_conversion import (
     raw_to_physical_angles,
 )
 from .runtime.lifecycle import _LifecycleRuntime
+from .runtime.speed_conversion import (
+    percentage_speeds_to_raw,
+    raw_speeds_to_percentage,
+)
 from .runtime.state import _Lifecycle
 
 
@@ -95,7 +99,30 @@ class HandSession(_LifecycleRuntime):
         *,
         policy: CommandPolicy = CommandPolicy.LATEST,
     ) -> CommandHandle:
-        """Submit normalized joint positions using latest-wins scheduling.
+        """Submit protocol-native joint positions using latest-wins scheduling.
+
+        Args:
+            values: One protocol value per joint in capability order.
+            policy: Scheduling policy; continuous commands require ``LATEST``.
+
+        Returns:
+            Non-blocking command handle.
+
+        Raises:
+            HandSDKError: If the session, values, policy, or capability is invalid.
+        """
+        return self.submit_command(
+            HandCommand(CommandKind.ANGLES, coerce_values(values)),
+            policy=policy,
+        )
+
+    def submit_percentage_angles(
+        self,
+        values: Iterable[float | int],
+        *,
+        policy: CommandPolicy = CommandPolicy.LATEST,
+    ) -> CommandHandle:
+        """Convert percentage positions and submit protocol-native values.
 
         Flexion axes use 0=flexed and 100=extended. Other axes use the
         reversible endpoints declared in their :class:`PercentageMapping`.
@@ -110,32 +137,8 @@ class HandSession(_LifecycleRuntime):
         Raises:
             HandSDKError: If the session, values, policy, or capability is invalid.
         """
-        return self.submit_command(
-            HandCommand(CommandKind.ANGLES, coerce_values(values)),
-            policy=policy,
-        )
-
-    def submit_raw_angles(
-        self,
-        values: Iterable[float | int],
-        *,
-        policy: CommandPolicy = CommandPolicy.LATEST,
-    ) -> CommandHandle:
-        """Submit exact protocol joint-angle values.
-
-        Args:
-            values: One raw protocol value per joint in capability order.
-            policy: Scheduling policy; continuous commands require ``LATEST``.
-
-        Returns:
-            Non-blocking command handle.
-
-        Raises:
-            HandSDKError: If the session, values, policy, or capability is invalid.
-        """
-        return self.submit_command(
-            HandCommand(CommandKind.RAW_ANGLES, coerce_values(values)),
-            policy=policy,
+        return self.submit_angles(
+            percent_to_raw(values, self._capabilities), policy=policy
         )
 
     def submit_speeds(
@@ -144,10 +147,10 @@ class HandSession(_LifecycleRuntime):
         *,
         policy: CommandPolicy = CommandPolicy.LATEST,
     ) -> CommandHandle:
-        """Submit joint speeds in capability-declared units.
+        """Submit protocol-native joint speeds.
 
         Args:
-            values: One speed value per joint in capability order.
+            values: One protocol speed value per joint in capability order.
             policy: Scheduling policy; continuous commands require ``LATEST``.
 
         Returns:
@@ -161,16 +164,27 @@ class HandSession(_LifecycleRuntime):
             policy=policy,
         )
 
+    def submit_percentage_speeds(
+        self,
+        values: Iterable[float | int],
+        *,
+        policy: CommandPolicy = CommandPolicy.LATEST,
+    ) -> CommandHandle:
+        """Convert explicitly supported percentage speeds and submit them."""
+        return self.submit_speeds(
+            percentage_speeds_to_raw(values, self._capabilities), policy=policy
+        )
+
     def submit_torques(
         self,
         values: Iterable[float | int],
         *,
         policy: CommandPolicy = CommandPolicy.LATEST,
     ) -> CommandHandle:
-        """Submit joint torques in capability-declared units.
+        """Submit protocol-native joint torque or current-limit values.
 
         Args:
-            values: One torque value per joint in capability order.
+            values: One protocol value per joint in capability order.
             policy: Scheduling policy; continuous commands require ``LATEST``.
 
         Returns:
@@ -293,6 +307,18 @@ class HandSession(_LifecycleRuntime):
             UnsupportedOperationError: If a joint has no verified mapping.
         """
         return raw_to_percent(values, self._capabilities)
+
+    def percentage_speeds_to_raw(
+        self, values: Iterable[float | int]
+    ) -> tuple[float | int, ...]:
+        """Convert percentage speeds through an explicit capability mapping."""
+        return percentage_speeds_to_raw(values, self._capabilities)
+
+    def raw_speeds_to_percentage(
+        self, values: Iterable[float | int]
+    ) -> tuple[float, ...]:
+        """Convert protocol speeds through an explicit capability mapping."""
+        return raw_speeds_to_percentage(values, self._capabilities)
 
     def raw_to_physical_angles(
         self, values: Iterable[float | int]

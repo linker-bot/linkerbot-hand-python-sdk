@@ -18,15 +18,12 @@ class ClassicAdapter:
         module_name: Import path containing the legacy class.
         class_name: Legacy class name.
         serial_tokens: Normalized serial-number tokens accepted for the model.
-        classic_raw_fallback: Whether raw bytes may be reconstructed from the
-            legacy percentage response.
     """
 
     model: str
     module_name: str
     class_name: str
     serial_tokens: tuple[str, ...]
-    classic_raw_fallback: bool = True
 
     def prepare_options(
         self,

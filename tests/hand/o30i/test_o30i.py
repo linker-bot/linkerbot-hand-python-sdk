@@ -24,7 +24,7 @@ def test_o30i_defaults_match_measured_standard_can_endpoint() -> None:
     with O30i(dispatcher=dispatcher) as hand:
         assert hand.request_id == 0x001
         assert hand.response_id == 0x401
-        hand.angle.set_raw_angles([0x80] * 20)
+        hand.angle.set_angles([0x80] * 20)
 
     assert all(message.arbitration_id == 0x001 for message in dispatcher.sent)
     assert all(message.is_extended_id is False for message in dispatcher.sent)

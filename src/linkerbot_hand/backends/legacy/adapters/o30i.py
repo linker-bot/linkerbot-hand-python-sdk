@@ -16,7 +16,6 @@ class O30iAdapter:
     model = "O30i"
     module_name = "linkerbot.hand.o30i"
     class_name = "O30i"
-    classic_raw_fallback = False
 
     def prepare_options(
         self,

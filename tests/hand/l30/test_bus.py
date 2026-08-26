@@ -74,9 +74,9 @@ def test_bus_routes_reports_to_matching_node_only() -> None:
     assert left_snapshot is not None
     assert right_snapshot is not None
     assert extra_snapshot is not None
-    assert left_snapshot.angles.to_raw() == [1] * 17
-    assert right_snapshot.angles.to_raw() == [2] * 17
-    assert extra_snapshot.angles.to_raw() == [3] * 17
+    assert left_snapshot.angles == (1,) * 17
+    assert right_snapshot.angles == (2,) * 17
+    assert extra_snapshot.angles == (3,) * 17
 
     bus.close()
 
@@ -92,7 +92,7 @@ def test_closing_one_hand_does_not_stop_shared_dispatcher_or_other_hands() -> No
     snapshot = second.angle.get_snapshot()
     assert not dispatcher.stopped
     assert snapshot is not None
-    assert snapshot.angles.to_raw() == [2] * 17
+    assert snapshot.angles == (2,) * 17
 
     bus.close()
 
@@ -192,8 +192,8 @@ def test_same_node_id_on_different_buses_routes_independently() -> None:
     snapshot1 = hand1.angle.get_snapshot()
     assert snapshot0 is not None
     assert snapshot1 is not None
-    assert snapshot0.angles.to_raw() == [1] * 17
-    assert snapshot1.angles.to_raw() == [2] * 17
+    assert snapshot0.angles == (1,) * 17
+    assert snapshot1.angles == (2,) * 17
 
     bus0.close()
     bus1.close()
@@ -215,7 +215,7 @@ def test_closing_one_bus_does_not_close_another_bus() -> None:
     assert not hand1.is_closed()
     assert not dispatcher1.stopped
     assert snapshot is not None
-    assert snapshot.angles.to_raw() == [2] * 17
+    assert snapshot.angles == (2,) * 17
 
     bus1.close()
 

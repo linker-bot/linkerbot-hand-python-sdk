@@ -31,7 +31,9 @@ def test_send_no_ack_propagates_physical_send_failure() -> None:
     receipt.set_exception(expected)
 
     class ReceiptDispatcher(FakeDispatcher):
-        def send(self, message: CANFDMessage) -> Future[None]:
+        def send(  # ty: ignore[invalid-method-override]
+            self, message: CANFDMessage
+        ) -> Future[None]:
             super().send(message)
             return receipt
 
@@ -246,7 +248,7 @@ def test_client_serializes_same_response_id_requests() -> None:
 
     threads = [
         threading.Thread(
-            target=lambda: results.append(angle.get_blocking().angles.to_raw())
+            target=lambda: results.append(list(angle.get_blocking().angles))
         )
         for _ in range(2)
     ]

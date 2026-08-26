@@ -29,7 +29,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(target)
+    hand.angle.set_percentage_angles(target)
     start = time.perf_counter()
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
@@ -55,7 +55,7 @@ def _move_and_time(
     data = hand.angle.get_blocking(timeout_ms=500)
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)]}"
     )
     return elapsed, timed_out
 
@@ -65,11 +65,11 @@ class TestSpeedManagerSet:
 
     def test_set_speeds_with_list(self, l6_hand: L6):
         """set_speeds should accept a list of floats without error."""
-        l6_hand.speed.set_speeds([50.0] * 6)
+        l6_hand.speed.set_percentage_speeds([50.0] * 6)
 
     def test_set_speeds_with_l6speed(self, l6_hand: L6):
         """set_speeds should accept an L6Speed instance without error."""
-        l6_hand.speed.set_speeds(
+        l6_hand.speed.set_percentage_speeds(
             L6Speed(
                 thumb_flex=50.0,
                 thumb_abd=50.0,
@@ -82,7 +82,7 @@ class TestSpeedManagerSet:
 
     def test_set_different_speeds(self, l6_hand: L6):
         """set_speeds should accept different per-motor speeds without error."""
-        l6_hand.speed.set_speeds([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
+        l6_hand.speed.set_percentage_speeds([20.0, 40.0, 60.0, 80.0, 100.0, 50.0])
 
 
 @pytest.mark.interactive
@@ -104,7 +104,7 @@ class TestSpeedInteractive:
             session.step(
                 instruction=f"[{level} speed={speed_val}] Closing fingers",
                 action=lambda lbl=f"{level} close", sv=speed_val: (
-                    l6_hand.speed.set_speeds([sv] * 6),
+                    l6_hand.speed.set_percentage_speeds([sv] * 6),
                     track(lbl, CLOSED),
                 ),
                 expected=(

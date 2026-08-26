@@ -116,18 +116,15 @@ class FakeBackendState:
         self,
         sensor: SensorType,
         values: tuple[SensorValue, ...],
-        *,
-        raw_values: tuple[int, ...] | None = None,
     ) -> None:
         """Configure the reading returned for a sensor.
 
         Args:
             sensor: Sensor channel to configure.
-            values: Normalized values returned to the session.
-            raw_values: Optional exact protocol values.
+            values: Decoded protocol-native values returned to the session.
         """
         with self.lock:
-            self.readings[sensor] = BackendReading(sensor, values, raw_values)
+            self.readings[sensor] = BackendReading(sensor, values)
 
     def disconnect(self) -> None:
         """Make subsequent fake transport I/O fail."""

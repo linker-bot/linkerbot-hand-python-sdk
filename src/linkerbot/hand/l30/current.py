@@ -6,11 +6,42 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from linkerbot.hand._values import protocol_vector_to_scaled, scaled_vector_to_protocol
 from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
 
 from . import protocol
 from .client import L30Client
+
+L30_CURRENT_MA_PER_PROTOCOL_UNIT = 6.5
+
+
+def protocol_currents_to_milliamps(
+    values: list[int] | tuple[int, ...],
+) -> tuple[float, ...]:
+    """Convert 17 signed protocol current values to milliamps explicitly."""
+    return protocol_vector_to_scaled(
+        values,
+        count=protocol.L30_JOINT_COUNT,
+        name="protocol_currents",
+        minimum=-32768,
+        maximum=32767,
+        scale=L30_CURRENT_MA_PER_PROTOCOL_UNIT,
+    )
+
+
+def milliamps_to_protocol_currents(
+    values: list[float | int] | tuple[float | int, ...],
+) -> tuple[int, ...]:
+    """Quantize 17 milliamp values to signed protocol current values explicitly."""
+    return scaled_vector_to_protocol(
+        values,
+        count=protocol.L30_JOINT_COUNT,
+        name="milliamps",
+        minimum=-32768,
+        maximum=32767,
+        scale=L30_CURRENT_MA_PER_PROTOCOL_UNIT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,7 +49,8 @@ class CurrentData:
     """Immutable L30 current sensor data.
 
     Attributes:
-        currents: 17 current values in J1..J17 order.
+        currents: 17 decoded signed protocol values in J1..J17 order. Each
+            protocol unit represents 6.5 mA; no conversion is applied here.
         timestamp: Unix timestamp when the data was received or decoded.
     """
 

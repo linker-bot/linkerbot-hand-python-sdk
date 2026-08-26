@@ -55,7 +55,7 @@ from linkerbot.hand import L30
 
 with L30() as hand:
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles.to_list())
+    print(data.angles)
 ```
 
 如果动态库不在系统搜索路径中，可以显式指定：
@@ -65,7 +65,7 @@ from linkerbot.hand import L30
 
 with L30(library_path="/home/linkerhand/code/HK/libcanbus.so") as hand:
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles.to_list())
+    print(data.angles)
 ```
 
 也可以使用环境变量：
@@ -136,7 +136,8 @@ L30 SDK 按协议顺序使用 17 个关节值：`J1` 到 `J17`。所有角度、
 当前电流、温度、故障数据都按这个顺序排列。协议中的“力矩”字段实际表示电流上限，
 每个协议单位为 6.5 mA。
 
-**角度单位**:与 L6 一致，`set_angles` 与 sensor readback 都使用 **0-100 float 百分比**;需要协议原始整数时用 `set_raw_angles` / `to_raw()`。详见 [angle](./angle.md)。
+`set_angles()` 与角度读回直接使用下表逐关节的协议整数，不执行百分比或物理角度
+换算。需要 `0..100` 输入时显式调用 `set_percentage_angles()`。详见 [angle](./angle.md)。
 
 下表是 L30 左右手共用的协议 v6 原始位置范围：
 
@@ -199,7 +200,7 @@ with L30() as hand:
 
     snapshot = hand.get_snapshot()
     if snapshot.angle is not None:
-        print(snapshot.angle.angles.to_list())
+        print(snapshot.angle.angles)
     if snapshot.current is not None:
         print(snapshot.current.currents)
 ```
@@ -222,7 +223,7 @@ from linkerbot.exceptions import CANError, TimeoutError, ValidationError
 try:
     with L30() as hand:
         data = hand.angle.get_blocking(timeout_ms=1000)
-        print(data.angles.to_list())
+        print(data.angles)
 except TimeoutError:
     print("设备响应超时")
 except ValidationError as error:

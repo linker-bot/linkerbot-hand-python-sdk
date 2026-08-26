@@ -1,6 +1,7 @@
 # 电流读取
 
-通过 `hand.current` 读取 O20 的 16 个电机实测电流值，单位 **mA**。只读。
+通过 `hand.current` 读取 O20 的 16 个电机实测电流值。协议字段本身以 **mA** 为单位，
+SDK 只解码有符号整数，不额外缩放。
 
 - **数量**:16 个电机
 - **单位**:毫安 (mA)
@@ -40,6 +41,6 @@ with O20(side="right") as hand:
 ```python
 with O20(side="right") as hand:
     hand.torque.set_all(400)  # 上限 = 400 * 6.5 ≈ 2600 mA
-    hand.angle.set_angles([30.0] * 16)  # 触发运动
+    hand.angle.set_angles([60, 75, 90, 65, 0, 90, 90, 0, 90, 90, 0, 90, 90, 0, 90, 90])
     print("实测电流：", hand.current.get_blocking(timeout_ms=1000).currents)
 ```

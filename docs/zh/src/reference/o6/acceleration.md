@@ -1,129 +1,36 @@
-# 加速度控制
+# 加速度控制与读取
 
-通过 `hand.acceleration` 控制和读取 O6 灵巧手的 6 个关节电机加速度。
-
-- **加速度范围**: 0-100
-- **最大加速度**: 2209.8 deg/s²（对应值 100）
-
-协议 `0x87` 的线上原值范围为 `0x00..0xFE`：`1..254` 依次增大，`0` 是表示最大
-加速度的特殊值。旧 `O6Acceleration` 继续提供 0–100 兼容映射，其中 100 编码为 raw 0；
-统一 SDK 的加速度反馈使用度/秒²，并在 `SensorSample.raw_values` 保留准确协议原值。
-
-## 设置加速度
+O6 加速度在线上使用 6 个 `0..254` 协议整数。`1..254` 依次增大，`0` 是协议定义的
+最大加速度特殊值。默认控制和反馈保留该编码，不自动换算为百分比或度/秒²。
 
 ```python
 from linkerbot.hand import O6
-from linkerbot.hand.o6 import O6Acceleration
-
-# 使用列表
-hand.acceleration.set_accelerations([80.0, 80.0, 80.0, 80.0, 80.0, 80.0])
-
-# 使用 O6Acceleration 对象
-accel = O6Acceleration(
-    thumb_flex=80.0,  # 拇指屈曲
-    thumb_abd=80.0,  # 拇指侧摆
-    index=80.0,  # 食指
-    middle=80.0,  # 中指
-    ring=80.0,  # 无名指
-    pinky=80.0,  # 小指
-)
-hand.acceleration.set_accelerations(accel)
-```
-
-## 读取加速度
-
-### 阻塞读取
-
-```python
-from linkerbot.hand import O6
-from linkerbot.exceptions import TimeoutError
-
-try:
-    data = hand.acceleration.get_blocking(timeout_ms=500)
-    print(f"拇指屈曲：{data.accelerations.thumb_flex}")
-    print(f"全部加速度：{data.accelerations.to_list()}")
-except TimeoutError:
-    print("读取超时")
-```
-
-### 缓存读取
-
-```python
-data = hand.acceleration.get_snapshot()
-if data:
-    print(f"加速度：{data.accelerations.to_list()}")
-    print(f"时间戳：{data.timestamp}")
-```
-
-## 流式读取
-
-通过顶层 `hand.stream()` 统一接收所有传感器事件：
-
-```python
-from linkerbot.hand.o6 import SensorSource, AccelerationEvent
-
-hand.start_polling({SensorSource.ACCELERATION: 0.1})
-
-for event in hand.stream():
-    match event:
-        case AccelerationEvent(data=data):
-            print(f"加速度：{data.accelerations.to_list()}")
-
-hand.stop_polling()
-hand.stop_stream()
-```
-
-## deg/s² 单位转换
-
-`O6Acceleration` 支持与物理单位 deg/s²（度每秒平方）之间的转换。
-
-### 转换为 deg/s²
-
-```python
-from linkerbot.hand.o6 import O6Acceleration
-
-accel = O6Acceleration(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
-deg_s2_values = accel.to_deg_per_sec2()
-print(deg_s2_values)  # [1104.9, 1104.9, 1104.9, 1104.9, 1104.9, 1104.9]
-```
-
-### 从 deg/s² 创建
-
-```python
-from linkerbot.hand.o6 import O6Acceleration
-
-# 设置所有关节电机加速度为 1000 deg/s²
-accel = O6Acceleration.from_deg_per_sec2([1000.0] * 6)
-
-# 设置不同的加速度
-accel = O6Acceleration.from_deg_per_sec2(
-    [
-        1500.0,  # 拇指屈曲
-        1200.0,  # 拇指侧摆
-        1800.0,  # 食指
-        1800.0,  # 中指
-        1800.0,  # 无名指
-        1800.0,  # 小指
-    ]
-)
-```
-
-## 完整示例
-
-```python
-from linkerbot.hand import O6
-from linkerbot.hand.o6 import O6Acceleration
 
 with O6(side="left", interface_name="can0") as hand:
-    # 设置较低加速度（平滑运动）
-    hand.acceleration.set_accelerations([30.0] * 6)
+    hand.acceleration.set_accelerations([128] * 6)
 
-    # 使用 deg/s² 单位设置
-    accel = O6Acceleration.from_deg_per_sec2([1000.0] * 6)
-    hand.acceleration.set_accelerations(accel)
-
-    # 读取当前加速度
     data = hand.acceleration.get_blocking(timeout_ms=500)
-    print(f"当前加速度：{data.accelerations.to_list()}")
-    print(f"对应 deg/s²: {data.accelerations.to_deg_per_sec2()}")
+    print(data.accelerations)  # tuple[int, ...]，范围 0..254
 ```
+
+需要逻辑 `0..100` 输入时使用显式方法；其中 `100` 按协议编码为特殊值 `0`：
+
+```python
+hand.acceleration.set_percentage_accelerations([80] * 6)
+```
+
+## 显式物理量换算
+
+`O6Acceleration` 提供百分比、协议值和度/秒²之间的显式 helper：
+
+```python
+from linkerbot.hand.o6 import O6Acceleration
+
+physical = O6Acceleration.from_raw(list(data.accelerations)).to_deg_per_sec2()
+protocol_target = O6Acceleration.from_deg_per_sec2([1000.0] * 6).to_raw()
+hand.acceleration.set_accelerations(protocol_target)
+```
+
+事件流中的 `AccelerationEvent.data.accelerations` 仍是协议整数。统一快照只保存
+`SensorSample.values`，并标注 `unit="protocol_raw"`、`encoding="u8"`；不存在第二份
+`raw_values`。

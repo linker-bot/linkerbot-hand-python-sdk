@@ -15,17 +15,13 @@ from .adapters import LegacyModelAdapter, get_legacy_model_adapter
 from .dispatcher import DispatchClaimRejected, ScopedImmediateDispatcher
 from .normalization import (
     as_tuple,
-    command_values_for_legacy,
     extract_payload,
     normalize_sensor_value,
     normalize_tactile,
-    normalize_vector_sensor,
-    percent_to_raw,
     poll_manager_name,
+    protocol_angle_values,
+    protocol_vector_values,
     raise_mapped,
-    raw_angles,
-    raw_to_percent,
-    set_protocol_raw_angles,
 )
 
 
@@ -143,20 +139,11 @@ class LegacyHandBackend:
         try:
             with self._immediate_dispatch(require_claim, mark_dispatched):
                 if kind is CommandKind.ANGLES:
-                    set_protocol_raw_angles(
-                        hand.angle,
-                        list(percent_to_raw(values, self._capabilities)),
-                    )
-                elif kind is CommandKind.RAW_ANGLES:
-                    set_protocol_raw_angles(hand.angle, values)
+                    hand.angle.set_angles(values)
                 elif kind is CommandKind.SPEEDS:
-                    hand.speed.set_speeds(
-                        command_values_for_legacy(self._model, kind, values)
-                    )
+                    hand.speed.set_speeds(values)
                 elif kind is CommandKind.TORQUES:
-                    hand.torque.set_torques(
-                        command_values_for_legacy(self._model, kind, values)
-                    )
+                    hand.torque.set_torques(values)
                 elif kind is CommandKind.CLEAR_FAULTS:
                     clear = getattr(hand.fault, "clear_faults", None)
                     if clear is None:
@@ -187,7 +174,7 @@ class LegacyHandBackend:
             sensor: Supported sensor channel to query.
 
         Returns:
-            Unified reading with exact raw angles when available.
+            Unified reading containing decoded protocol-native values.
 
         Raises:
             HandSDKError: If polling, payload extraction, or normalization fails.
@@ -200,29 +187,21 @@ class LegacyHandBackend:
                 return BackendReading(sensor=sensor, values=normalize_tactile(data))
             payload = extract_payload(data, sensor)
             if sensor is SensorType.ANGLES:
-                raw_values = raw_angles(
-                    data,
+                values = protocol_angle_values(
                     payload,
                     model=self._model,
-                    classic_raw_fallback=self._adapter.classic_raw_fallback,
                 )
-                return BackendReading(
-                    sensor=sensor,
-                    values=raw_to_percent(raw_values, self._capabilities),
-                    raw_values=raw_values,
-                )
+                return BackendReading(sensor=sensor, values=values)
             if sensor in (
                 SensorType.SPEEDS,
                 SensorType.TORQUES,
                 SensorType.ACCELERATION,
                 SensorType.CURRENT,
             ):
-                values, raw_values = normalize_vector_sensor(
-                    data, payload, sensor=sensor, model=self._model
+                values = protocol_vector_values(
+                    payload, sensor=sensor, model=self._model
                 )
-                return BackendReading(
-                    sensor=sensor, values=values, raw_values=raw_values
-                )
+                return BackendReading(sensor=sensor, values=values)
             values = tuple(normalize_sensor_value(value) for value in as_tuple(payload))
             return BackendReading(sensor=sensor, values=values)
         except BaseException as exc:

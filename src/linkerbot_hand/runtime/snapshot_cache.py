@@ -65,7 +65,8 @@ class SnapshotCache:
             sensor: SensorSample(
                 sensor=sensor,
                 values=(),
-                raw_values=None,
+                unit=self._sensor_unit(sensor),
+                encoding=self._sensor_encoding(sensor),
                 collected_at=None,
                 sequence=self._sensor_sequences[sensor],
                 valid=False,
@@ -106,9 +107,8 @@ class SnapshotCache:
         self._samples[sensor] = SensorSample(
             sensor=sensor,
             values=tuple(reading.values),
-            raw_values=(
-                None if reading.raw_values is None else tuple(reading.raw_values)
-            ),
+            unit=self._sensor_unit(sensor),
+            encoding=self._sensor_encoding(sensor),
             collected_at=collected_wall,
             sequence=self._sensor_sequences[sensor],
             valid=valid,
@@ -191,15 +191,9 @@ class SnapshotCache:
         """
         if not reading.values:
             return False
-        if (
+        return not (
             reading.sensor in _JOINT_VECTOR_SENSORS
             and len(reading.values) != self._capabilities.joint_count
-        ):
-            return False
-        return not (
-            reading.sensor is SensorType.ANGLES
-            and reading.raw_values is not None
-            and len(reading.raw_values) != self._capabilities.joint_count
         )
 
     def _sample_for_read(
@@ -213,7 +207,8 @@ class SnapshotCache:
             sample = SensorSample(
                 sensor=sensor,
                 values=(),
-                raw_values=None,
+                unit=self._sensor_unit(sensor),
+                encoding=self._sensor_encoding(sensor),
                 collected_at=None,
                 sequence=self._sensor_sequences[sensor],
                 valid=False,
@@ -243,8 +238,7 @@ class SnapshotCache:
         return tuple(
             JointState(
                 name=capability.name,
-                angle_percent=self._sample_value(angles, index),
-                raw_angle=self._raw_sample_value(angles, index),
+                angle=self._sample_value(angles, index),
                 speed=self._sample_value(speeds, index),
                 torque=self._sample_value(torques, index),
                 fault=self._fault_sample_value(faults, index),
@@ -263,21 +257,18 @@ class SnapshotCache:
             else None
         )
 
-    @staticmethod
-    def _raw_sample_value(sample: SensorSample | None, index: int) -> int | None:
-        if (
-            sample is None
-            or not sample.valid
-            or sample.raw_values is None
-            or index >= len(sample.raw_values)
-        ):
-            return None
-        return sample.raw_values[index]
-
     @classmethod
     def _fault_sample_value(cls, sample: SensorSample | None, index: int) -> int | None:
         value = cls._sample_value(sample, index)
         return None if value is None else int(value)
+
+    def _sensor_unit(self, sensor: SensorType) -> str | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.unit
+
+    def _sensor_encoding(self, sensor: SensorType) -> str | None:
+        capability = self._capabilities.sensor(sensor)
+        return None if capability is None else capability.encoding
 
 
 __all__ = ["SnapshotCache"]

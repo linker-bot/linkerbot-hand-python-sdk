@@ -3,29 +3,22 @@
 from __future__ import annotations
 
 import time
-import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from linkerbot.hand.hand_protocol_v1 import HandProtocolV1
-from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
 
 from . import protocol
 from ._runtime import read_vector, write_vector
 from .joints import O30iAngle, validate_u8_values
 
-_LEGACY_PERCENTAGE_WARNING = (
-    "O30i AngleManager.set_angles() uses legacy 0=open, 100=closed semantics "
-    "and is deprecated; use HandDevice.submit_angles() for 100=open, 0=closed"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class O30iAngleData:
-    """O30i position data in logical percentage space (0=open, 100=closed)."""
+    """O30i decoded unsigned-byte protocol positions."""
 
-    angles: O30iAngle
+    angles: tuple[int, ...]
     timestamp: float
 
 
@@ -42,34 +35,12 @@ class AngleManager:
 
     def set_angles(
         self,
-        angles: O30iAngle | list[float] | tuple[float, ...],
-        *,
-        timeout_ms: float = 100,
-    ) -> None:
-        """Set all physical joints from 0=open to 100=closed percentages."""
-        warnings.warn(
-            _LEGACY_PERCENTAGE_WARNING,
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if isinstance(angles, O30iAngle):
-            raw = angles.to_raw()
-        elif isinstance(angles, (list, tuple)):
-            raw = O30iAngle.from_list(angles).to_raw()
-        else:
-            raise ValidationError(
-                "angles must be O30iAngle or a list/tuple of percentages"
-            )
-        self.set_raw_angles(raw, timeout_ms=timeout_ms)
-
-    def set_raw_angles(
-        self,
-        values: list[int] | tuple[int, ...],
+        angles: list[int] | tuple[int, ...],
         *,
         timeout_ms: float = 100,
     ) -> None:
         """Set all physical joints from protocol-native bytes."""
-        normalized = validate_u8_values(values, name="raw_angles")
+        normalized = validate_u8_values(angles, name="angles")
         write_vector(
             self._client,
             main_index=protocol.O30I_MI_POSITION,
@@ -77,7 +48,19 @@ class AngleManager:
             timeout_ms=timeout_ms,
         )
 
-    def set_raw_slice(
+    def set_percentage_angles(
+        self,
+        angles: O30iAngle | list[float] | tuple[float, ...],
+        *,
+        timeout_ms: float = 100,
+    ) -> None:
+        """Convert explicit 0..100 targets and send protocol values."""
+        percentages = (
+            angles if isinstance(angles, O30iAngle) else O30iAngle.from_list(angles)
+        )
+        self.set_angles(percentages.to_raw(), timeout_ms=timeout_ms)
+
+    def set_slice(
         self,
         offset: int,
         values: list[int] | tuple[int, ...],
@@ -121,13 +104,13 @@ class AngleManager:
             timeout_ms=timeout_ms,
         )
         data = O30iAngleData(
-            angles=O30iAngle.from_raw(values),
+            angles=values,
             timestamp=time.time(),
         )
         self._relay.push(data)
         return data
 
-    def get_target_blocking(self, timeout_ms: float = 100) -> O30iAngle:
+    def get_target_blocking(self, timeout_ms: float = 100) -> tuple[int, ...]:
         """Read position set-points with RTS=1 without changing the snapshot."""
         values = read_vector(
             self._client,
@@ -135,7 +118,7 @@ class AngleManager:
             timeout_ms=timeout_ms,
             rts=True,
         )
-        return O30iAngle.from_raw(values)
+        return values
 
     def get_i16_blocking(self, timeout_ms: float = 100) -> tuple[int, ...]:
         """Read the only measured-safe full 72-byte little-endian position block."""

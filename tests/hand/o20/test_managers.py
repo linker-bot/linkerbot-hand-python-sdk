@@ -17,12 +17,12 @@ from tests.hand.o20.fakes import FakeDispatcher
 pytestmark = [pytest.mark.o20, pytest.mark.canfd]
 
 
-def test_angle_set_raw_angles_writes_target_pos_with_little_endian_payload() -> None:
+def test_angle_set_angles_writes_target_pos_with_little_endian_payload() -> None:
     dispatcher = FakeDispatcher()
     client = O20Client(dispatcher, device_id=0x01)
     manager = AngleManager(client)
 
-    manager.set_raw_angles([1] * protocol.O20_JOINT_COUNT)
+    manager.set_angles([1] * protocol.O20_JOINT_COUNT)
 
     sent = dispatcher.sent[0]
     assert sent.arbitration_id == 0x0020D000
@@ -40,22 +40,18 @@ def test_angle_get_blocking_decodes_first_sixteen_motor_slots_only() -> None:
 
     data = manager.get_blocking(timeout_ms=100)
 
-    # Sensor readback stores percentages internally; compare via to_raw() to
-    # keep the "raw N in → raw N out" assertion without recomputing per-joint
-    # percentage values.
     snapshot = manager.get_snapshot()
-    assert data.angles.to_raw() == list(range(1, 17))
+    assert data.angles == tuple(range(1, 17))
     assert snapshot is not None
-    assert snapshot.angles.to_raw() == list(range(1, 17))
+    assert snapshot.angles == tuple(range(1, 17))
 
 
-def test_legacy_angle_set_angles_warns_and_preserves_joint_mapping() -> None:
+def test_explicit_percentage_angles_preserve_joint_mapping() -> None:
     dispatcher = FakeDispatcher()
     client = O20Client(dispatcher, device_id=0x01)
     manager = AngleManager(client)
 
-    with pytest.warns(DeprecationWarning, match="HandDevice.submit_angles"):
-        manager.set_angles([0.0] * protocol.O20_JOINT_COUNT)
+    manager.set_percentage_angles([0.0] * protocol.O20_JOINT_COUNT)
 
     expected = [spec.minimum for spec in O20_JOINT_SPECS]
     payload = dispatcher.sent[0].data
@@ -78,7 +74,7 @@ def test_speed_command_uses_target_vel_register_and_validates_range() -> None:
         manager.set_all(101)
 
 
-def test_speed_readback_exposes_rpm_and_protocol_raw_values() -> None:
+def test_speed_readback_exposes_signed_protocol_values() -> None:
     raw_values = [*range(-8, 8), 999]
     response = b"".join(
         value.to_bytes(2, "little", signed=True) for value in raw_values
@@ -88,15 +84,14 @@ def test_speed_readback_exposes_rpm_and_protocol_raw_values() -> None:
 
     data = manager.get_blocking(timeout_ms=100)
 
-    assert data.raw_speeds == tuple(range(-8, 8))
-    assert data.speeds == pytest.approx(tuple(value * 0.732 for value in range(-8, 8)))
+    assert data.speeds == tuple(range(-8, 8))
 
 
-def test_speed_data_keeps_legacy_positional_construction_compatible() -> None:
-    data = O20SpeedData((1.0,) * 16, 123.0)
+def test_speed_data_uses_protocol_values() -> None:
+    data = O20SpeedData((1,) * 16, 123.0)
 
     assert data.timestamp == 123.0
-    assert data.raw_speeds == ()
+    assert data.speeds == (1,) * 16
 
 
 def test_torque_command_uses_target_torque_register_and_caches_targets() -> None:

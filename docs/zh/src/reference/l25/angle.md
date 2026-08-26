@@ -1,131 +1,39 @@
 # 角度控制
 
-通过 `hand.angle` 控制和读取 L25 灵巧手的 16 个关节电机角度。
+L25 的默认角度接口收发 16 个协议 `u8` 值，范围均为 `0..255`。关节顺序见
+[型号说明](./README.md#关节说明)。SDK 会按五指拆分和重组五帧，保留位不会出现在
+公开向量中。
 
-- **角度范围**: 0-100
-- **单位**: 无量纲（映射到关节电机实际角度）
-
-## 设置角度
-
-```python
-from linkerbot.hand import L25
-from linkerbot.hand.l25 import L25Angle
-
-# 使用列表（16 个关节）
-hand.angle.set_angles([50.0] * 16)
-
-# 使用 L25Angle 对象
-angles = L25Angle(
-    thumb_abd=50.0,  # 拇指侧摆
-    thumb_yaw=30.0,  # 拇指旋转
-    thumb_root1=60.0,  # 拇指根部
-    thumb_tip=40.0,  # 拇指指尖
-    index_abd=50.0,  # 食指侧摆
-    index_root1=60.0,  # 食指根部
-    index_tip=40.0,  # 食指指尖
-    middle_abd=50.0,  # 中指侧摆
-    middle_root1=60.0,  # 中指根部
-    middle_tip=40.0,  # 中指指尖
-    ring_abd=50.0,  # 无名指侧摆
-    ring_root1=60.0,  # 无名指根部
-    ring_tip=40.0,  # 无名指指尖
-    pinky_abd=50.0,  # 小指侧摆
-    pinky_root1=60.0,  # 小指根部
-    pinky_tip=40.0,  # 小指指尖
-)
-hand.angle.set_angles(angles)
-```
-
-## 原始角度与映射
-
-除了 0-100 的百分比角度，`hand.angle` 还支持直接设置标准 raw 角度：
-
-```python
-# 16 个关节，标准 raw 范围为 0-255
-hand.angle.set_raw_angles([128] * 16)
-```
-
-SDK 发送控制帧前会将“标准 raw 值”通过角度映射表转换为“硬件 raw 值”。默认映射是线性直通：`0 -> 0`，`255 -> 255`。
-
-“标准 raw”是旧 manager 的逻辑校准坐标，不是精确 CAN 协议值。绕过用户映射并发送协议
-原值时使用 `hand.angle.set_hardware_raw_angles(...)`。读取结果的 `raw_angles` 是协议原值，
-`standard_raw_angles` 是逆映射后的逻辑值。完整定义与 unified API 对照见
-[角度坐标、方向与用户映射](../angle-coordinates.md)。
-
-L25 的映射表形状为 `16 x 256`：
-
-- 行：关节索引，顺序与 [关节说明](./README.md#关节说明) 一致。
-- 列：标准 raw 输入值 `0-255`。
-- 值：实际发送给硬件的 raw 值 `0-255`。
-
-```python
-mapping = hand.angle.get_angle_mapping()
-mapping[0] = list(reversed(range(256)))
-hand.angle.set_angle_mapping(mapping)
-
-hand.angle.reset_angle_mapping()
-```
-
-映射表默认保存到 `$XDG_CONFIG_HOME/linkerbot/hand_angle_mappings.toml`（未设置时为 `~/.config/linkerbot/hand_angle_mappings.toml`）。保存时会按手型号、左右手和 CAN 接口区分，例如 `l25:left:can0`。也可以在构造手对象时通过 `angle_mapping_path` 指定 TOML 路径。
-
-## 读取角度
-
-### 阻塞读取
-
-```python
-from linkerbot.hand import L25
-from linkerbot.exceptions import TimeoutError
-
-try:
-    data = hand.angle.get_blocking(timeout_ms=500)
-    print(f"拇指侧摆：{data.angles.thumb_abd}")
-    print(f"全部角度：{data.angles.to_list()}")
-except TimeoutError:
-    print("读取超时")
-```
-
-### 缓存读取
-
-```python
-data = hand.angle.get_snapshot()
-if data:
-    print(f"角度：{data.angles.to_list()}")
-    print(f"时间戳：{data.timestamp}")
-```
-
-## 流式读取
-
-通过顶层 `hand.stream()` 统一接收所有传感器事件：
-
-```python
-from linkerbot.hand.l25 import SensorSource, AngleEvent
-
-hand.start_polling({SensorSource.ANGLE: 0.1})
-
-try:
-    for event in hand.stream():
-        match event:
-            case AngleEvent(data=data):
-                print(f"角度：{data.angles.to_list()}")
-finally:
-    hand.stop_polling()
-    hand.stop_stream()
-```
-
-## 完整示例
+## 协议值控制
 
 ```python
 from linkerbot.hand import L25
 
 with L25(side="left", interface_name="can0") as hand:
-    # 设置角度
-    hand.angle.set_angles([0.0] * 16)
-
-    # 读取当前角度
-    data = hand.angle.get_blocking(timeout_ms=500)
-    print(f"当前角度：{data.angles.to_list()}")
-
-    # 渐进移动
-    for i in range(0, 101, 10):
-        hand.angle.set_angles([float(i)] * 16)
+    hand.angle.set_angles(list(range(16)))
 ```
+
+`set_angles()` 只接受 16 个 `0..255` 的 Python `int`，不执行百分比换算。
+
+## 显式百分比控制
+
+```python
+from linkerbot.hand.l25 import L25Angle
+
+hand.angle.set_percentage_angles([50] * 16)
+hand.angle.set_percentage_angles(L25Angle.from_list([50.0] * 16))
+```
+
+该 helper 把每轴 `0..100` 线性映射到协议 `0..255`。
+
+## 读取与缓存
+
+```python
+data = hand.angle.get_blocking(timeout_ms=500)
+print(data.angles)  # tuple[int, ...]，16 个协议值
+
+cached = hand.angle.get_snapshot()
+```
+
+阻塞读取会等待五帧组成同一完整样本；流式事件和缓存使用相同协议元组。统一接口说明见
+[协议值、百分比与显式换算](../angle-coordinates.md)。

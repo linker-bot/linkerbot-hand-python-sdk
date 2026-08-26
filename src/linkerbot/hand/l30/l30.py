@@ -90,7 +90,7 @@ class L30:
     ```python
     with L30(library_path="/path/to/libcanbus.so") as hand:
         angles = hand.angle.get_blocking(timeout_ms=1000)
-        print(angles.angles.to_list())
+        print(angles.angles)
     ```
 
     SocketCAN FD on Linux. Bring the link up first, for example:
@@ -108,7 +108,7 @@ class L30:
     ```python
     with L30(interface_type="socketcan", channel="can0") as hand:
         angles = hand.angle.get_blocking(timeout_ms=1000)
-        print(angles.angles.to_list())
+        print(angles.angles)
     ```
 
     Pass ``auto_reconfigure=True`` to let the SDK run ``ip link`` itself when

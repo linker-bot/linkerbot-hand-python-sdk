@@ -41,7 +41,7 @@ def test_angle_speed_and_torque_commands_match_vectors() -> None:
     dispatcher = FakeDispatcher()
     client = L30Client(dispatcher, node_id=1, host_id=0)
 
-    AngleManager(client).set_raw_angles([100] * protocol.L30_JOINT_COUNT)
+    AngleManager(client).set_angles([100] * protocol.L30_JOINT_COUNT)
     SpeedManager(client).set_speeds([60] * protocol.L30_JOINT_COUNT)
     TorqueManager(client).set_torques([200] * protocol.L30_JOINT_COUNT)
 
@@ -55,12 +55,11 @@ def test_angle_speed_and_torque_commands_match_vectors() -> None:
     assert torque.data == bytes.fromhex("22 00") + b"\x00\xc8" * 17
 
 
-def test_legacy_angle_percentage_write_warns_and_preserves_joint_mapping() -> None:
+def test_explicit_percentage_angle_write_preserves_joint_mapping() -> None:
     dispatcher = FakeDispatcher()
     manager = AngleManager(L30Client(dispatcher, node_id=1, host_id=0))
 
-    with pytest.warns(DeprecationWarning, match="HandDevice.submit_angles"):
-        manager.set_angles([0.0] * protocol.L30_JOINT_COUNT)
+    manager.set_percentage_angles([0.0] * protocol.L30_JOINT_COUNT)
 
     expected = b"".join(
         spec.minimum.to_bytes(2, "big", signed=True) for spec in L30_JOINT_SPECS
@@ -86,9 +85,9 @@ def test_angle_read_response_allows_out_of_command_range_sensor_values() -> None
     thread.join(timeout=1)
 
     snapshot = angle.get_snapshot()
-    assert result[0].angles.to_raw() == values
+    assert result[0].angles == tuple(values)
     assert snapshot is not None
-    assert snapshot.angles.to_raw() == values
+    assert snapshot.angles == tuple(values)
 
 
 def test_current_temperature_read_responses_update_snapshots() -> None:
@@ -143,7 +142,7 @@ def test_report_config_and_active_report_update_angle_snapshot() -> None:
     _response(dispatcher, 0x00802008, bytes([0x22, 0x00]) + b"\x00\x05" * 17)
     snapshot = angle.get_snapshot()
     assert snapshot is not None
-    assert snapshot.angles.to_raw() == [5] * 17
+    assert snapshot.angles == (5,) * 17
 
 
 def test_force_sensor_assembles_tactile_matrix() -> None:

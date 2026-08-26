@@ -113,11 +113,11 @@ class CurrentData:
     """Immutable current data container.
 
     Attributes:
-        currents: L6Current instance containing motor currents in milliamps (mA).
+        currents: Six protocol-native unsigned-byte current values.
         timestamp: Unix timestamp when the data was received.
     """
 
-    currents: L6Current
+    currents: tuple[int, ...]
     timestamp: float
 
 
@@ -202,6 +202,5 @@ class CurrentManager:
         if len(raw_currents) != self._CURRENT_COUNT:
             return
 
-        currents = L6Current.from_raw(raw_currents)
-        current_data = CurrentData(currents=currents, timestamp=time.time())
+        current_data = CurrentData(currents=tuple(raw_currents), timestamp=time.time())
         self._relay.push(current_data)

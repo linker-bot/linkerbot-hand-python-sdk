@@ -9,8 +9,8 @@ from dataclasses import dataclass
 
 import can
 
+from linkerbot.hand._values import percentage_to_u8_vector, validate_u8_vector
 from linkerbot_transport.can import CANMessageDispatcher
-from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
 
 
@@ -120,7 +120,7 @@ class SpeedData:
     a target snapshot and must not be interpreted as measured feedback.
     """
 
-    speeds: L6Speed
+    speeds: tuple[int, ...]
     timestamp: float
 
 
@@ -145,35 +145,20 @@ class SpeedManager:
         self._dispatcher = dispatcher
         self._relay = DataRelay[SpeedData]()
 
-    def set_speeds(self, speeds: L6Speed | list[float]) -> None:
-        """Send target speeds to the robotic hand motors.
+    def set_speeds(self, speeds: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte speed targets.
 
         This method sends 6 target speeds to the hand.
 
         Args:
-            speeds: L6Speed instance or list of 6 target speeds (range 0-100 each).
+            speeds: Six integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If speeds count is not 6 or values are out of range.
 
-        Example:
-            >>> manager = SpeedManager(arbitration_id, dispatcher)
-            >>> # Using L6Speed instance
-            >>> manager.set_speeds(L6Speed(thumb_flex=50.0, thumb_abd=50.0,
-            ...                            index=50.0, middle=50.0, ring=50.0, pinky=50.0))
-            >>> # Using list
-            >>> manager.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+        Use :meth:`set_percentage_speeds` for explicit 0..100 targets.
         """
-        if isinstance(speeds, L6Speed):
-            target = speeds
-            raw_speeds = target.to_raw()
-        elif isinstance(speeds, list):
-            target = L6Speed.from_list(speeds)
-            raw_speeds = target.to_raw()
-        else:
-            raise ValidationError(
-                f"Expected L6Speed or list, got {type(speeds).__name__}"
-            )
+        raw_speeds = validate_u8_vector(speeds, count=self._SPEED_COUNT, name="speeds")
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_speeds]
@@ -183,7 +168,18 @@ class SpeedManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
-        self._relay.push(SpeedData(speeds=target, timestamp=time.time()))
+        self._relay.push(SpeedData(speeds=raw_speeds, timestamp=time.time()))
+
+    def set_percentage_speeds(
+        self, speeds: L6Speed | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 speed targets and send protocol values."""
+        values = speeds.to_list() if isinstance(speeds, L6Speed) else speeds
+        self.set_speeds(
+            percentage_to_u8_vector(
+                values, count=self._SPEED_COUNT, name="speed percentages"
+            )
+        )
 
     def get_snapshot(self) -> SpeedData | None:
         """Return the most recent target without performing device I/O.

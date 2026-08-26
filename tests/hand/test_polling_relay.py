@@ -5,11 +5,12 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from typing import cast
 
 import can
 import pytest
 
+from linkerbot.hand._can_protocol import CANDispatcherLike
 from linkerbot.hand._polling_relay import PollingDataRelay
 from linkerbot.hand.l20lite.angle import AngleManager
 from linkerbot_transport.errors import ValidationError
@@ -140,14 +141,10 @@ def test_poll_send_failure_cleans_gate_for_retry() -> None:
     assert relay.poll(lambda: pending.append(2))
 
 
-def test_l20lite_angle_polling_retries_at_shared_deadline(tmp_path: Path) -> None:
+def test_l20lite_angle_polling_retries_at_shared_deadline() -> None:
     clock = _Clock()
     dispatcher = _RecordingDispatcher()
-    manager = AngleManager(
-        0x28,
-        dispatcher,
-        angle_mapping_path=tmp_path / "l20lite.toml",
-    )
+    manager = AngleManager(0x28, cast(CANDispatcherLike, dispatcher))
     manager._relay._gate._clock = clock
 
     manager._send_sense_request()

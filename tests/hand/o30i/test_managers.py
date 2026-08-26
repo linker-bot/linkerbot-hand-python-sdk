@@ -53,18 +53,17 @@ def test_angle_reads_actual_and_target_vectors() -> None:
         target_angle = hand.angle.get_target_blocking()
 
     slots = protocol.O30I_JOINT_SLOT_INDICES
-    assert actual_data.angles.to_raw() == [actual[index] for index in slots]
-    assert target_angle.to_raw() == [target[index] for index in slots]
+    assert actual_data.angles == tuple(actual[index] for index in slots)
+    assert target_angle == tuple(target[index] for index in slots)
     assert dispatcher.sent[0].data == bytes.fromhex("01 00 24")
     assert dispatcher.sent[1].data == bytes.fromhex("81 00 24")
 
 
-def test_legacy_angle_percentage_write_warns_and_preserves_raw_direction() -> None:
+def test_explicit_percentage_angle_write_preserves_protocol_direction() -> None:
     dispatcher = FakeO30iDispatcher()
 
     with O30i(dispatcher=dispatcher) as hand:
-        with pytest.warns(DeprecationWarning, match="HandDevice.submit_angles"):
-            hand.angle.set_angles([5.0] * 20)
+        hand.angle.set_percentage_angles([5.0] * 20)
 
     assert [(write.sub_index, write.payload) for write in dispatcher.writes] == [
         (0, b"\xf2"),
@@ -77,7 +76,7 @@ def test_full_runtime_writes_touch_only_physical_joint_slots() -> None:
     dispatcher = FakeO30iDispatcher()
 
     with O30i(dispatcher=dispatcher) as hand:
-        hand.angle.set_raw_angles(list(range(20)))
+        hand.angle.set_angles(list(range(20)))
         hand.speed.set_all(10)
         hand.acceleration.set_all(20)
         hand.torque.set_all(30)
@@ -95,9 +94,9 @@ def test_position_slice_uses_physical_joint_order() -> None:
     dispatcher = FakeO30iDispatcher()
 
     with O30i(dispatcher=dispatcher) as hand:
-        hand.angle.set_raw_slice(10, [0xAA, 0xBB])
+        hand.angle.set_slice(10, [0xAA, 0xBB])
         with pytest.raises(ValidationError, match="20 physical"):
-            hand.angle.set_raw_slice(19, [0xAA, 0xBB])
+            hand.angle.set_slice(19, [0xAA, 0xBB])
 
     assert [message.data for message in dispatcher.sent] == [
         bytes.fromhex("01 0E 01 AA"),

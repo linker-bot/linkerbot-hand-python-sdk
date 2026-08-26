@@ -98,10 +98,11 @@ def _joints() -> tuple[JointCapability, ...]:
             speed_range=NumericRange(
                 1, 250, "protocol_unit", integer_only=True, step=1
             ),
-            # The protocol calls this field torque, but it is the motor
-            # current limit. Public commands use mA and are quantized to the
-            # 60..800 protocol range by the legacy adapter.
-            torque_range=NumericRange(60 * 6.5, 800 * 6.5, "mA"),
+            # The protocol calls this field torque, but it is a raw motor
+            # current-limit count. Physical conversion is 6.5 mA/LSB.
+            torque_range=NumericRange(
+                60, 800, "protocol_current_limit", integer_only=True, step=1
+            ),
             motion_type=_MOTION_TYPES[index],
         )
         for index, (name, minimum, maximum) in enumerate(_JOINTS)
@@ -114,12 +115,42 @@ CAPABILITIES = DeviceCapabilities(
     side=HandSide.UNKNOWN,
     joints=_joints(),
     sensors=(
-        sensor(SensorType.ANGLES, 60),
-        sensor(SensorType.SPEEDS, 30, unit="protocol_unit"),
-        sensor(SensorType.FORCE, 30),
-        sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10, unit="mA"),
-        sensor(SensorType.FAULTS, 5),
+        sensor(SensorType.ANGLES, 60, unit="protocol_position", encoding="i16_le"),
+        sensor(
+            SensorType.SPEEDS,
+            30,
+            unit="protocol_speed",
+            encoding="i16_le",
+            value_range=NumericRange(-32768, 32767, "protocol_speed", True, 1),
+        ),
+        sensor(
+            SensorType.FORCE,
+            30,
+            unit="adc_count",
+            encoding="u8_matrix",
+            value_range=NumericRange(0, 255, "adc_count", True, 1),
+        ),
+        sensor(
+            SensorType.TEMPERATURE,
+            1,
+            unit="degree_celsius",
+            encoding="u8",
+            value_range=NumericRange(0, 255, "degree_celsius", True, 1),
+        ),
+        sensor(
+            SensorType.CURRENT,
+            10,
+            unit="protocol_current",
+            encoding="i16_le",
+            value_range=NumericRange(-32768, 32767, "protocol_current", True, 1),
+        ),
+        sensor(
+            SensorType.FAULTS,
+            5,
+            unit="bitmask",
+            encoding="u8",
+            value_range=NumericRange(0, 255, "bitmask", True, 1),
+        ),
     ),
     transport=TransportType.CAN_FD,
     features=DeviceFeatures(

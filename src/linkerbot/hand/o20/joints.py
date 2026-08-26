@@ -1,10 +1,10 @@
-"""O20 joint definitions and legacy value models.
+"""O20 joint definitions and explicit percentage conversion model.
 
-``O20Angle`` stores the historic 0-100 numeric normalization in motor-ID
+``O20Angle`` stores the model-manager 0-100 numeric mapping in motor-ID
 order: 0 maps to each joint's ``spec.minimum`` and 100 maps to
-``spec.maximum``. This legacy type does not implement the unified hand
-direction contract. Raw protocol integers remain available through
-:meth:`O20Angle.from_raw` and ``AngleManager.set_raw_angles``.
+``spec.maximum``. This explicit helper does not implement the unified hand
+direction contract. Default manager control and readback use protocol integers
+in degrees directly.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ O20_JOINT_SPECS: tuple[JointSpec, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class O20Angle:
-    """O20 joint angles in the legacy 0-100 numeric normalization.
+    """Explicit O20 model-manager percentages from minimum to maximum.
 
     ``values`` is always 16 floats in motor-ID order, each in the closed
     interval [0, 100]. 0 % maps to the joint's ``spec.minimum`` and 100 % to

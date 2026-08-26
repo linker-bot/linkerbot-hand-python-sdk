@@ -20,7 +20,7 @@ class TestForceSensorBlocking:
     def test_blocking_double_read_and_baseline(self, l20lite_hand: L20lite):
         """Open+abd=0 pose, two reads 0.2s apart, verify shape and timestamps."""
         # Move to open pose with all abduction joints at 0
-        l20lite_hand.angle.set_angles(
+        l20lite_hand.angle.set_percentage_angles(
             [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 0.0, 0.0, 0.0, 0.0]
         )
         time.sleep(2.0)

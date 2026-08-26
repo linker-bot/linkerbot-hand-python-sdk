@@ -1,120 +1,116 @@
-# 角度坐标、方向与用户映射
+# 协议值、百分比与显式换算
 
-`linkerbot-hand` 同时保留统一接口和旧型号接口。两套接口都可能出现 `raw` 一词，但它们
-并不总是表示同一坐标。新代码必须区分百分比、`standard_raw` 和 `protocol_raw`。
+`linkerbot-hand` 的默认数据契约是协议值。控制、反馈、缓存快照和 fake backend
+使用同一套逐关节顺序和值域，不在主路径中自动归一化，也不自动换算为 RPM、mA、
+度或弧度。这使遥操采集、回放和模型训练可以复用同一接口，避免重复换算。
 
-## 三种角度坐标
+## 默认接口
 
-| 名称 | 范围与单位 | 精确定义 | 推荐用途 |
+| 数据 | 型号 manager | 统一接口 | 语义 |
 | --- | --- | --- | --- |
-| 百分比位置 | `0..100`，无量纲 | unified 屈伸轴固定 `0=弯曲/闭合，100=伸直/张开`；方向轴的端点由 capability 描述 | ROS 和新应用的常规控制 |
-| `standard_raw` | classic 型号为 `0..255` 整数 | 旧 manager 的历史逻辑坐标；发送前仍经过用户 LUT，不是设备线上精确值 | 仅兼容已有 classic 校准应用 |
-| `protocol_raw` | 范围和单位逐关节读取 capability | CAN/CAN FD 协议实际发送和读取的原始位置值，也称 hardware raw | 协议调试、标定和无损透传 |
+| 角度命令 | `set_angles(values)` | `submit_angles(values)` | 协议位置值 |
+| 速度命令 | `set_speeds(values)` | `submit_speeds(values)` | 协议速度值 |
+| 力矩命令 | `set_torques(values)` | `submit_torques(values)` | 协议力矩或电流限制值 |
+| 传感器反馈 | `get_blocking()` / `get_snapshot()` | `get_snapshot()` | 解码后的协议值 |
 
-只有 L6、O6、L20Lite 和 L25 的旧 manager 存在 `standard_raw` 用户 LUT。L30、O20、
-O30i 的旧 `set_raw_angles()` 本身使用协议原值，不经过这套 classic LUT。
-
-## 统一接口
-
-统一接口只公开百分比位置和协议原值，不公开 `standard_raw`：
+范围、整数约束和关节顺序来自 `get_capabilities()`。统一快照只保留一份
+`SensorSample.values`，并通过 `unit` 和 `encoding` 标注它的协议单位与线上编码。
 
 ```python
+from linkerbot.hand import create_hand_device
 from linkerbot_hand import PollingPlan
-from linkerbot_hand.backends.legacy import create_hand_device
 
 hand = create_hand_device("L6", side="left", interface_name="can0")
 hand.open()
 try:
     hand.start_polling(PollingPlan(angles_hz=60))
-
-    percent_handle = hand.submit_angles([100, 50, 100, 100, 100, 100])
-    protocol_handle = hand.submit_raw_angles([255, 128, 255, 255, 255, 255])
+    hand.submit_angles([255, 128, 255, 255, 255, 255])
 
     sample = hand.get_snapshot().angles
     if sample is not None and sample.valid:
-        print(sample.values)      # 映射后的百分比位置
-        print(sample.raw_values)  # 精确 protocol_raw；后端不提供时为 None
+        print(sample.values)  # 协议 u8 值
+        print(sample.unit)  # protocol_raw
+        print(sample.encoding)  # u8
 finally:
     hand.stop_polling()
     hand.close()
 ```
 
-- `submit_angles()` 按每个 `JointCapability.percentage_mapping` 把百分比换算为
-  `protocol_raw`。
-- `submit_raw_angles()` 直接提交 `protocol_raw`，绕过 classic 用户 LUT。
-- 角度样本的 `values` 是映射后的百分比位置，`raw_values` 是同次采集的精确
-  `protocol_raw`。
-- `get_snapshot()` 只读取缓存，不发送设备请求；禁用轮询后不会产生角度查询帧。
+## 显式百分比接口
 
-逐关节原始范围、整数约束、方向和端点必须从 `get_capabilities().joints` 读取，不得在 ROS
-或应用中复制一份型号表。没有可靠物理标定的型号不会把协议值伪装成度或弧度。
+需要无量纲 `0..100` 控制时，方法名必须明确包含 `percentage`：
 
-## classic 旧接口与用户 LUT
+- 型号 manager：`set_percentage_angles()`、`set_percentage_speeds()`。
+- 统一接口：`submit_percentage_angles()`、`submit_percentage_speeds()`。
+- 本地换算：`percent_to_raw()` / `raw_to_percent()`、
+  `percentage_speeds_to_raw()` / `raw_speeds_to_percentage()`。
 
-L6、O6、L20Lite 和 L25 的旧 manager 按下面的路径处理角度：
+统一 `submit_percentage_angles()` 的屈伸轴使用 `0=弯曲/闭合，100=伸直/张开`。
+侧摆、横滚、旋转和手腕轴的 `0` 与 `100` 仅表示 capability 中的 `zero_endpoint` 和
+`hundred_endpoint`，不能解释为开合。
 
-```text
-set_angles(percent)
-    -> standard_raw
-    -> 每关节用户 LUT
-    -> protocol_raw
-    -> 设备
-
-set_raw_angles(standard_raw)
-    -> 每关节用户 LUT
-    -> protocol_raw
-    -> 设备
-
-set_hardware_raw_angles(protocol_raw)
-    -> 设备
-```
-
-因此，旧接口的 `set_raw_angles()` 不是精确协议原值入口。需要绕过 LUT 时必须调用
-`set_hardware_raw_angles()`；迁移到 unified 后则调用 `submit_raw_angles()`。
-
-用户 LUT 是 `关节数 × 256` 的整数矩阵：
+百分比角度必须有 `JointCapability.percentage_mapping`。百分比速度必须有
+`percentage_speed_supported=True`；目前只有 L6、O6、L20Lite 和 L25 明确支持。
+O20 的协议速度目标范围恰好是 `0..100`，但它仍是协议范围，不是百分比映射。
 
 ```python
-mapping[joint_index][standard_raw] = protocol_raw
+hand.submit_percentage_angles([100, 50, 100, 100, 100, 100])
+hand.submit_percentage_speeds([50] * 6)  # 仅能力声明支持的型号
 ```
 
-例如 `mapping[0][128] = 150` 时：
+### 型号 manager 的百分比规则
 
-```python
-hand.angle.set_angle_mapping(mapping)
-hand.angle.set_raw_angles([128] * 6)           # L6 第一轴实际发送 150
-hand.angle.set_hardware_raw_angles([128] * 6)  # L6 第一轴实际发送 128
-```
+型号 manager 的显式 `set_percentage_angles()` 保留各协议驱动原有的数值换算，方便把旧
+百分比调用改名后保持同一目标：
 
-默认 LUT 是恒等映射，所以未配置时两种 raw 的数值相同。LUT 可用于逐轴非线性校准、反向、
-偏移或死区补偿：
+| 型号 | manager 的 `0..100` 换算 |
+| --- | --- |
+| L6 / O6 / L20Lite / L25 | 每轴线性映射到协议 `0..255` |
+| O20 / L30 | 每轴从 `spec.minimum` 线性映射到 `spec.maximum` |
+| O30i | 每轴反向映射，`0 -> 255`、`100 -> 0` |
 
-```python
-mapping = hand.angle.get_angle_mapping()
-default_mapping = hand.angle.get_default_angle_mapping()
-hand.angle.set_angle_mapping(mapping)
-hand.angle.reset_angle_mapping()
-```
+O20、L30、O30i 的 manager 规则在部分方向轴或屈伸轴上与统一 capability 端点不同。
+百分比数组必须连同入口及换算规则一起记录；跨 manager、统一接口、遥操和训练数据复用时，
+应使用协议值。
 
-每行必须包含 256 个 `0..255` 整数，但不要求单调或一一对应。设备回读时，旧 manager 保存
-精确 `raw_angles`，再用逆 LUT 得到 `standard_raw_angles`；若 LUT 存在重复或缺失值，逆向
-选择距离最近的 standard raw，距离相同时选择较小值。因此只有 `raw_angles` 能无损表示线上
-协议值。
+## 显式物理量换算
 
-映射默认保存在 `$XDG_CONFIG_HOME/linkerbot/hand_angle_mappings.toml`；未设置
-`XDG_CONFIG_HOME` 时使用 `~/.config/linkerbot/hand_angle_mappings.toml`。配置按
-`model:side:interface_name` 隔离，并通过文件锁和原子替换写入。
+物理量换算是纯函数或显式 helper，不会隐式应用在默认控制或反馈上：
+
+| 型号/数据 | 显式换算 |
+| --- | --- |
+| 能力已标定的角度 | `raw_to_physical_angles()` / `physical_angles_to_raw()` |
+| O6 速度 | `O6Speed.from_raw(...).to_rpm()` / `O6Speed.from_rpm(...).to_raw()` |
+| O20 速度 | `protocol_speeds_to_rpm()` / `rpm_to_protocol_speeds()` |
+| L6/O6 电流限制 | 对应 torque helper 的 `from_raw()`、`to_milliamps()`、`from_milliamps()` |
+| O20/L30 电流限制 | `protocol_current_limits_to_milliamps()` / `milliamps_to_protocol_current_limits()` |
+| L30 电流反馈 | `protocol_currents_to_milliamps()` / `milliamps_to_protocol_currents()` |
+
+能力没有可靠物理标定时，转换方法抛出 `UnsupportedOperationError`，不会把协议值
+伪装成物理单位。
+
+## 数据采集边界
+
+遥操、回放和训练数据建议保存：
+
+- 型号、固件、左右手和 `connection_generation`；
+- capability 中的关节顺序、范围、`unit` 和 `encoding`；
+- 命令协议值与 `SensorSample.values`；
+- 采集时间、序号、有效性和过期状态。
+
+百分比或物理量应作为带有明确转换版本的派生数据。不要用相同字段名混放协议值和
+换算值，也不要把 O20 的协议 `0..100` 速度误标成百分比。
 
 ## ROS 2 接口边界
 
-ROS 只应暴露两套明确命名的坐标：
+ROS 驱动应以协议值 topic 作为无损控制与状态接口：
 
-| ROS 数据 | SDK 来源 | 坐标 |
-| --- | --- | --- |
-| 百分比角度命令 | `submit_angles()` | unified 百分比 |
-| 原始角度命令 | `submit_raw_angles()` | `protocol_raw` |
-| 百分比角度状态 | `snapshot.angles.values` | unified 百分比 |
-| 原始角度状态 | `snapshot.angles.raw_values` | `protocol_raw` |
+| ROS 数据 | SDK 来源 |
+| --- | --- |
+| 协议角度命令 | `submit_angles()` |
+| 协议速度命令 | `submit_speeds()` |
+| 协议角度状态 | `snapshot.angles.values` |
+| 协议速度状态 | `snapshot.speeds.values` |
 
-ROS 不应暴露 `standard_raw`，也不应读取 classic LUT 文件。百分比和协议 raw topic 必须使用
-不同名称，避免把未标定的协议值解释为物理角度，或在迁移时重复应用 LUT。
+若业务需要百分比 topic，应使用不同名称，并分别调用显式 percentage 方法或本地转换
+helper。ROS 层不应再实现第二份逐型号换算表。

@@ -91,7 +91,9 @@ def _joints() -> tuple[JointCapability, ...]:
             speed_range=NumericRange(
                 0, 100, "protocol_unit", integer_only=True, step=1
             ),
-            torque_range=NumericRange(0, 1000, "6.5_mA", integer_only=True, step=1),
+            torque_range=NumericRange(
+                0, 1000, "protocol_current_limit", integer_only=True, step=1
+            ),
             motion_type=_MOTION_TYPES[index],
             coupled_with=(
                 ("thumb_cmc",) if index == 2 else (("thumb_abd",) if index == 3 else ())
@@ -107,12 +109,42 @@ CAPABILITIES = DeviceCapabilities(
     side=HandSide.UNKNOWN,
     joints=_joints(),
     sensors=(
-        sensor(SensorType.ANGLES, 30),
-        sensor(SensorType.SPEEDS, 30, unit="rpm"),
-        sensor(SensorType.FORCE, 30),
-        sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10, unit="mA"),
-        sensor(SensorType.FAULTS, 5),
+        sensor(SensorType.ANGLES, 30, unit="degree", encoding="i16_le"),
+        sensor(
+            SensorType.SPEEDS,
+            30,
+            unit="protocol_speed",
+            encoding="i16_le",
+            value_range=NumericRange(-32768, 32767, "protocol_speed", True, 1),
+        ),
+        sensor(
+            SensorType.FORCE,
+            30,
+            unit="adc_count",
+            encoding="u8_matrix",
+            value_range=NumericRange(0, 255, "adc_count", True, 1),
+        ),
+        sensor(
+            SensorType.TEMPERATURE,
+            1,
+            unit="degree_celsius",
+            encoding="u8",
+            value_range=NumericRange(0, 255, "degree_celsius", True, 1),
+        ),
+        sensor(
+            SensorType.CURRENT,
+            10,
+            unit="mA",
+            encoding="i16_le",
+            value_range=NumericRange(-32768, 32767, "mA", True, 1),
+        ),
+        sensor(
+            SensorType.FAULTS,
+            5,
+            unit="bitmask",
+            encoding="u8",
+            value_range=NumericRange(0, 255, "bitmask", True, 1),
+        ),
     ),
     transport=TransportType.CAN_FD,
     features=DeviceFeatures(clear_faults=True),

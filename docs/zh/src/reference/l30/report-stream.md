@@ -16,7 +16,7 @@ from linkerbot.hand import L30
 
 with L30(auto_start_periodic=True) as hand:
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles.to_list())
+    print(data.angles)
 ```
 
 ## 手动开启默认周期上报
@@ -73,7 +73,7 @@ with L30(auto_start_periodic=False) as hand:
 
     data = hand.angle.get_snapshot()
     if data is not None:
-        print(data.angles.to_list())
+        print(data.angles)
 
     hand.stop_polling()
 ```
@@ -117,7 +117,7 @@ with L30() as hand:
     stream = hand.stream()
     for event in stream:
         if isinstance(event, AngleEvent):
-            print(event.data.angles.to_list())
+            print(event.data.angles)
             break
     hand.stop_stream()
 ```

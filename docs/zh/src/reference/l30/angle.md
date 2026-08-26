@@ -1,130 +1,95 @@
-# 角度控制
+# 角度控制与读取
 
-通过 `hand.angle` 控制和读取 L30 的 17 个关节角度。API 与 L6 对齐：`set_angles` 走 **0-100 归一化百分比**,`set_raw_angles` 走协议原始整数。
+L30 的默认角度接口直接收发 17 个协议位置整数，顺序为 `J1..J17`。SDK 不在
+`set_angles()`、`get_blocking()` 或快照路径中执行百分比、度或弧度换算。
 
-- **关节数量**:17 个，顺序 `J1` 到 `J17`
-- **默认单位**:0-100 float 百分比。0% 映射到关节的 `spec.minimum`,100% 映射到 `spec.maximum`
-- **对称关节**(J5 / J12–J14 / J17):50% 是中立位 (raw 0)
-- **原始范围**:通过 `L30_JOINT_SPECS` 查看每个关节的 `[minimum, maximum]`
+## 协议值控制
 
-## 设置角度 (推荐:0-100 百分比)
+每个位置必须是 Python `int`，并落在对应关节的 `L30_JOINT_SPECS` 范围内：
 
 ```python
 from linkerbot.hand import L30
 
-# 每关节 30 % → 弯曲手指指端 30 %,对称关节 30 % 略偏向一侧
-half_open = [30.0] * 17
+target = [
+    450,
+    600,
+    450,
+    400,
+    0,
+    750,
+    800,
+    800,
+    750,
+    800,
+    750,
+    0,
+    0,
+    0,
+    800,
+    750,
+    0,
+]
 
 with L30() as hand:
-    hand.control.enable(timeout_ms=1000)
-    hand.angle.set_angles(half_open)
+    hand.angle.set_angles(target)
 ```
 
-想要"手掌张开、腕关节居中"的中立姿势，对称关节要写 50%:
+协议值域包含 `0..900`、`0..1600`、`-200..200` 和 `-1000..1000` 等逐轴范围，
+不能用一个全局范围代替。完整表见 [L30 关节说明](./README.md#关节说明)。数量、类型或
+逐轴范围不正确时，方法在发帧前抛出 `ValidationError`。
+
+## 显式百分比控制
+
+型号 manager 提供名称明确的百分比入口：
 
 ```python
-from linkerbot.hand.l30 import L30_JOINT_SPECS
-
-# 屈曲关节 0%(完全张开),对称/腕关节 50%(中立)
-neutral = [50.0 if spec.minimum < 0 else 0.0 for spec in L30_JOINT_SPECS]
-
 with L30() as hand:
-    hand.control.enable(timeout_ms=1000)
-    hand.angle.set_angles(neutral)
+    hand.angle.set_percentage_angles([50.0] * 17)
 ```
 
-## 设置原始角度 (协议整数)
+这个 helper 保留 L30 的逐轴数值约定：`0` 映射到 `spec.minimum`，`100` 映射到
+`spec.maximum`。对称轴的 `50` 因而映射到 0。`L30Angle.from_list()`、`from_raw()` 和
+`to_raw()` 提供相同的显式纯换算，不参与默认控制或反馈路径。
 
-需要直接下发协议原始值时使用 `set_raw_angles`,每个值需在关节 `spec` 范围内：
+统一接口 `HandDevice.submit_percentage_angles()` 使用 capability 中的机械端点语义：
+屈伸轴为 `0=弯曲、100=伸直`，方向轴使用各自的 `zero_endpoint` 和
+`hundred_endpoint`。它与上述型号 manager 的“最小值到最大值”规则在部分轴上方向不同，
+两类百分比数据不能混用。需要无损采集、回放或训练时应保存并提交协议值。
+
+## 读取与快照
 
 ```python
-from linkerbot.hand import L30
-
 with L30() as hand:
-    hand.control.enable(timeout_ms=1000)
-    # 全部下发 raw 0(J1-J4/J6-J11/J15/J16 = 完全张开;J5/J12-J14/J17 = 中立)
-    hand.angle.set_raw_angles([0] * 17)
-```
-
-## 使用 L30Angle 对象
-
-`L30Angle` 内部存 0-100 百分比，提供 `to_raw()` / `from_raw()` 两个转换方法：
-
-```python
-from linkerbot.hand import L30
-from linkerbot.hand.l30 import L30Angle, L30_JOINT_SPECS
-
-# 从百分比构造
-angle = L30Angle.from_list([30.0] * 17)
-print(angle.to_list())  # → 17 个 30.0
-print(angle.to_raw())  # → 17 个 raw 整数，每关节对应 spec.range 的 30%
-
-# 从原始整数构造 (严格校验 spec 范围)
-angle = L30Angle.from_raw([spec.maximum for spec in L30_JOINT_SPECS])
-print(angle.to_list())  # → 17 个 100.0
-
-with L30() as hand:
-    hand.control.enable(timeout_ms=1000)
-    hand.angle.set_angles(angle)
-```
-
-## 查看关节范围
-
-```python
-from linkerbot.hand.l30 import L30_JOINT_SPECS
-
-for index, spec in enumerate(L30_JOINT_SPECS):
-    print(index, spec.name, spec.minimum, spec.maximum)
-```
-
-## 阻塞读取角度
-
-读回的 `data.angles` 是 `L30Angle` 百分比表示，`to_raw()` 可拿到原始 sensor 值：
-
-```python
-from linkerbot.hand import L30
-from linkerbot.exceptions import TimeoutError
-
-with L30() as hand:
-    try:
-        data = hand.angle.get_blocking(timeout_ms=1000)
-        print("百分比：", data.angles.to_list())  # 0-100 float(硬件超调时可能略超范围)
-        print("原始值：", data.angles.to_raw())  # 协议整数
-        print("时间戳：", data.timestamp)
-    except TimeoutError:
-        print("角度读取超时")
-```
-
-## 缓存读取
-
-```python
-from linkerbot.hand import L30
-
-with L30() as hand:
-    hand.angle.get_blocking(timeout_ms=1000)
-    data = hand.angle.get_snapshot()
-    if data is not None:
-        print(data.angles.to_list())
-```
-
-## 完整示例
-
-```python
-from linkerbot.hand import L30
-
-with L30() as hand:
-    hand.control.enable(timeout_ms=1000)
-    hand.angle.set_angles([30.0] * 17)  # 每关节 30 %
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print("当前角度 (百分比):", data.angles.to_list())
-    print("当前角度 (原始值):", data.angles.to_raw())
+    print(data.angles)  # tuple[int, ...]，17 个协议位置值
+    print(data.timestamp)
+
+    cached = hand.angle.get_snapshot()
+    if cached is not None:
+        print(cached.angles)
 ```
 
-## 与 L6 API 差异
+`get_blocking()` 读取当前位置并更新 manager 缓存；`get_snapshot()` 只返回最近缓存，不发
+请求。传感器偶尔可能报告超出命令范围的校准或超调值，读取路径保留该协议值，不裁剪也不
+归一化。
 
-| 项                     | L6               | L30                                   |
-| ---------------------- | ---------------- | ------------------------------------- |
-| `set_angles(list)`     | 6 个 float 0-100 | **17 个 float 0-100**(与 L6 语义一致) |
-| `set_raw_angles(list)` | 6 个 int 0-255   | **17 个 int，每关节独立 spec 范围**   |
-| `L30Angle` / `L6Angle` | 存 0-100 float   | 存 0-100 float                        |
-| `to_raw()`             | 0-255            | 每关节 spec 整数                      |
+统一 `HandDevice` 快照中的同一数据位于 `snapshot.angles.values`，并标注：
+
+- `unit="protocol_position"`
+- `encoding="i16_le"`
+
+L30 当前没有可靠的物理角度标定，因此 `raw_to_physical_angles()` 和
+`physical_angles_to_raw()` 会抛出 `UnsupportedOperationError`。
+
+## API 摘要
+
+| API | 输入或返回 | 语义 |
+| --- | --- | --- |
+| `set_angles(values)` | 17 个逐轴范围内的 `int` | 直接发送协议位置 |
+| `set_percentage_angles(values)` | 17 个 `0..100` 数值 | 显式按 `minimum -> maximum` 换算 |
+| `get_blocking(timeout_ms)` | `AngleData` | 读取协议位置并更新缓存 |
+| `get_snapshot()` | `AngleData | None` | 只读 manager 缓存 |
+| `L30Angle.to_raw()` | 17 个协议整数 | 显式百分比 helper |
+
+统一接口的协议值、百分比和物理量边界见
+[协议值、百分比与显式换算](../angle-coordinates.md)。

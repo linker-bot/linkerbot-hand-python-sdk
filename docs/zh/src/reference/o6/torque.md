@@ -1,115 +1,35 @@
-# 扭矩控制
+# 电流限制控制（协议称“扭矩”）
 
-通过 `hand.torque` 控制和读取 O6 灵巧手的 6 个关节电机扭矩。
-
-- **扭矩范围**: 0-100（无量纲百分比）
-- **最大电流**: 1000 mA（协议原值 255）
-
-## 设置扭矩
+O6 的扭矩字段使用 6 个 `0..255` 协议字节。默认控制和反馈保留这些整数，不隐式
+换算为百分比或 mA。
 
 ```python
 from linkerbot.hand import O6
-from linkerbot.hand.o6 import O6Torque
-
-# 使用列表
-hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-
-# 使用 O6Torque 对象
-torques = O6Torque(
-    thumb_flex=50.0,  # 拇指屈曲
-    thumb_abd=30.0,  # 拇指侧摆
-    index=60.0,  # 食指
-    middle=60.0,  # 中指
-    ring=60.0,  # 无名指
-    pinky=60.0,  # 小指
-)
-hand.torque.set_torques(torques)
-
-# 使用 mA 单位
-torques = O6Torque.from_milliamps([800.0, 800.0, 1000.0, 1000.0, 1000.0, 1000.0])
-hand.torque.set_torques(torques)
-```
-
-## 读取扭矩
-
-### 阻塞读取
-
-```python
-from linkerbot.exceptions import TimeoutError
-
-try:
-    data = hand.torque.get_blocking(timeout_ms=500)
-    print(f"拇指屈曲：{data.torques.thumb_flex}")
-    print(f"全部扭矩：{data.torques.to_list()}")
-except TimeoutError:
-    print("读取超时")
-```
-
-### 缓存读取
-
-```python
-data = hand.torque.get_snapshot()
-if data:
-    print(f"扭矩：{data.torques.to_list()}")
-    print(f"时间戳：{data.timestamp}")
-```
-
-## 流式读取
-
-通过顶层 `hand.stream()` 统一接收所有传感器事件：
-
-```python
-from linkerbot.hand.o6 import SensorSource, TorqueEvent
-
-hand.start_polling({SensorSource.TORQUE: 0.1})
-
-for event in hand.stream():
-    match event:
-        case TorqueEvent(data=data):
-            print(f"扭矩：{data.torques.to_list()}")
-
-hand.stop_polling()
-hand.stop_stream()
-```
-
-## mA 单位转换
-
-O6 支持扭矩值与 mA 电流单位的相互转换，使用 `raw * 1000 / 255`。
-
-### 从 mA 创建
-
-```python
-from linkerbot.hand.o6 import O6Torque
-
-# 从 mA 值创建（范围 0-1000 mA）
-torques = O6Torque.from_milliamps([600.0, 600.0, 800.0, 800.0, 1000.0, 1000.0])
-print(f"归一化值：{torques.to_list()}")  # 转换为 0-100 范围
-```
-
-### 转换为 mA
-
-```python
-torques = O6Torque(50.0, 50.0, 50.0, 50.0, 50.0, 50.0)
-ma_values = torques.to_milliamps()
-print(f"mA 值：{ma_values}")  # 约 [502, 502, ...]，受 raw 字节量化影响
-```
-
-## 完整示例
-
-```python
-from linkerbot.hand import O6
-from linkerbot.hand.o6 import O6Torque
 
 with O6(side="left", interface_name="can0") as hand:
-    # 设置扭矩
-    hand.torque.set_torques([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+    hand.torque.set_torques([128, 96, 160, 160, 160, 160])
 
-    # 读取当前扭矩
     data = hand.torque.get_blocking(timeout_ms=500)
-    print(f"当前扭矩：{data.torques.to_list()}")
-    print(f"对应 mA: {data.torques.to_milliamps()}")
-
-    # 使用 mA 单位设置
-    torques = O6Torque.from_milliamps([1000.0] * 6)
-    hand.torque.set_torques(torques)
+    print(data.torques)  # tuple[int, ...]
 ```
+
+需要 `0..100` 相对输入时调用：
+
+```python
+hand.torque.set_percentage_torques([50, 30, 60, 60, 60, 60])
+```
+
+## 显式 mA 换算
+
+O6 文档给出的满量程为 1000 mA，即 `protocol * 1000 / 255`：
+
+```python
+from linkerbot.hand.o6 import O6Torque
+
+milliamps = O6Torque.from_raw(list(data.torques)).to_milliamps()
+protocol_target = O6Torque.from_milliamps([800.0] * 6).to_raw()
+hand.torque.set_torques(protocol_target)
+```
+
+事件流中的 `TorqueEvent.data.torques` 也是协议整数。统一快照标注
+`unit="protocol_raw"`、`encoding="u8"`。

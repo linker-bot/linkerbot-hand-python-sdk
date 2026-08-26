@@ -26,7 +26,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(
+    hand.angle.set_percentage_angles(
         target
     )  # HACK: set_angles after stream() may race with polling
     start = time.perf_counter()
@@ -52,7 +52,7 @@ def _move_and_time(
     data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)] if data else 'N/A'}"
     )
     return elapsed, timed_out
 
@@ -65,7 +65,7 @@ class TestTorqueManagerBlocking:
         data = l20lite_hand.torque.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.torques) == 10
-        print(f"\n  Torques: {[f'{t:.1f}' for t in data.torques.to_list()]}")
+        print(f"\n  Torques: {[f'{t:.1f}' for t in list(data.torques)]}")
 
     def test_get_blocking_has_timestamp(self, l20lite_hand: L20lite):
         """Torque data should have a valid timestamp."""
@@ -75,11 +75,11 @@ class TestTorqueManagerBlocking:
 
     def test_set_torques_with_list(self, l20lite_hand: L20lite):
         """set_torques should accept list[float] without error."""
-        l20lite_hand.torque.set_torques([50.0] * 10)
+        l20lite_hand.torque.set_percentage_torques([50.0] * 10)
 
     def test_set_torques_with_l20lite_torque(self, l20lite_hand: L20lite):
         """set_torques should accept L20liteTorque instance without error."""
-        l20lite_hand.torque.set_torques(L20liteTorque.from_list([50.0] * 10))
+        l20lite_hand.torque.set_percentage_torques(L20liteTorque.from_list([50.0] * 10))
 
 
 class TestTorqueManagerSnapshot:
@@ -105,7 +105,7 @@ class TestTorqueInteractive:
         motion_results: list[tuple[str, float, bool]] = []
 
         # Set speed to max for consistent observation
-        l20lite_hand.speed.set_speeds([100.0] * 10)
+        l20lite_hand.speed.set_percentage_speeds([100.0] * 10)
 
         def track(label: str, target: list[float]) -> None:
             elapsed, timed_out = _move_and_time(l20lite_hand, target)
@@ -116,7 +116,7 @@ class TestTorqueInteractive:
             session.step(
                 instruction=f"[{level} torque={torque_val}] Closing grip",
                 action=lambda lbl=f"{level} close", tv=torque_val: (
-                    l20lite_hand.torque.set_torques([tv] * 10),
+                    l20lite_hand.torque.set_percentage_torques([tv] * 10),
                     track(lbl, [28.0, 100.0, 0.0, 0.0, 0.0, 0.0] + [100.0] * 4),
                 ),
                 expected=(

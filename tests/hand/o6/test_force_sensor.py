@@ -19,7 +19,7 @@ class TestForceSensorBlocking:
 
     def test_blocking_double_read_and_baseline(self, o6_hand: O6):
         """Open pose, two reads 0.2s apart, verify shape and timestamps."""
-        o6_hand.angle.set_angles([100.0] * 6)
+        o6_hand.angle.set_percentage_angles([100.0] * 6)
         time.sleep(2.0)
 
         # First read

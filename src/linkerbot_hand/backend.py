@@ -17,13 +17,11 @@ class BackendReading:
 
     Attributes:
         sensor: Sensor channel that was queried.
-        values: Normalized values exposed by the unified SDK.
-        raw_values: Exact protocol values when distinct from ``values``.
+        values: Decoded protocol-native values exposed by the unified SDK.
     """
 
     sensor: SensorType
     values: tuple[SensorValue, ...]
-    raw_values: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

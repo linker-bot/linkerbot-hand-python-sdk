@@ -216,26 +216,28 @@ hand.start_polling(plan)
 
 ```python
 handle = hand.submit_angles(values)
-handle = hand.submit_raw_angles(raw_values)
+handle = hand.submit_percentage_angles(percentages)
 handle = hand.submit_speeds(values)
+handle = hand.submit_percentage_speeds(percentages)
 handle = hand.submit_torques(values)
 ```
 
-| 方法                                                        | 输入单位/约束                                     |
-| ----------------------------------------------------------- | ------------------------------------------------- |
-| `submit_angles(values, *, policy=CommandPolicy.LATEST)`     | 每关节一个百分比，范围 `0..100`，`100=张开`。     |
-| `submit_raw_angles(values, *, policy=CommandPolicy.LATEST)` | 每关节一个协议原始值，范围和整数约束来自能力。    |
-| `submit_speeds(values, *, policy=CommandPolicy.LATEST)`     | 每关节一个速度值，单位和值域来自 `speed_range`。  |
-| `submit_torques(values, *, policy=CommandPolicy.LATEST)`    | 每关节一个力矩值，单位和值域来自 `torque_range`。 |
-| `submit_command(command, *, policy=None)`                   | 提交完整 `HandCommand`；通常供通用封装使用。      |
-| `clear_faults()` / `enable()` / `disable()` / `calibrate()` | 无参数离散命令，必须先由 `features` 声明支持。    |
+| 方法                                                               | 输入单位/约束                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------ |
+| `submit_angles(values, *, policy=CommandPolicy.LATEST)`            | 每关节一个协议位置值，范围和整数约束来自能力。         |
+| `submit_percentage_angles(values, *, policy=CommandPolicy.LATEST)` | 显式 `0..100` 位置，经 capability 映射为协议值。       |
+| `submit_speeds(values, *, policy=CommandPolicy.LATEST)`            | 每关节一个协议速度值，单位和值域来自 `speed_range`。   |
+| `submit_percentage_speeds(values, *, policy=CommandPolicy.LATEST)` | 显式 `0..100` 速度；仅能力明确声明的型号支持。         |
+| `submit_torques(values, *, policy=CommandPolicy.LATEST)`           | 每关节一个协议力矩或电流限制值，范围来自能力。         |
+| `submit_command(command, *, policy=None)`                          | 提交完整 `HandCommand`；通常供通用封装使用。           |
+| `clear_faults()` / `enable()` / `disable()` / `calibrate()`        | 无参数离散命令，必须先由 `features` 声明支持。         |
 
 所有连续命令的值数量必须等于 `capabilities.joint_count`。值不是有限数字、数量或范围不符时抛出
 `ValidationError`；能力未声明时抛出 `UnsupportedOperationError`；会话未打开或不在线时分别抛出
 `ClosedError` 或 `DeviceNotReadyError`。
 
 也可以调用 `submit_command(HandCommand(...), policy=...)`。连续运动命令只允许
-`CommandPolicy.LATEST`，所有角度、原始角度、速度和力矩目标共享一个容量为 1 的 latest-wins
+`CommandPolicy.LATEST`，所有角度、速度和力矩目标共享一个容量为 1 的 latest-wins
 槽；新目标会把尚未发送的旧目标置为 `SUPERSEDED`。`clear_faults()`、`enable()`、
 `disable()` 和 `calibrate()` 是独立的有界 FIFO，容量由 `SessionConfig.discrete_queue_size`
 控制，满时抛出 `QueueFullError`。
@@ -313,32 +315,30 @@ if angles is not None and angles.valid and not angles.stale:
 
 ### `SensorSample`
 
-| 字段                    | 类型                      | 含义                                        |
-| ----------------------- | ------------------------- | ------------------------------------------- |
-| `sensor`                | `SensorType`              | 数据源。                                    |
-| `values`                | `tuple[SensorValue, ...]` | 标准化数值；力传感器元素为 `TactileState`。 |
-| `raw_values`            | `tuple[int, ...] \| None` | 协议原始值；后端未提供时为 `None`。         |
-| `collected_at`          | `float \| None`           | 成功采集时的 wall-clock 秒数。              |
-| `sequence`              | `int`                     | 该数据源成功更新的序号。                    |
-| `valid`                 | `bool`                    | 是否属于当前连接代次且可用。                |
-| `stale`                 | `bool`                    | 年龄是否超过能力的 `stale_after_s`。        |
-| `connection_generation` | `int`                     | 产生该样本的连接代次。                      |
+| 字段                    | 类型                      | 含义                                             |
+| ----------------------- | ------------------------- | ------------------------------------------------ |
+| `sensor`                | `SensorType`              | 数据源。                                         |
+| `values`                | `tuple[SensorValue, ...]` | 解码后的协议值；力传感器元素为 `TactileState`。 |
+| `unit`                  | `str \| None`             | capability 声明的协议单位。                      |
+| `encoding`              | `str \| None`             | 标量线上编码，例如 `u8` 或 `i16_le`。            |
+| `collected_at`          | `float \| None`           | 成功采集时的 wall-clock 秒数。                   |
+| `sequence`              | `int`                     | 该数据源成功更新的序号。                         |
+| `valid`                 | `bool`                    | 是否属于当前连接代次且可用。                     |
+| `stale`                 | `bool`                    | 年龄是否超过能力的 `stale_after_s`。             |
+| `connection_generation` | `int`                     | 产生该样本的连接代次。                           |
 
-`JointState` 字段为 `name`、`angle_percent`、`raw_angle`、`speed`、`torque`、`fault`。
+`JointState` 字段为 `name`、`angle`、`speed`、`torque`、`fault`；前三者直接取自有效的
+协议值样本。
 `TactileState` 字段为 `finger`、`rows`、`columns`、二维 `values` 和可选 `online`。
 
 每个 `SensorSample` 包含 `collected_at`、`sequence`、`valid`、`stale`、
-`connection_generation`、标准化 `values` 以及可选 `raw_values`。从未成功采集、断线或属于
+`connection_generation`、协议 `values`、`unit` 和 `encoding`。从未成功采集、断线或属于
 旧连接代次的数据会标记为无效；是否过期由能力中的 `stale_after_s` 判定。触觉阵列使用普通
 数据类 `TactileState`，调用方不需要导入型号专用类型。
 
-角度样本的 `raw_values` 与 `submit_raw_angles()` 均为协议线上原始坐标；二者不会经过 classic
-旧 manager 的 standard-raw LUT。三种坐标和 LUT 的精确定义见
-[角度坐标、方向与用户映射](./angle-coordinates.md)。
-
-速度、力矩等数值的公共单位由对应关节范围和传感器能力的 `unit` 字段声明。统一接口发送
-物理单位时由 SDK 转换为协议值；`SensorSample.raw_values` 始终保留协议原值。L6 的速度样本
-不存在，因为设备不提供当前速度读回；其旧兼容入口的速度快照是目标值而非测量值。
+角度、速度、力矩和电流样本的 `values` 都是协议解码值，不隐式归一化或换算物理单位。
+完整定义见[协议值、百分比与显式换算](./angle-coordinates.md)。L6 的速度传感器样本不存在，
+因为设备不提供当前速度读回；型号 manager 的速度快照只是最近目标值，不是测量值。
 
 ## 健康状态
 
@@ -376,8 +376,8 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 | `joint_count`          | 关节数量。                                                                                               |
 | `sensor(sensor)`       | 返回对应 `SensorCapability`，不支持时为 `None`。                                                         |
 | `supports_sensor(...)` | 是否支持指定数据源。                                                                                     |
-| `JointCapability`      | `index/name/raw_angle_range/percentage_mapping/speed_range/torque_range/motion_type/coupled_with`        |
-| `SensorCapability`     | `sensor/recommended_hz/stale_after_s/unit`                                                               |
+| `JointCapability`      | `index/name/raw_angle_range/percentage_mapping/speed_range/torque_range/percentage_speed_supported/motion_type/coupled_with` |
+| `SensorCapability`     | `sensor/recommended_hz/stale_after_s/unit/encoding/value_range`                                          |
 | `DeviceFeatures`       | `device_ack/clear_faults/enable/calibration/acknowledged_commands`                                       |
 | `NumericRange`         | `minimum/maximum/unit/integer_only/step`                                                                 |
 | `PercentageMapping`    | `raw_open/raw_closed/raw_at_zero/raw_at_hundred/physical_angle/semantics/zero_endpoint/hundred_endpoint` |
@@ -386,27 +386,31 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 `DeviceFeatures.supports_ack(command_kind)` 用于逐命令查询 ACK。不要只读取 `device_ack` 后假定
 全部命令均有 ACK。
 
-`JointCapability.raw_angle_range` 或 `percentage_mapping` 为 `None` 表示该位置能力未发布，
-相关转换和角度提交会抛出 `UnsupportedOperationError`。这不是零范围。L30 不按左右手区分
+`JointCapability.raw_angle_range` 为 `None` 时不能提交协议角度；`percentage_mapping` 为
+`None` 时不能使用百分比角度转换。相关调用会抛出 `UnsupportedOperationError`。L30 不按左右手区分
 角度映射；左手、右手和未知侧均使用同一套协议 v6 原始位置范围与百分比映射，设备身份中的
 `side` 不会改变关节能力。
 
 屈伸关节的统一百分比约定始终为 `0=弯曲/闭合，100=伸直/张开`。侧摆、横滚、旋转和
 手腕没有“开合”语义，但也提供可逆的 `0..100` 位置归一化；其 0/100 物理端点必须读取
-`zero_endpoint` / `hundred_endpoint`，不能解释为弯曲/张开。SDK 同时提供：
+`zero_endpoint` / `hundred_endpoint`，不能解释为弯曲/张开。SDK 提供：
 
 - `percent_to_raw()` / `raw_to_percent()`；
-- `submit_raw_angles()`；
+- `submit_percentage_angles()`；
+- `percentage_speeds_to_raw()` / `raw_speeds_to_percentage()`；
+- `submit_percentage_speeds()`；
 - `raw_to_physical_angles()` / `physical_angles_to_raw()`。
 
 ### 角度转换方法
 
-| 方法                             | 返回值              | 约束                                      |
-| -------------------------------- | ------------------- | ----------------------------------------- |
-| `percent_to_raw(values)`         | `tuple[int, ...]`   | 百分比转协议原始位置；每轴必须为 0..100。 |
-| `raw_to_percent(values)`         | `tuple[float, ...]` | 原始位置转逐关节归一化位置。              |
-| `raw_to_physical_angles(values)` | `tuple[float, ...]` | 原始位置转能力声明的物理单位。            |
-| `physical_angles_to_raw(values)` | `tuple[int, ...]`   | 物理角度转协议原始位置。                  |
+| 方法                                | 返回值                        | 约束                                      |
+| ----------------------------------- | ----------------------------- | ----------------------------------------- |
+| `percent_to_raw(values)`            | `tuple[int, ...]`             | 百分比转协议位置；每轴必须为 0..100。     |
+| `raw_to_percent(values)`            | `tuple[float, ...]`           | 协议位置转逐关节归一化位置。              |
+| `percentage_speeds_to_raw(values)`  | `tuple[float \| int, ...]`    | 百分比速度转协议值；能力必须明确支持。    |
+| `raw_speeds_to_percentage(values)`  | `tuple[float, ...]`           | 协议速度转百分比；能力必须明确支持。      |
+| `raw_to_physical_angles(values)`    | `tuple[float, ...]`           | 协议位置转能力声明的物理单位。            |
+| `physical_angles_to_raw(values)`    | `tuple[int, ...]`             | 物理角度转协议位置。                      |
 
 这些方法只执行本地计算，不要求 `open()`，也不产生设备 I/O。输入数量必须等于关节数；范围或类型
 无效时抛出 `ValidationError`。缺少百分比映射或物理角度能力时抛出
@@ -438,7 +442,7 @@ transport、可选操作和逐命令 ACK 支持的唯一运行时数据源。连
 | `HandSide`            | `left`, `right`, `unknown`                                                                                           |
 | `TransportType`       | `can`, `can_fd`, `fake`, `custom`                                                                                    |
 | `SensorType`          | `angles`, `speeds`, `torques`, `force`, `temperature`, `current`, `faults`, `voltage`, `acceleration`, `motion_time` |
-| `CommandKind`         | `angles`, `raw_angles`, `speeds`, `torques`, `clear_faults`, `enable`, `disable`, `calibrate`                        |
+| `CommandKind`         | `angles`, `speeds`, `torques`, `clear_faults`, `enable`, `disable`, `calibrate`                                      |
 | `CommandPolicy`       | `latest`, `fifo`                                                                                                     |
 | `CommandStage`        | `accepted`, `dispatched`, `acknowledged`, `failed`, `superseded`                                                     |
 | `AckSupport`          | `supported`, `unsupported`                                                                                           |
@@ -483,7 +487,7 @@ state = factory.state
 
 | 测试接口                                             | 用途                                              |
 | ---------------------------------------------------- | ------------------------------------------------- |
-| `state.set_reading(sensor, values, raw_values=None)` | 设置下一次该传感器轮询返回的固定读数。            |
+| `state.set_reading(sensor, values)`                  | 设置下一次该传感器轮询返回的协议读数。            |
 | `state.disconnect()` / `state.reconnect()`           | 注入 transport 断开或恢复。                       |
 | `state.dispatch_errors` / `state.poll_errors`        | 按顺序注入发送或轮询异常。                        |
 | `state.dispatched_commands` / `state.poll_log`       | 检查实际发送命令和实际查询的数据源。              |
@@ -503,7 +507,7 @@ state = factory.state
 | `poll(sensor)`  | `BackendReading` | 执行一次阻塞查询；数据源必须与请求一致。     |
 | `dispatch(...)` | `DispatchResult` | 声明发送和可选 ACK 结果。                    |
 
-`BackendReading` 包含 `sensor`、标准化 `values` 和可选 `raw_values`；`DispatchResult` 的
+`BackendReading` 包含 `sensor` 和解码后的协议 `values`；`DispatchResult` 的
 `acknowledged` 为 `True`、`False` 或 `None`。backend 抛出的非 SDK 异常会归一化为稳定 transport
 错误。
 

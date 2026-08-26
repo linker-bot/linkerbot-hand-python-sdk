@@ -147,6 +147,8 @@ class JointCapability:
         percentage_mapping: Verified normalized mapping, or ``None`` if unknown.
         speed_range: Accepted speed range and unit, or ``None`` if unsupported.
         torque_range: Accepted torque range and unit, or ``None`` if unsupported.
+        percentage_speed_supported: Whether ``0..100`` speed conversion is an
+            explicitly documented linear mapping over ``speed_range``.
         motion_type: Mechanical motion category for interpreting the axis.
         coupled_with: Joint names mechanically coupled to this joint.
 
@@ -161,6 +163,7 @@ class JointCapability:
     percentage_mapping: PercentageMapping | None
     speed_range: NumericRange | None = None
     torque_range: NumericRange | None = None
+    percentage_speed_supported: bool = False
     motion_type: JointMotionType = JointMotionType.UNKNOWN
     coupled_with: tuple[str, ...] = ()
 
@@ -190,6 +193,10 @@ class JointCapability:
         ):
             if value is not None and not isinstance(value, NumericRange):
                 raise ValidationError(f"{name} must be NumericRange or None")
+        if not isinstance(self.percentage_speed_supported, bool):
+            raise ValidationError("percentage_speed_supported must be bool")
+        if self.percentage_speed_supported and self.speed_range is None:
+            raise ValidationError("percentage_speed_supported requires a speed_range")
         if not isinstance(self.motion_type, JointMotionType):
             raise ValidationError("motion_type must be JointMotionType")
         if not isinstance(self.coupled_with, tuple) or any(
@@ -235,7 +242,10 @@ class SensorCapability:
         sensor: Supported sensor channel.
         recommended_hz: Recommended polling frequency in hertz.
         stale_after_s: Age in seconds after which cached data is stale.
-        unit: Unit used by values published for this sensor, when known.
+        unit: Protocol unit used by decoded values, when known.
+        encoding: Scalar wire encoding, such as ``u8`` or ``i16_le``.
+        value_range: Shared decoded scalar range, when one range applies to all
+            values. Angle ranges remain joint-specific.
 
     Raises:
         ValidationError: If the sensor type or either positive finite value is
@@ -246,6 +256,8 @@ class SensorCapability:
     recommended_hz: float
     stale_after_s: float
     unit: str | None = None
+    encoding: str | None = None
+    value_range: NumericRange | None = None
 
     def __post_init__(self) -> None:
         """Validate sensor metadata and timing values."""
@@ -253,6 +265,20 @@ class SensorCapability:
             raise ValidationError("sensor must be SensorType")
         if self.unit is not None and (not isinstance(self.unit, str) or not self.unit):
             raise ValidationError("sensor unit must be a non-empty str or None")
+        if self.encoding is not None and (
+            not isinstance(self.encoding, str) or not self.encoding
+        ):
+            raise ValidationError("sensor encoding must be a non-empty str or None")
+        if self.value_range is not None and not isinstance(
+            self.value_range, NumericRange
+        ):
+            raise ValidationError("sensor value_range must be NumericRange or None")
+        if (
+            self.unit is not None
+            and self.value_range is not None
+            and self.value_range.unit != self.unit
+        ):
+            raise ValidationError("sensor value_range unit must match sensor unit")
         for name, value in (
             ("recommended_hz", self.recommended_hz),
             ("stale_after_s", self.stale_after_s),

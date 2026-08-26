@@ -81,26 +81,16 @@ def validate_command(
         if len(values) != expected:
             raise ValidationError(f"expected {expected} joint values")
         if command.kind is CommandKind.ANGLES:
-            if any(joint.percentage_mapping is None for joint in capabilities.joints):
-                raise UnsupportedOperationError(
-                    "percentage angle control is not supported for this hand side"
-                )
-            _validate_ranges(
-                values,
-                tuple(NumericRange(0, 100, "percent") for _ in values),
-                "angle",
-            )
-        elif command.kind is CommandKind.RAW_ANGLES:
             if any(joint.raw_angle_range is None for joint in capabilities.joints):
                 raise UnsupportedOperationError(
-                    "raw angle control is not supported for this hand side"
+                    "angle control is not supported for this hand side"
                 )
             ranges = tuple(
                 joint.raw_angle_range
                 for joint in capabilities.joints
                 if joint.raw_angle_range is not None
             )
-            _validate_ranges(values, ranges, "raw angle")
+            _validate_ranges(values, ranges, "angle")
         elif command.kind is CommandKind.SPEEDS:
             if any(joint.speed_range is None for joint in capabilities.joints):
                 raise UnsupportedOperationError("speed control is not supported")

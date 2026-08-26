@@ -54,8 +54,7 @@ def _stages(handle) -> list[CommandStage]:
 def test_snapshot_is_cached_complete_and_p95_below_one_millisecond() -> None:
     rig = make_rig()
     joint_count = rig.device.get_capabilities().joint_count
-    angles = tuple(float(index) for index in range(joint_count))
-    raw_angles = tuple(index + 10 for index in range(joint_count))
+    angles = tuple(index + 10 for index in range(joint_count))
     readings = {
         SensorType.ANGLES: angles,
         SensorType.TORQUES: tuple(20 for _ in range(joint_count)),
@@ -65,11 +64,7 @@ def test_snapshot_is_cached_complete_and_p95_below_one_millisecond() -> None:
         SensorType.FAULTS: tuple(0 for _ in range(joint_count)),
     }
     for sensor, values in readings.items():
-        rig.state.set_reading(
-            sensor,
-            values,
-            raw_values=raw_angles if sensor is SensorType.ANGLES else None,
-        )
+        rig.state.set_reading(sensor, values)
     rig.device.open()
     try:
         rig.device.start_polling(
@@ -117,8 +112,10 @@ def test_snapshot_is_cached_complete_and_p95_below_one_millisecond() -> None:
         assert snapshot.temperature is not None and snapshot.temperature.valid
         assert snapshot.current is not None and snapshot.current.valid
         assert snapshot.faults is not None and snapshot.faults.valid
-        assert snapshot.joints[0].angle_percent == angles[0]
-        assert snapshot.joints[0].raw_angle == raw_angles[0]
+        assert sample.values == angles
+        assert sample.unit == "protocol_raw"
+        assert sample.encoding == "u8"
+        assert snapshot.joints[0].angle == angles[0]
         assert snapshot.joints[0].torque == 20
         assert snapshot.joints[0].fault == 0
 
@@ -149,16 +146,11 @@ def test_all_models_preserve_protocol_raw_angles_in_commands_and_snapshots(
         for index, joint in enumerate(capabilities.joints)
         if (raw_range := joint.raw_angle_range) is not None
     )
-    percentages = rig.device.raw_to_percent(raw_values)
-    rig.state.set_reading(
-        SensorType.ANGLES,
-        percentages,
-        raw_values=raw_values,
-    )
+    rig.state.set_reading(SensorType.ANGLES, raw_values)
 
     rig.device.open()
     try:
-        handle = rig.device.submit_raw_angles(raw_values)
+        handle = rig.device.submit_angles(raw_values)
         assert handle.wait(1.0) in {
             CommandStage.DISPATCHED,
             CommandStage.ACKNOWLEDGED,
@@ -176,11 +168,8 @@ def test_all_models_preserve_protocol_raw_angles_in_commands_and_snapshots(
         snapshot = rig.device.get_snapshot()
 
         assert snapshot.angles is not None
-        assert snapshot.angles.raw_values == raw_values
-        assert tuple(joint.raw_angle for joint in snapshot.joints) == raw_values
-        assert tuple(joint.angle_percent for joint in snapshot.joints) == pytest.approx(
-            percentages
-        )
+        assert snapshot.angles.values == raw_values
+        assert tuple(joint.angle for joint in snapshot.joints) == raw_values
     finally:
         rig.device.close()
 
@@ -193,7 +182,7 @@ def test_latest_wins_at_1000_hz_with_bounded_pending_and_latest_sent() -> None:
     try:
         max_pending = 0
         for index in range(1_000):
-            value = index / 10
+            value = index % 256
             handles.append(rig.device.submit_angles((value,) * joint_count))
             max_pending = max(max_pending, rig.device.get_health().pending_commands)
             rig.clock.advance(0.001)
@@ -213,7 +202,7 @@ def test_latest_wins_at_1000_hz_with_bounded_pending_and_latest_sent() -> None:
         assert health.superseded_commands == superseded
         assert superseded >= 800
         assert len(rig.state.dispatched_commands) <= 200
-        assert rig.state.dispatched_commands[-1].values == (99.9,) * joint_count
+        assert rig.state.dispatched_commands[-1].values == (231,) * joint_count
         assert final_handle.stage is CommandStage.DISPATCHED
     finally:
         rig.device.close()
@@ -398,18 +387,18 @@ def test_send_failure_never_reports_dispatched() -> None:
         rig.device.close()
 
 
-def test_non_integer_raw_angle_is_rejected_before_accepted() -> None:
+def test_non_integer_angle_is_rejected_before_accepted() -> None:
     rig = make_rig()
     joint_count = rig.device.get_capabilities().joint_count
     rig.device.open()
     try:
-        with pytest.raises(ValidationError, match=r"raw angle\[0\] must be int"):
-            rig.device.submit_raw_angles((1.0,) + (0,) * (joint_count - 1))
+        with pytest.raises(ValidationError, match=r"angle\[0\] must be int"):
+            rig.device.submit_angles((1.0,) + (0,) * (joint_count - 1))
 
         assert rig.device.get_health().pending_commands == 0
         assert rig.state.dispatched_commands == []
 
-        accepted = rig.device.submit_raw_angles((0,) * joint_count)
+        accepted = rig.device.submit_angles((0,) * joint_count)
         assert accepted.command_id == 1
         assert accepted.wait(1.0) is CommandStage.DISPATCHED
     finally:

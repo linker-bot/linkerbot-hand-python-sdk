@@ -29,9 +29,10 @@ compatible with Ubuntu's SciPy 1.11.4 (`numpy<1.28`). Release 0.1.1 incorrectly
 required NumPy 2.2.6 or newer and should not be used in a Jazzy
 `--system-site-packages` environment.
 
-The canonical unified API is `linkerbot_hand`. The historical
-`linkerbot.hand` package remains available from the same wheel, with the same
-model classes and function signatures.
+The canonical unified API is `linkerbot_hand`. Model drivers remain available
+under `linkerbot.hand`, but this release unifies their value semantics: default
+control and telemetry use protocol-native values. User LUT behavior and the old
+raw-angle aliases are not retained.
 
 ## Lifecycle
 
@@ -61,7 +62,7 @@ hand = HandDevice(
 hand.open()
 try:
     hand.start_polling(PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1))
-    handle = hand.submit_angles(
+    handle = hand.submit_percentage_angles(
         [100, 100, 100, 100, 100, 100],
         policy=CommandPolicy.LATEST,
     )
@@ -78,8 +79,11 @@ finally:
 
 ## Commands
 
-`submit_angles()`, `submit_raw_angles()`, `submit_speeds()`, and
-`submit_torques()` validate and enqueue work without waiting for device I/O.
+`submit_angles()`, `submit_speeds()`, and `submit_torques()` accept values in
+the ranges and protocol units declared by capabilities. Explicit normalized
+control is available through `submit_percentage_angles()` and, only for models
+that declare it, `submit_percentage_speeds()`. These methods validate and
+enqueue work without waiting for device I/O.
 Continuous motion commands share one latest-wins slot. Discrete operations
 (`clear_faults()`, `enable()`, `disable()`, and `calibrate()`) use a separate,
 bounded FIFO when the model advertises support.
@@ -98,19 +102,25 @@ Check `handle.ack_support`. For a command whose protocol has no device ACK,
 ## Cached State And Capabilities
 
 `get_snapshot()` only copies SDK cache state. Each `SensorSample` includes its
-collection timestamp, sequence, validity, staleness, raw values when available,
-and connection generation. `get_health()` reports connection state, successful
+decoded protocol values, unit, wire encoding, collection timestamp, sequence,
+validity, staleness, and connection generation. `get_health()` reports connection state, successful
 send/receive times, errors, reconnects, superseded and pending command counts,
 and sensor ages.
 
 `get_capabilities()` is the runtime source of truth for model, firmware, side,
 joint order and ranges, sensors, recommended polling rates, transport, optional
-operations, command-specific ACK support, and percentage/raw mappings. The
-public percentage convention is always `100=open, 0=closed`. Raw positions are
-protocol-native on both submit and snapshot paths. The classic manager's legacy
-standard-raw LUT remains a compatibility-only API. Physical-angle conversion
-raises `UnsupportedOperationError` unless the capability explicitly provides a
-calibrated physical range.
+operations, command-specific ACK support, and explicit percentage mappings.
+The default submit and snapshot paths are protocol-native and never apply
+percentage, RPM, or milliamp conversion. Percentage angles use
+`100=open, 0=closed` for flexion axes; directional endpoints come from
+capabilities in the unified `submit_percentage_angles()` API. Model-manager
+`set_percentage_angles()` helpers retain their explicit local mappings: the
+four classic models map `0..100` to `0..255`, O20 and L30 map each joint's
+minimum to maximum, and O30i uses its measured inverse-byte mapping. Those
+manager percentages can differ from unified capability direction on some axes;
+protocol values are portable across both entry points. Physical-angle
+conversion raises `UnsupportedOperationError` unless a calibrated physical
+range is explicitly provided.
 
 ## Recovery And Testing
 
@@ -143,11 +153,16 @@ hand = create_hand_device("L6", side="right", interface_name="can0")
 The legacy `linkerbot.hand` import path also re-exports `HandDevice`,
 `HandSession`, `PollingPlan`, and `CommandPolicy` during migration.
 
-Existing model-specific applications can keep their class and method calls:
+Model-specific applications can keep the same import paths:
 
 ```python
 from linkerbot.hand import L6, L30
 ```
+
+Their default `set_angles()`, `set_speeds()`, and `set_torques()` methods and
+sensor data now use protocol-native values. Percentage control is explicitly
+named `set_percentage_*`. LUT configuration, `set_raw_angles()`, and
+`set_hardware_raw_angles()` have been removed without a compatibility layer.
 
 The independent wheel does not own the shared `linkerbot` package root, so
 aggregate-only imports such as `from linkerbot import L6` should use the

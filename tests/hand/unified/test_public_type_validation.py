@@ -256,6 +256,18 @@ def test_sensor_capability_rejects_invalid_units(unit: object) -> None:
         )
 
 
+def test_sensor_capability_requires_matching_value_range_unit() -> None:
+    with pytest.raises(ValidationError, match="value_range unit must match"):
+        SensorCapability(
+            SensorType.CURRENT,
+            10,
+            0.3,
+            unit="protocol_current",
+            encoding="i16_le",
+            value_range=NumericRange(-32768, 32767, "mA", True, 1),
+        )
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
@@ -366,8 +378,9 @@ def test_command_handle_wait_rejects_invalid_timeout_with_stable_error(
     "method_name",
     [
         "submit_angles",
-        "submit_raw_angles",
+        "submit_percentage_angles",
         "submit_speeds",
+        "submit_percentage_speeds",
         "submit_torques",
     ],
 )

@@ -11,10 +11,23 @@ from dataclasses import dataclass
 import can
 
 from linkerbot.hand._polling_relay import PollingDataRelay
+from linkerbot.hand._values import percentage_to_u8_vector, validate_u8_vector
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
 
 _JOINT_COUNT = 10
+_JOINT_NAMES = (
+    "thumb_flex",
+    "thumb_abd",
+    "index_flex",
+    "middle_flex",
+    "ring_flex",
+    "pinky_flex",
+    "index_abd",
+    "ring_abd",
+    "pinky_abd",
+    "thumb_yaw",
+)
 
 
 @dataclass
@@ -123,11 +136,11 @@ class SpeedData:
     """Immutable speed data container.
 
     Attributes:
-        speeds: L20liteSpeed instance containing joint speeds (0-100 range).
+        speeds: Ten protocol-native unsigned-byte speed values.
         timestamp: Unix timestamp when the data was received.
     """
 
-    speeds: L20liteSpeed
+    speeds: tuple[int, ...]
     timestamp: float
 
 
@@ -161,37 +174,45 @@ class SpeedManager:
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._dispatcher.subscribe(self._on_message)
-        self._pending: dict[int, list[float]] = {}
+        self._pending: dict[int, list[int]] = {}
         self._relay = PollingDataRelay[SpeedData](self._pending.clear)
 
-    def set_speeds(self, speeds: L20liteSpeed | list[float]) -> None:
-        """Send target speeds to the robotic hand.
+    def set_speeds(self, speeds: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte speed targets.
 
         This method sends 10 target speeds to the hand. The hand
         will respond with the current speeds, which are automatically cached
         and can be retrieved via get_snapshot().
 
         Args:
-            speeds: L20liteSpeed instance or list of 10 target speeds (range 0-100 each).
+            speeds: Ten integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If speeds count is not 10 or values are out of range.
 
-        Example:
-            >>> manager.set_speeds([50.0, 30.0, 60.0, 60.0, 60.0, 60.0, 20.0, 20.0, 20.0, 20.0])
+        Use :meth:`set_percentage_speeds` for explicit 0..100 targets.
         """
-        if not isinstance(speeds, L20liteSpeed):
-            speeds = L20liteSpeed.from_list(speeds)
-
+        raw_speeds = validate_u8_vector(speeds, count=_JOINT_COUNT, name="speeds")
+        raw_by_field = dict(zip(_JOINT_NAMES, raw_speeds, strict=True))
         for cmd, fields in self._FRAME_MAP.items():
-            raw_values = [round(getattr(speeds, f) * 255 / 100) for f in fields]
-            data = [cmd, *raw_values]
+            data = [cmd, *[raw_by_field[field] for field in fields]]
             msg = can.Message(
                 arbitration_id=self._arbitration_id,
                 data=data,
                 is_extended_id=False,
             )
             self._dispatcher.send(msg)
+
+    def set_percentage_speeds(
+        self, speeds: L20liteSpeed | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 speed targets and send protocol values."""
+        values = speeds.to_list() if isinstance(speeds, L20liteSpeed) else speeds
+        self.set_speeds(
+            percentage_to_u8_vector(
+                values, count=_JOINT_COUNT, name="speed percentages"
+            )
+        )
 
     def get_blocking(self, timeout_ms: float = 100) -> SpeedData:
         """Request and wait for current joint speeds (blocking).
@@ -265,19 +286,20 @@ class SpeedManager:
         if len(raw_speeds) != len(expected_fields):
             return
 
-        decoded = [v * 100 / 255 for v in raw_speeds]
-        self._pending[cmd] = decoded
+        self._pending[cmd] = raw_speeds
 
         # Check if all frames have been received
         if set(self._pending.keys()) != set(self._FRAME_MAP.keys()):
             return
 
-        # All frames received — merge into L20liteSpeed
-        kwargs: dict[str, float] = {}
+        # All frames received in protocol joint order.
+        raw_by_field: dict[str, int] = {}
         for frame_cmd, fields in self._FRAME_MAP.items():
             for field, value in zip(fields, self._pending[frame_cmd], strict=True):
-                kwargs[field] = value
+                raw_by_field[field] = value
 
-        speeds = L20liteSpeed(**kwargs)
-        speed_data = SpeedData(speeds=speeds, timestamp=time.time())
+        speed_data = SpeedData(
+            speeds=tuple(raw_by_field[name] for name in _JOINT_NAMES),
+            timestamp=time.time(),
+        )
         self._relay.push(speed_data)

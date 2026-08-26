@@ -19,7 +19,7 @@ with O30i(library_path="/usr/local/lib/libcanbus.so") as hand:
     print(info.product_model, info.protocol_name, info.protocol_version)
 
     actual = hand.angle.get_blocking(timeout_ms=1000)
-    print(actual.angles.to_raw())
+    print(actual.angles)
 ```
 
 也可以省略 `library_path`，让 SDK 按系统 loader、`LINKERBOT_CANFD_LIB` 环境变量和包内 fallback 顺序查找动态库。
@@ -84,7 +84,10 @@ hand.close()
 
 固件运行时对象包含 36 个单字节槽位，但 O30i 实际只存在 20 个关节。SDK 读取完整 36 字节后只返回真实关节；完整写入会自动跳过不存在的槽位。
 
-当前只确认协议原始范围为 `0～255`，没有可靠的角度标定值。实物验证确认 O30i 的原始值方向与 SDK 逻辑百分比相反：`0%` 是张开端、对应 raw `255`；`100%` 是闭合端、对应 raw `0`。`set_raw_angles()`、原始切片和稀疏写始终使用设备原生方向，不做反转。
+当前只确认协议位置范围为 `0～255`，没有可靠的物理角度标定值。`set_angles()`、
+`set_slice()`、`set_sparse()` 和位置读回都使用设备协议字节，不做反转。型号 manager 的
+`set_percentage_angles()` 是显式 helper，按实测反向关系把 `0%` 映射为 `255`、`100%`
+映射为 `0`；统一 `HandDevice` 则按逐轴 capability 端点换算。
 
 | 索引范围 | 标识                 | 说明                     |
 | -------: | -------------------- | ------------------------ |
@@ -109,7 +112,7 @@ for index, spec in enumerate(O30I_JOINT_SPECS):
 
 | 模块                | 说明                                                    |
 | ------------------- | ------------------------------------------------------- |
-| `hand.angle`        | 位置百分比/原始值控制，实际值/设定值/完整 16 位对象读取 |
+| `hand.angle`        | 协议位置控制与读取、显式百分比控制、完整 16 位对象读取  |
 | `hand.speed`        | 速度原始字节读写                                        |
 | `hand.acceleration` | 加速度原始字节读写                                      |
 | `hand.current`      | 电流状态读取                                            |

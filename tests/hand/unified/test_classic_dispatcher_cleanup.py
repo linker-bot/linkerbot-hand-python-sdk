@@ -8,7 +8,7 @@ import can
 import pytest
 
 from linkerbot.comm import CANMessageDispatcher
-from linkerbot.exceptions import TimeoutError, ValidationError
+from linkerbot.exceptions import TimeoutError
 from linkerbot.hand._can_protocol import CANSubscriptionScope
 from linkerbot.hand.l6 import L6
 from linkerbot.hand.l20lite import L20lite
@@ -248,50 +248,6 @@ def test_closing_one_hand_preserves_other_hand_subscriptions(
     assert dispatcher.subscribers == []
     assert dispatcher.unsubscribe_calls == subscription_count * 2
     assert dispatcher.stop_calls == 0
-
-
-@pytest.mark.parametrize("hand_type", [L6, O6, L20lite, L25])
-def test_invalid_mapping_does_not_leave_subscriptions_on_injected_dispatcher(
-    hand_type: type[L6] | type[O6] | type[L20lite] | type[L25],
-    tmp_path,
-) -> None:
-    mapping_path = tmp_path / "invalid.toml"
-    mapping_path.write_text("mapping = [invalid", encoding="utf-8")
-    dispatcher = SharedDispatcher()
-
-    with pytest.raises(ValidationError, match="Invalid angle mapping TOML"):
-        hand_type(
-            side="left",
-            interface_name="unused",
-            angle_mapping_path=mapping_path,
-            dispatcher=cast(CANMessageDispatcher, dispatcher),
-        )
-
-    assert dispatcher.subscribers == []
-    assert dispatcher.stop_calls == 0
-
-
-@pytest.mark.parametrize("hand_type", [L6, O6, L20lite, L25])
-def test_invalid_mapping_stops_owned_dispatcher(
-    hand_type: type[L6] | type[O6] | type[L20lite] | type[L25],
-    monkeypatch,
-    tmp_path,
-) -> None:
-    mapping_path = tmp_path / "invalid.toml"
-    mapping_path.write_text("mapping = [invalid", encoding="utf-8")
-    dispatcher = SharedDispatcher()
-    module = importlib.import_module(hand_type.__module__)
-    monkeypatch.setattr(module, "CANMessageDispatcher", lambda **_kwargs: dispatcher)
-
-    with pytest.raises(ValidationError, match="Invalid angle mapping TOML"):
-        hand_type(
-            side="left",
-            interface_name="unused",
-            angle_mapping_path=mapping_path,
-        )
-
-    assert dispatcher.subscribers == []
-    assert dispatcher.stop_calls == 1
 
 
 @pytest.mark.parametrize("hand_type", [L6, O6, L20lite, L25])

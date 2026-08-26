@@ -10,6 +10,11 @@ from dataclasses import dataclass
 
 import can
 
+from linkerbot.hand._values import (
+    percentage_to_u8_vector,
+    validate_int_vector,
+    validate_u8_vector,
+)
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
@@ -170,11 +175,11 @@ class SpeedData:
     """Immutable speed data container.
 
     Attributes:
-        speeds: O6Speed instance containing motor speeds (0-100 range).
+        speeds: Six protocol-native unsigned-byte speed values.
         timestamp: Unix timestamp when the data was received.
     """
 
-    speeds: O6Speed
+    speeds: tuple[int, ...]
     timestamp: float
 
 
@@ -203,28 +208,18 @@ class SpeedManager:
         self._dispatcher.subscribe(self._on_message)
         self._relay = DataRelay[SpeedData]()
 
-    def set_speeds(self, speeds: O6Speed | list[float]) -> None:
-        """Send target speeds to the robotic hand motors.
+    def set_speeds(self, speeds: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte speed targets.
 
         Args:
-            speeds: O6Speed instance or list of 6 target speeds (range 0-100 each).
+            speeds: Six integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If speeds count is not 6 or values are out of range.
 
-        Example:
-            >>> manager.set_speeds(O6Speed(thumb_flex=50.0, thumb_abd=50.0,
-            ...                            index=50.0, middle=50.0, ring=50.0, pinky=50.0))
-            >>> manager.set_speeds([50.0, 50.0, 50.0, 50.0, 50.0, 50.0])
+        Use :meth:`set_percentage_speeds` for explicit 0..100 targets.
         """
-        if isinstance(speeds, O6Speed):
-            raw_speeds = speeds.to_raw()
-        elif isinstance(speeds, list):
-            raw_speeds = O6Speed.from_list(speeds).to_raw()
-        else:
-            raise ValidationError(
-                f"Expected O6Speed or list, got {type(speeds).__name__}"
-            )
+        raw_speeds = validate_u8_vector(speeds, count=self._SPEED_COUNT, name="speeds")
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_speeds]
@@ -234,6 +229,17 @@ class SpeedManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
+
+    def set_percentage_speeds(
+        self, speeds: O6Speed | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 speed targets and send protocol values."""
+        values = speeds.to_list() if isinstance(speeds, O6Speed) else speeds
+        self.set_speeds(
+            percentage_to_u8_vector(
+                values, count=self._SPEED_COUNT, name="speed percentages"
+            )
+        )
 
     def get_blocking(self, timeout_ms: float = 100) -> SpeedData:
         """Request and wait for current motor speeds (blocking).
@@ -292,8 +298,7 @@ class SpeedManager:
         if len(raw_speeds) != self._SPEED_COUNT:
             return
 
-        speeds = O6Speed.from_raw(raw_speeds)
-        speed_data = SpeedData(speeds=speeds, timestamp=time.time())
+        speed_data = SpeedData(speeds=tuple(raw_speeds), timestamp=time.time())
         self._relay.push(speed_data)
 
 
@@ -481,11 +486,11 @@ class AccelerationData:
     """Immutable acceleration data container.
 
     Attributes:
-        accelerations: O6Acceleration instance containing motor accelerations (0-100 range).
+        accelerations: Six protocol-native values in the range 0..254.
         timestamp: Unix timestamp when the data was received.
     """
 
-    accelerations: O6Acceleration
+    accelerations: tuple[int, ...]
     timestamp: float
 
 
@@ -514,37 +519,24 @@ class AccelerationManager:
         self._dispatcher.subscribe(self._on_message)
         self._relay = DataRelay[AccelerationData]()
 
-    def set_accelerations(self, accelerations: O6Acceleration | list[float]) -> None:
-        """Send target accelerations to the robotic hand motors.
+    def set_accelerations(self, accelerations: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native acceleration targets.
 
         Args:
-            accelerations: O6Acceleration instance or list of 6 target accelerations
-                (range 0-100 each, where 100 is maximum acceleration).
+            accelerations: Six integer protocol values in the range 0..254.
 
         Raises:
             ValidationError: If accelerations count is not 6 or values are out of range.
 
-        Example:
-            >>> manager.set_accelerations(O6Acceleration(thumb_flex=80.0, thumb_abd=80.0,
-            ...                                          index=80.0, middle=80.0,
-            ...                                          ring=80.0, pinky=80.0))
-            >>> manager.set_accelerations([80.0, 80.0, 80.0, 80.0, 80.0, 80.0])
+        Use :meth:`set_percentage_accelerations` for explicit 0..100 targets.
         """
-        if isinstance(accelerations, O6Acceleration):
-            raw_accelerations = accelerations.to_raw()
-        elif isinstance(accelerations, list):
-            # Validate input
-            if len(accelerations) != self._ACCELERATION_COUNT:
-                raise ValidationError(
-                    f"Expected {self._ACCELERATION_COUNT} accelerations, got {len(accelerations)}"
-                )
-            # Validate acceleration values (0-100 range)
-            for i, acceleration in enumerate(accelerations):
-                if not isinstance(acceleration, (float, int)):
-                    raise ValidationError(
-                        f"Acceleration {i} must be float or int, got {type(acceleration)}"
-                    )
-            raw_accelerations = O6Acceleration.from_list(accelerations).to_raw()
+        raw_accelerations = validate_int_vector(
+            accelerations,
+            count=self._ACCELERATION_COUNT,
+            name="accelerations",
+            minimum=0,
+            maximum=254,
+        )
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_accelerations]
@@ -554,6 +546,18 @@ class AccelerationManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
+
+    def set_percentage_accelerations(
+        self,
+        accelerations: O6Acceleration | list[float] | tuple[float, ...],
+    ) -> None:
+        """Convert explicit 0..100 acceleration targets to protocol values."""
+        percentages = (
+            accelerations
+            if isinstance(accelerations, O6Acceleration)
+            else O6Acceleration.from_list(list(accelerations))
+        )
+        self.set_accelerations(percentages.to_raw())
 
     def get_blocking(self, timeout_ms: float = 100) -> AccelerationData:
         """Request and wait for current motor accelerations (blocking).
@@ -612,8 +616,7 @@ class AccelerationManager:
         if len(raw_accelerations) != self._ACCELERATION_COUNT:
             return
 
-        accelerations = O6Acceleration.from_raw(raw_accelerations)
         acceleration_data = AccelerationData(
-            accelerations=accelerations, timestamp=time.time()
+            accelerations=tuple(raw_accelerations), timestamp=time.time()
         )
         self._relay.push(acceleration_data)

@@ -25,11 +25,6 @@ class LegacyModelAdapter(Protocol):
         """Return the legacy model class name."""
         ...
 
-    @property
-    def classic_raw_fallback(self) -> bool:
-        """Whether percent-like classic responses can reconstruct raw bytes."""
-        ...
-
     def prepare_options(
         self,
         side: HandSide,

@@ -2,6 +2,19 @@
 
 本项目遵循语义化版本。正式发布前的开发版本可能继续增加兼容修正。
 
+## Unreleased
+
+- 将 `set_angles()` / `submit_angles()`、`set_speeds()` /
+  `submit_speeds()` 统一为协议原始值接口；命令值不再隐式归一化或换算物理单位。
+- 新增明确命名的 `set_percentage_angles()` / `submit_percentage_angles()`；L6、O6、
+  L20Lite 和 L25 还支持显式百分比速度接口。
+- `SensorSample.values` 只包含协议解码值，并新增 `unit` 与 `encoding`；删除重复的原始值
+  通道，`JointState.angle` 也直接保存协议位置。
+- 删除用户角度映射实现、持久化依赖、旧 raw-angle 方法和兼容别名。本仓库不兼容旧映射
+  行为。
+- 将 RPM、mA 和物理角度转换保留为显式纯函数；O20 的 `0..100` 速度仍按协议范围处理，
+  不声明为百分比。
+
 ## 0.1.3 - 2026-08-25
 
 - L6、O6、L20Lite 和 L25 的多帧序列号读取同时兼容连续帧号

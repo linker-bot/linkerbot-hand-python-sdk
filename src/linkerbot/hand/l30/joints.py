@@ -1,10 +1,9 @@
-"""L30 joint definitions and legacy value models.
+"""L30 joint definitions and explicit percentage conversion model.
 
-``L30Angle`` stores the historic 0-100 numeric normalization in J1..J17 order:
+``L30Angle`` stores the model-manager 0-100 numeric mapping in J1..J17 order:
 0 maps to each joint's ``spec.minimum`` and 100 maps to ``spec.maximum``. This
-legacy type does not implement the unified hand direction contract. Raw
-per-joint protocol integers remain available through :meth:`L30Angle.from_raw`
-and ``AngleManager.set_raw_angles``.
+helper does not implement the unified hand direction contract. Default manager
+control and readback use per-joint protocol integers directly.
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ L30_JOINT_SPECS: tuple[JointSpec, ...] = (
 
 @dataclass(frozen=True, slots=True)
 class L30Angle:
-    """L30 joint angles in the legacy 0-100 numeric normalization.
+    """Explicit L30 model-manager percentages from minimum to maximum.
 
     ``values`` is always 17 floats in J1..J17 order, each in the closed
     interval [0, 100]. 0 % maps to the joint's ``spec.minimum`` and 100 % to

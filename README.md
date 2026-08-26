@@ -31,8 +31,9 @@ SciPy 1.11.4（要求 `numpy<1.28`）兼容。不要在 Jazzy 的
 `--system-site-packages` 环境中继续使用 `linkerbot-hand==0.1.1`，该版本错误地要求
 `numpy>=2.2.6`。
 
-规范的新接口入口是 `linkerbot_hand`。同一个 wheel 继续提供历史
-`linkerbot.hand` 包、原有型号类和函数签名，现有用户可以逐步迁移。
+规范的统一接口入口是 `linkerbot_hand`。同一个 wheel 也提供各型号的
+`linkerbot.hand` 驱动，但本版本统一了数值语义：默认控制与反馈都使用协议值，
+不再兼容用户 LUT 或旧 raw-angle 别名。
 
 ## 快速开始
 
@@ -46,10 +47,8 @@ from linkerbot_hand import CommandPolicy, PollingPlan
 hand = create_hand_device("L6", side="right", interface_name="can0")
 hand.open()
 try:
-    hand.start_polling(
-        PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1)
-    )
-    handle = hand.submit_angles(
+    hand.start_polling(PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1))
+    handle = hand.submit_percentage_angles(
         [100, 100, 100, 100, 100, 100],
         policy=CommandPolicy.LATEST,
     )
@@ -69,8 +68,9 @@ finally:
 所有型号通过相同的 `HandDevice` / `HandSession` 接口使用：
 
 - 生命周期：`open()`、`close()`、`start_polling()`、`stop_polling()`。
-- 命令：`submit_angles()`、`submit_raw_angles()`、`submit_speeds()`、
-  `submit_torques()` 和受能力约束的离散操作。
+- 协议值命令：`submit_angles()`、`submit_speeds()`、`submit_torques()`。
+- 显式百分比命令：`submit_percentage_angles()`；仅在能力明确支持时使用
+  `submit_percentage_speeds()`。
 - 状态：`get_snapshot()`、`get_health()`、`get_capabilities()`。
 - 恢复：`recover()` 或通过 `SessionConfig(auto_reconnect=True)` 启用自动重连。
 
@@ -80,15 +80,26 @@ finally:
 
 ## 角度坐标
 
-统一百分比接口始终使用以下定义：
+`submit_angles()` 和型号 manager 的 `set_angles()` 直接发送能力声明范围内的协议值；
+角度快照的 `SensorSample.values` 也直接返回协议解码值。`submit_speeds()`、
+`set_speeds()` 及速度反馈遵循相同原则，不自动换算为百分比或 RPM。
+
+统一接口 `submit_percentage_angles()` 使用 capability 声明的逐轴端点：
 
 - `0`：弯曲或闭合。
 - `100`：伸直或张开。
 
-新接口 `submit_raw_angles()` 和快照中的 `raw_values` 始终表示设备协议原始值
-（`protocol_raw`），不经过用户 LUT。旧型号接口的 `set_raw_angles()` 为兼容
-历史应用，部分型号仍表示经过用户 LUT 的标准 raw；需要精确发送设备原值时使用
-`set_hardware_raw_angles()`。
+型号 manager 的 `set_percentage_angles()` 是显式的本地换算入口。L6、O6、L20Lite、
+L25 按 `0..100 -> 0..255` 线性换算；O20、L30 按每轴最小值到最大值换算；O30i
+按实测反向字节换算。后三者在部分轴上与统一 capability 方向不同，百分比数组不能跨
+入口直接复用；协议值接口没有这个差异。
+
+L6、O6、L20Lite 和 L25 还明确支持 `submit_percentage_speeds()` /
+`set_percentage_speeds()`；O20 的协议速度范围虽然也是 `0..100`，但没有声明为
+百分比，因此该接口会拒绝 O20。
+
+每个 `SensorSample` 通过 `unit` 和 `encoding` 标注协议值含义。需要 RPM、mA 或物理
+角度时，应调用文档列出的显式纯换算函数；SDK 不在命令和遥测主路径隐式换算。
 
 只有能力描述明确提供标定物理范围时，SDK 才支持物理角度转换；否则会抛出
 `UnsupportedOperationError`，不会把未知原始值伪装成弧度。完整定义见
@@ -114,8 +125,8 @@ finally:
 ## 快照与健康状态
 
 `get_snapshot()` 只复制 SDK 缓存，不发送 CAN 请求或等待设备。每个
-`SensorSample` 都包含采集时间、序号、有效性、过期状态、连接代次和可用的协议
-原始值。`get_health()` 返回连接状态、成功收发时间、连续错误、最近错误、重连
+`SensorSample` 都包含协议解码值、单位、编码、采集时间、序号、有效性、过期状态和
+连接代次。`get_health()` 返回连接状态、成功收发时间、连续错误、最近错误、重连
 次数、连接代次、命令覆盖数、待发送数和各类状态年龄。
 
 SDK 统一调度角度、力、温度、电流、速度和故障轮询；上层只提交
@@ -141,24 +152,28 @@ hand = HandDevice(capabilities, FakeBackendFactory(capabilities))
 自定义 `HandBackend.dispatch()` 必须在第一次 transport 发送前调用
 `claim_dispatch()`；只有实际发送成功后才能调用一次 `mark_dispatched()`。
 
-## 旧接口兼容
+## 型号专用接口
 
-现有按型号调用的应用可以继续使用：
+按型号调用的应用可以继续从相同路径导入：
 
 ```python
 from linkerbot.hand import L6, L30
 ```
 
-迁移期间，`linkerbot.hand` 也重导出 `HandDevice`、`HandSession`、
-`PollingPlan` 和 `CommandPolicy`。独立 wheel 不拥有共享的 `linkerbot` 包根，原来
-的 `from linkerbot import L6` 应改为 `from linkerbot.hand import L6`。
+这些 manager 的 `set_angles()`、`set_speeds()`、`set_torques()` 和对应反馈也都使用
+协议值；百分比方法带有明确的 `set_percentage_*` 名称。旧 LUT 配置、
+`set_raw_angles()` 和 `set_hardware_raw_angles()` 已删除，不提供兼容层。
+
+`linkerbot.hand` 也重导出 `HandDevice`、`HandSession`、`PollingPlan` 和
+`CommandPolicy`。独立 wheel 不拥有共享的 `linkerbot` 包根，原来的
+`from linkerbot import L6` 应改为 `from linkerbot.hand import L6`。
 
 ## 文档
 
 - [统一设备 API Reference](docs/zh/src/reference/hand-device.md)
 - [设备能力矩阵](docs/zh/src/reference/hand-capabilities.md)
-- [角度坐标与原始值](docs/zh/src/reference/angle-coordinates.md)
-- [旧接口兼容说明](docs/zh/src/reference/hand-compatibility.md)
+- [协议值与显式换算](docs/zh/src/reference/angle-coordinates.md)
+- [接口兼容边界](docs/zh/src/reference/hand-compatibility.md)
 - [迁移指南](docs/zh/src/reference/hand-migration.md)
 - [CAN 接入](docs/zh/src/reference/can.md)
 - [CAN FD 接入](docs/zh/src/reference/canfd.md)

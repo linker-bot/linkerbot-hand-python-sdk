@@ -52,8 +52,9 @@ class SensorSample:
 
     Attributes:
         sensor: Sensor channel represented by this sample.
-        values: Normalized SDK values without protocol framing.
-        raw_values: Exact protocol values when the backend provides them.
+        values: Decoded protocol-native values without transport framing.
+        unit: Protocol unit declared by the active capability.
+        encoding: Wire scalar encoding declared by the active capability.
         collected_at: Wall-clock collection timestamp, or ``None`` if no valid
             value has been collected in the current connection generation.
         sequence: Per-sensor sequence number, incremented on cache publication.
@@ -64,7 +65,8 @@ class SensorSample:
 
     sensor: SensorType
     values: tuple[SensorValue, ...]
-    raw_values: tuple[int, ...] | None
+    unit: str | None
+    encoding: str | None
     collected_at: float | None
     sequence: int
     valid: bool
@@ -78,16 +80,14 @@ class JointState:
 
     Attributes:
         name: Stable joint name in capability order.
-        angle_percent: Normalized joint position, or ``None`` when unavailable.
-        raw_angle: Exact protocol angle value, or ``None`` when unavailable.
-        speed: Current joint speed in the model capability unit.
-        torque: Current joint torque in the model capability unit.
+        angle: Protocol-native joint position, or ``None`` when unavailable.
+        speed: Protocol-native current joint speed.
+        torque: Protocol-native current joint torque.
         fault: Current joint fault code.
     """
 
     name: str
-    angle_percent: float | None = None
-    raw_angle: int | None = None
+    angle: float | int | None = None
     speed: float | int | None = None
     torque: float | int | None = None
     fault: int | None = None

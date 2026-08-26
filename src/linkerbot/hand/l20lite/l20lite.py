@@ -9,7 +9,6 @@ import queue
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Literal, cast
 
 from linkerbot_transport.can import CanInterface, CANMessageDispatcher
@@ -103,7 +102,6 @@ class L20lite:
         side: Literal["left", "right"],
         interface_name: str,
         interface_type: str = "socketcan",
-        angle_mapping_path: str | Path | None = None,
         dispatcher: CANMessageDispatcher | None = None,
         auto_start_polling: bool = False,
     ) -> None:
@@ -113,7 +111,6 @@ class L20lite:
             side: Side of the hand (left or right, default: left).
             interface_name: Name of the CAN interface (e.g., 'can0', 'vcan0').
             interface_type: Type of CAN interface backend (default: 'socketcan').
-            angle_mapping_path: Optional TOML path for angle mapping persistence.
             dispatcher: Optional injected CAN dispatcher for tests or shared buses.
             auto_start_polling: Start legacy default polling during construction.
                 Defaults to False; lifecycle users should call start_polling().
@@ -151,9 +148,6 @@ class L20lite:
             self.angle = AngleManager(
                 arbitration_id=self._arbitration_id,
                 dispatcher=manager_dispatcher,
-                angle_mapping_path=angle_mapping_path,
-                side=side,
-                interface_name=interface_name,
             )
             self.force_sensor = ForceSensorManager(
                 arbitration_id=self._arbitration_id, dispatcher=manager_dispatcher

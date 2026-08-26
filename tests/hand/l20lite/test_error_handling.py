@@ -22,23 +22,23 @@ class TestAngleErrorHandling:
 
     def test_set_angles_empty_list(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.angle.set_angles([])
+            l20lite_hand.angle.set_percentage_angles([])
 
     def test_set_angles_too_few(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.angle.set_angles([50.0] * 9)
+            l20lite_hand.angle.set_percentage_angles([50.0] * 9)
 
     def test_set_angles_too_many(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.angle.set_angles([50.0] * 11)
+            l20lite_hand.angle.set_percentage_angles([50.0] * 11)
 
     def test_set_angles_negative_value(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.angle.set_angles([-1.0] + [50.0] * 9)
+            l20lite_hand.angle.set_percentage_angles([-1.0] + [50.0] * 9)
 
     def test_set_angles_over_100(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.angle.set_angles([101.0] + [50.0] * 9)
+            l20lite_hand.angle.set_percentage_angles([101.0] + [50.0] * 9)
 
 
 class TestSpeedErrorHandling:
@@ -50,7 +50,7 @@ class TestSpeedErrorHandling:
 
     def test_set_speeds_wrong_length(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.speed.set_speeds([50.0] * 9)
+            l20lite_hand.speed.set_percentage_speeds([50.0] * 9)
 
 
 class TestTorqueErrorHandling:
@@ -62,7 +62,7 @@ class TestTorqueErrorHandling:
 
     def test_set_torques_wrong_length(self, l20lite_hand: L20lite):
         with pytest.raises(ValueError):
-            l20lite_hand.torque.set_torques([50.0] * 9)
+            l20lite_hand.torque.set_percentage_torques([50.0] * 9)
 
 
 class TestPollingErrorHandling:

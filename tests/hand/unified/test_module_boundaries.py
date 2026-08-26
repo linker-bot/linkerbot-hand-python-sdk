@@ -47,6 +47,5 @@ def test_every_capability_model_has_a_complete_legacy_adapter() -> None:
         assert adapter.model == capabilities.model
         assert adapter.module_name.startswith("linkerbot.hand.")
         assert adapter.class_name
-        assert isinstance(adapter.classic_raw_fallback, bool)
         assert callable(adapter.prepare_options)
         assert callable(adapter.read_identity)

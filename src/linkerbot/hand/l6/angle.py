@@ -7,17 +7,13 @@ and reading angle sensor data via CAN bus communication.
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 import can
 
 from linkerbot.hand._can_protocol import CANDispatcherLike
-from linkerbot.hand.angle_mapping import AngleMappingManager, validate_raw_values
+from linkerbot.hand._values import percentage_to_u8_vector, validate_u8_vector
 from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
-
-_MODEL_NAME = "l6"
-_JOINT_NAMES = ["thumb_flex", "thumb_abd", "index", "middle", "ring", "pinky"]
 
 
 @dataclass
@@ -123,14 +119,12 @@ class AngleData:
     """Immutable angle data container.
 
     Attributes:
-        angles: L6Angle instance containing joint angles (0-100 range).
+        angles: Six protocol-native unsigned-byte joint positions.
         timestamp: Unix timestamp when the data was received.
     """
 
-    angles: L6Angle
+    angles: tuple[int, ...]
     timestamp: float
-    raw_angles: tuple[int, ...] | None = None
-    standard_raw_angles: tuple[int, ...] | None = None
 
 
 class AngleManager:
@@ -150,95 +144,34 @@ class AngleManager:
         self,
         arbitration_id: int,
         dispatcher: CANDispatcherLike,
-        angle_mapping_path: str | Path | None = None,
-        side: str | None = None,
-        interface_name: str | None = None,
     ) -> None:
         """Initialize the angle manager.
 
         Args:
             arbitration_id: CAN arbitration ID for angle control/sensing.
             dispatcher: CAN message dispatcher to use for communication.
-            angle_mapping_path: Optional TOML path for angle mapping persistence.
-            side: Optional hand side for mapping namespace.
-            interface_name: Optional CAN interface for mapping namespace.
         """
         self._arbitration_id = arbitration_id
         self._dispatcher = dispatcher
         self._relay = DataRelay[AngleData]()
-        self._angle_mapping = AngleMappingManager(
-            model=_MODEL_NAME,
-            joint_names=_JOINT_NAMES,
-            mapping_path=angle_mapping_path,
-            side=side,
-            interface_name=interface_name,
-        )
         self._dispatcher.subscribe(self._on_message)
 
-    def set_angles(self, angles: L6Angle | list[float]) -> None:
-        """Send target angles to the robotic hand.
+    def set_angles(self, angles: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte target positions.
 
         This method sends 6 target angles to the hand. The hand will respond
         with the current angles, which are automatically cached and can be
         retrieved via get_snapshot().
 
         Args:
-            angles: L6Angle instance or list of 6 target angles (range 0-100 each).
+            angles: Six integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If angles count is not 6 or values are out of range.
 
-        Example:
-            >>> manager = AngleManager(arbitration_id, dispatcher)
-            >>> manager.set_angles(L6Angle(thumb_flex=50.0, thumb_abd=30.0,
-            ...                            index=60.0, middle=60.0, ring=60.0, pinky=60.0))
-            >>> manager.set_angles([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
+        Use :meth:`set_percentage_angles` for explicit 0..100 targets.
         """
-        if isinstance(angles, L6Angle):
-            raw_angles = angles.to_raw()
-        elif isinstance(angles, list):
-            raw_angles = L6Angle.from_list(angles).to_raw()
-        else:
-            raise ValidationError(
-                f"Expected L6Angle or list, got {type(angles).__name__}"
-            )
-
-        self._send_raw_angles(raw_angles)
-
-    def set_raw_angles(self, raw_angles: list[int]) -> None:
-        """Send standard raw target angles to the robotic hand.
-
-        Args:
-            raw_angles: List of 6 standard raw angle values in 0-255 range.
-        """
-        self._send_raw_angles(validate_raw_values(raw_angles, self._ANGLE_COUNT))
-
-    def set_hardware_raw_angles(self, raw_angles: list[int]) -> None:
-        """Send exact protocol raw values without applying the legacy LUT."""
-        self._send_hardware_raw_angles(
-            validate_raw_values(raw_angles, self._ANGLE_COUNT)
-        )
-
-    def get_angle_mapping(self) -> list[list[int]]:
-        """Get the current standard-to-hardware raw angle mapping."""
-        return self._angle_mapping.get_mapping()
-
-    def get_default_angle_mapping(self) -> list[list[int]]:
-        """Get the default linear raw angle mapping."""
-        return self._angle_mapping.get_default_mapping()
-
-    def set_angle_mapping(self, mapping: list[list[int]]) -> None:
-        """Replace the standard-to-hardware raw angle mapping."""
-        self._angle_mapping.set_mapping(mapping)
-
-    def reset_angle_mapping(self) -> None:
-        """Restore the default linear raw angle mapping."""
-        self._angle_mapping.reset_mapping()
-
-    def _send_raw_angles(self, raw_angles: list[int]) -> None:
-        self._send_hardware_raw_angles(self._angle_mapping.map_values(raw_angles))
-
-    def _send_hardware_raw_angles(self, raw_angles: list[int]) -> None:
+        raw_angles = validate_u8_vector(angles, count=self._ANGLE_COUNT, name="angles")
         data = [self._CONTROL_CMD, *raw_angles]
         msg = can.Message(
             arbitration_id=self._arbitration_id,
@@ -246,6 +179,17 @@ class AngleManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
+
+    def set_percentage_angles(
+        self, angles: L6Angle | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 targets and send protocol values."""
+        values = angles.to_list() if isinstance(angles, L6Angle) else angles
+        self.set_angles(
+            percentage_to_u8_vector(
+                values, count=self._ANGLE_COUNT, name="angle percentages"
+            )
+        )
 
     def get_blocking(self, timeout_ms: float = 100) -> AngleData:
         """Request and wait for current joint angles (blocking).
@@ -311,12 +255,8 @@ class AngleManager:
         if len(hardware_raw_angles) != self._ANGLE_COUNT:
             return
 
-        standard_raw_angles = self._angle_mapping.unmap_values(hardware_raw_angles)
-        angles = L6Angle.from_raw(standard_raw_angles)
         angle_data = AngleData(
-            angles=angles,
+            angles=tuple(hardware_raw_angles),
             timestamp=time.time(),
-            raw_angles=tuple(hardware_raw_angles),
-            standard_raw_angles=tuple(standard_raw_angles),
         )
         self._relay.push(angle_data)

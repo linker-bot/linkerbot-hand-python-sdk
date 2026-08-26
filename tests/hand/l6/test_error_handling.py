@@ -22,23 +22,23 @@ class TestAngleErrorHandling:
 
     def test_set_angles_empty_list(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.angle.set_angles([])
+            l6_hand.angle.set_percentage_angles([])
 
     def test_set_angles_too_few(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.angle.set_angles([50.0] * 5)
+            l6_hand.angle.set_percentage_angles([50.0] * 5)
 
     def test_set_angles_too_many(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.angle.set_angles([50.0] * 7)
+            l6_hand.angle.set_percentage_angles([50.0] * 7)
 
     def test_set_angles_negative_value(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.angle.set_angles([-1.0] + [50.0] * 5)
+            l6_hand.angle.set_percentage_angles([-1.0] + [50.0] * 5)
 
     def test_set_angles_over_100(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.angle.set_angles([101.0] + [50.0] * 5)
+            l6_hand.angle.set_percentage_angles([101.0] + [50.0] * 5)
 
 
 class TestSpeedErrorHandling:
@@ -49,7 +49,7 @@ class TestSpeedErrorHandling:
 
     def test_set_speeds_wrong_length(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.speed.set_speeds([50.0] * 5)
+            l6_hand.speed.set_percentage_speeds([50.0] * 5)
 
 
 class TestTorqueErrorHandling:
@@ -61,7 +61,7 @@ class TestTorqueErrorHandling:
 
     def test_set_torques_wrong_length(self, l6_hand: L6):
         with pytest.raises(ValueError):
-            l6_hand.torque.set_torques([50.0] * 5)
+            l6_hand.torque.set_percentage_torques([50.0] * 5)
 
 
 class TestCurrentErrorHandling:

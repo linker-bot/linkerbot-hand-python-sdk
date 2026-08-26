@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from linkerbot.hand._values import protocol_vector_to_scaled, scaled_vector_to_protocol
 from linkerbot_transport.relay import DataRelay
 
 from . import protocol
@@ -14,6 +15,35 @@ from .joints import L30_JOINT_COUNT, validate_u16_values
 
 L30_TORQUE_MIN = 60
 L30_TORQUE_MAX = 800
+L30_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT = 6.5
+
+
+def protocol_current_limits_to_milliamps(
+    values: list[int] | tuple[int, ...],
+) -> tuple[float, ...]:
+    """Convert 17 protocol current-limit values to milliamps explicitly."""
+    return protocol_vector_to_scaled(
+        values,
+        count=L30_JOINT_COUNT,
+        name="protocol_current_limits",
+        minimum=L30_TORQUE_MIN,
+        maximum=L30_TORQUE_MAX,
+        scale=L30_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT,
+    )
+
+
+def milliamps_to_protocol_current_limits(
+    values: list[float | int] | tuple[float | int, ...],
+) -> tuple[int, ...]:
+    """Quantize 17 milliamp current limits to protocol values explicitly."""
+    return scaled_vector_to_protocol(
+        values,
+        count=L30_JOINT_COUNT,
+        name="milliamps",
+        minimum=L30_TORQUE_MIN,
+        maximum=L30_TORQUE_MAX,
+        scale=L30_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +51,7 @@ class TorqueData:
     """Immutable L30 target torque data.
 
     Attributes:
-        torques: 17 commanded torque targets in J1..J17 order.
+        torques: 17 protocol current-limit targets in J1..J17 order.
         timestamp: Unix timestamp when the target torque command was sent.
     """
 
@@ -32,9 +62,8 @@ class TorqueData:
 class TorqueManager:
     """Manager for L30 target torque commands.
 
-    The L30 protocol exposes torque as a control target in this SDK. The cached
-    snapshot stores the last successfully encoded target command; it is not a
-    measured torque sensor readback.
+    The cached snapshot stores the last successfully encoded protocol
+    current-limit target; it is not measured torque feedback.
     """
 
     def __init__(self, client: L30Client) -> None:
@@ -47,11 +76,11 @@ class TorqueManager:
         self._relay = DataRelay[TorqueData]()
 
     def set_torques(self, torques: list[int] | tuple[int, ...]) -> None:
-        """Send per-joint torque targets.
+        """Send per-joint protocol current-limit targets.
 
         Args:
-            torques: 17 integer torque target values in J1..J17 order. Each value
-                must be between 60 and 800.
+            torques: 17 protocol integers in J1..J17 order. Each value must be
+                between 60 and 800; one unit represents 6.5 mA.
 
         Raises:
             ValidationError: If the count, type, or torque range is invalid.

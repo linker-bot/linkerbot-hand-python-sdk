@@ -72,9 +72,9 @@ class TestTemperatureExercise:
 
         # Exercise: half grip 10 times
         for i in range(10):
-            o6_hand.angle.set_angles([50.0] * 6)
+            o6_hand.angle.set_percentage_angles([50.0] * 6)
             time.sleep(1.5)
-            o6_hand.angle.set_angles([100.0] * 6)
+            o6_hand.angle.set_percentage_angles([100.0] * 6)
             time.sleep(1.5)
             print(f"  Exercise cycle {i + 1}/10 complete")
 

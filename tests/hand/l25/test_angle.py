@@ -63,7 +63,7 @@ def _move_until_settled(
     """Set target angles, stream until within tolerance or timeout. Returns True if timed out."""
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(
+    hand.angle.set_percentage_angles(
         target
     )  # HACK: set_angles after stream() may race with polling
     start = time.perf_counter()
@@ -89,7 +89,7 @@ def _move_until_settled(
     data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)] if data else 'N/A'}"
     )
     return timed_out
 
@@ -103,10 +103,10 @@ class TestAngleManagerBlocking:
 
         assert data is not None
         assert len(data.angles) == 16
-        for angle in data.angles.to_list():
+        for angle in list(data.angles):
             assert 0 <= angle <= 100, f"Angle {angle} out of range [0, 100]"
 
-        print(f"\n  Angles: {[f'{a:.1f}' for a in data.angles.to_list()]}")
+        print(f"\n  Angles: {[f'{a:.1f}' for a in list(data.angles)]}")
 
     def test_get_blocking_has_timestamp(self, l25_hand: L25):
         """Angle data timestamp should be positive and not in the future."""
@@ -121,14 +121,14 @@ class TestAngleManagerSetAngles:
 
     def test_set_angles_with_list(self, l25_hand: L25):
         """set_angles should accept list[float] without error and allow read-back."""
-        l25_hand.angle.set_angles(OPEN)
+        l25_hand.angle.set_percentage_angles(OPEN)
         time.sleep(2.0)
 
         data = l25_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 16
         print(
-            f"\n  Read-back after set_angles (list): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+            f"\n  Read-back after set_angles (list): {[f'{a:.1f}' for a in list(data.angles)]}"
         )
 
     def test_set_angles_with_l25_angle(self, l25_hand: L25):
@@ -152,14 +152,14 @@ class TestAngleManagerSetAngles:
             pinky_tip=100.0,
         )
 
-        l25_hand.angle.set_angles(target)
+        l25_hand.angle.set_percentage_angles(target)
         time.sleep(2.0)
 
         data = l25_hand.angle.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.angles) == 16
         print(
-            f"\n  Read-back after set_angles (L25Angle): {[f'{a:.1f}' for a in data.angles.to_list()]}"
+            f"\n  Read-back after set_angles (L25Angle): {[f'{a:.1f}' for a in list(data.angles)]}"
         )
 
     def test_set_all_closed(self, l25_hand: L25):
@@ -198,7 +198,7 @@ class TestAngleManagerSnapshot:
 
     def test_set_and_read_within_tolerance(self, l25_hand: L25):
         """Set open pose, read back, each angle within tolerance."""
-        l25_hand.angle.set_angles(OPEN)
+        l25_hand.angle.set_percentage_angles(OPEN)
         time.sleep(4.0)
 
         data = l25_hand.angle.get_blocking(timeout_ms=500)
@@ -222,7 +222,7 @@ class TestAngleInteractive:
         """
         session = interactive_session
 
-        l25_hand.speed.set_speeds([100.0] * 16)
+        l25_hand.speed.set_percentage_speeds([100.0] * 16)
 
         joint_names = [
             "thumb_abd",

@@ -60,7 +60,7 @@ with O20(side="right") as hand:
     print(info.product_model, info.hand_side.value)
 
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles.to_list())
+    print(data.angles)
 ```
 
 如果动态库不在系统搜索路径中，可以显式指定：
@@ -70,7 +70,7 @@ from linkerbot.hand.o20 import O20
 
 with O20(side="right", library_path="/home/linkerhand/code/HK/libcanbus.so") as hand:
     data = hand.angle.get_blocking(timeout_ms=1000)
-    print(data.angles.to_list())
+    print(data.angles)
 ```
 
 也可以使用环境变量：
@@ -131,7 +131,8 @@ hand.close()
 
 O20 SDK 按电机 ID 顺序使用 16 个关节值 (motor ID 1~16),分布在拇指 (4 DOF)/ 食指 (3 DOF)/ 中指 (3 DOF)/ 无名指 (3 DOF)/ 小指 (3 DOF):
 
-**角度单位**:与 L6 / L30 一致，`set_angles` 与 sensor readback 都使用 **0-100 float 百分比**;需要协议原始整数时用 `set_raw_angles` / `to_raw()`。详见 [angle](./angle.md)。
+`set_angles()` 与角度读回直接使用下表逐关节的协议整数，协议单位为度，不执行百分比
+换算。需要 `0..100` 输入时显式调用 `set_percentage_angles()`。详见 [angle](./angle.md)。
 
 | 索引 | 关节名       | 手指   | 原始范围 (度) |
 | ---: | ------------ | ------ | ------------- |
@@ -152,7 +153,9 @@ O20 SDK 按电机 ID 顺序使用 16 个关节值 (motor ID 1~16),分布在拇�
 |   14 | `pinky_mcp`  | 小指   | 0 ~ 180       |
 |   15 | `pinky_dip`  | 小指   | 0 ~ 180       |
 
-对称关节 (4 个外展关节 `*_abd`) 的原始范围是负 - 正对称的，**50% 百分比 = 0 度 (中立位)**;其它屈曲关节 0% = 完全张开、100% = spec.maximum。
+型号 manager 的 `set_percentage_angles()` 按每轴 `minimum -> maximum` 线性换算，
+因此四个对称 `*_abd` 轴的 `50%` 是 0 度。统一 `HandDevice` 的百分比方向由
+capability 端点定义；两套规则的区别见 [angle](./angle.md)。
 
 查看每个关节的原始范围：
 
@@ -167,7 +170,7 @@ for index, spec in enumerate(O20_JOINT_SPECS):
 
 | 模块                                                             | 说明                                             | 文档                                  |
 | ---------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------- |
-| `hand.angle`                                                     | 角度设置 (百分比 / 原始)、角度读取、角度快照     | [angle](./angle.md)                   |
+| `hand.angle`                                                     | 协议角度设置与读取、显式百分比设置               | [angle](./angle.md)                   |
 | `hand.speed`                                                     | 速度设置、速度读取、速度快照                     | [speed](./speed.md)                   |
 | `hand.torque`                                                    | 力矩目标设置、力矩目标快照                       | [torque](./torque.md)                 |
 | `hand.current`                                                   | 电流读取、电流快照                               | [current](./current.md)               |
@@ -212,7 +215,7 @@ from linkerbot.exceptions import CANError, TimeoutError, ValidationError
 try:
     with O20(side="right") as hand:
         data = hand.angle.get_blocking(timeout_ms=1000)
-        print(data.angles.to_list())
+        print(data.angles)
 except TimeoutError:
     print("设备响应超时")
 except ValidationError as error:

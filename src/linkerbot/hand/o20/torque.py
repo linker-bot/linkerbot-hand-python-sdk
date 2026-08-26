@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from linkerbot.hand._values import protocol_vector_to_scaled, scaled_vector_to_protocol
 from linkerbot_transport.relay import DataRelay
 
 from . import protocol
@@ -14,6 +15,35 @@ from .joints import O20_JOINT_COUNT, validate_int_values
 
 O20_TORQUE_MIN = 0
 O20_TORQUE_MAX = 1000
+O20_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT = 6.5
+
+
+def protocol_current_limits_to_milliamps(
+    values: list[int] | tuple[int, ...],
+) -> tuple[float, ...]:
+    """Convert 16 protocol current-limit values to milliamps explicitly."""
+    return protocol_vector_to_scaled(
+        values,
+        count=O20_JOINT_COUNT,
+        name="protocol_current_limits",
+        minimum=O20_TORQUE_MIN,
+        maximum=O20_TORQUE_MAX,
+        scale=O20_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT,
+    )
+
+
+def milliamps_to_protocol_current_limits(
+    values: list[float | int] | tuple[float | int, ...],
+) -> tuple[int, ...]:
+    """Quantize 16 milliamp current limits to protocol values explicitly."""
+    return scaled_vector_to_protocol(
+        values,
+        count=O20_JOINT_COUNT,
+        name="milliamps",
+        minimum=O20_TORQUE_MIN,
+        maximum=O20_TORQUE_MAX,
+        scale=O20_CURRENT_LIMIT_MA_PER_PROTOCOL_UNIT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +51,7 @@ class O20TorqueData:
     """Immutable O20 target torque data.
 
     Attributes:
-        torques: 16 commanded torque targets in motor-ID order.
+        torques: 16 protocol current-limit targets in motor-ID order.
         timestamp: Unix timestamp when the target torque command was sent.
     """
 
@@ -32,9 +62,8 @@ class O20TorqueData:
 class TorqueManager:
     """Manager for O20 target torque commands.
 
-    The O20 protocol exposes torque as a control target in this SDK. The cached
-    snapshot stores the last successfully encoded target command; it is not a
-    measured torque sensor readback.
+    The cached snapshot stores the last successfully encoded protocol
+    current-limit target; it is not measured torque feedback.
     """
 
     def __init__(self, client: O20Client) -> None:
@@ -47,11 +76,11 @@ class TorqueManager:
         self._relay = DataRelay[O20TorqueData]()
 
     def set_torques(self, torques: list[int] | tuple[int, ...]) -> None:
-        """Send per-joint torque targets.
+        """Send per-joint protocol current-limit targets.
 
         Args:
-            torques: 16 integer torque target values in motor-ID order. Each
-                value must be between 0 and 1000 (unit 6.5mA per documentation).
+            torques: 16 protocol integers in motor-ID order. Each value must be
+                between 0 and 1000; one unit represents 6.5 mA.
 
         Raises:
             ValidationError: If the count, type, or torque range is invalid.

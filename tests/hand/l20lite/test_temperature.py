@@ -64,9 +64,9 @@ class TestTemperatureAfterExercise:
 
         # Exercise: half grip 10 times
         for i in range(10):
-            l20lite_hand.angle.set_angles([50.0] * 6 + [100.0] * 4)
+            l20lite_hand.angle.set_percentage_angles([50.0] * 6 + [100.0] * 4)
             time.sleep(1.5)
-            l20lite_hand.angle.set_angles([100.0] * 10)
+            l20lite_hand.angle.set_percentage_angles([100.0] * 10)
             time.sleep(1.5)
             print(f"  Exercise cycle {i + 1}/10 complete")
 

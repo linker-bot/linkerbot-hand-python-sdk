@@ -6,8 +6,8 @@
 from linkerbot.hand import L6
 
 with L6(side="left", interface_name="can0") as hand:
-    # 设置角度
-    hand.angle.set_angles([10, 20, 30, 40, 50, 60])
+    # 直接发送 6 个协议 u8 位置值
+    hand.angle.set_angles([128, 96, 160, 160, 160, 160])
 
     # 读取角度
     data = hand.angle.get_blocking(timeout_ms=500)
@@ -16,12 +16,14 @@ with L6(side="left", interface_name="can0") as hand:
 
 **构造参数**
 
-| 参数                 | 类型                  | 说明                                                                                |
-| -------------------- | --------------------- | ----------------------------------------------------------------------------------- |
-| `side`               | `"left"` \| `"right"` | 左手或右手                                                                          |
-| `interface_name`     | `str`                 | CAN 接口名，如 `"can0"`                                                             |
-| `interface_type`     | `str`                 | CAN 接口类型，默认 `"socketcan"`。Windows 用法参考 [CAN 总线](../can.md) 文档       |
-| `angle_mapping_path` | `str \| Path \| None` | 角度映射 TOML 持久化路径；不传时使用 `$XDG_CONFIG_HOME/linkerbot/hand_angle_mappings.toml`（未设置时为 `~/.config/linkerbot/hand_angle_mappings.toml`） |
+| 参数             | 类型                  | 说明                                                                          |
+| ---------------- | --------------------- | ----------------------------------------------------------------------------- |
+| `side`           | `"left"` \| `"right"` | 左手或右手                                                                    |
+| `interface_name` | `str`                 | CAN 接口名，如 `"can0"`                                                       |
+| `interface_type` | `str`                 | CAN 接口类型，默认 `"socketcan"`。Windows 用法参考 [CAN 总线](../can.md) 文档 |
+
+`set_angles()` 和 `AngleData.angles` 都使用 `0..255` 协议整数；需要 `0..100`
+输入时调用 `set_percentage_angles()`。本版本不再提供用户 LUT 或角度映射路径。
 
 ## 关节说明
 
@@ -64,7 +66,7 @@ with L6(side="left", interface_name="can0") as hand:
     for event in hand.stream():
         match event:
             case AngleEvent(data=ad):
-                print(f"角度：{ad.angles.to_list()}")
+                print(f"协议角度：{ad.angles}")
             case TemperatureEvent(data=td):
                 print(f"温度：{td.temperatures.to_list()}")
 

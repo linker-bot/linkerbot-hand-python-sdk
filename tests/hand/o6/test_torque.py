@@ -29,7 +29,7 @@ def _move_and_time(
     timed_out = False
     hand.start_polling({SensorSource.ANGLE: _POLLING_INTERVAL_SEC})
     queue = hand.stream()
-    hand.angle.set_angles(target)
+    hand.angle.set_percentage_angles(target)
     start = time.perf_counter()
     deadline = start + timeout_sec
     timer = threading.Timer(timeout_sec, hand.stop_stream)
@@ -53,7 +53,7 @@ def _move_and_time(
     data = hand.angle.get_snapshot()
     print(
         f"\n  Motion time: {elapsed:.2f}s | "
-        f"Angles: {[f'{a:.1f}' for a in data.angles.to_list()] if data else 'N/A'}"
+        f"Angles: {[f'{a:.1f}' for a in list(data.angles)] if data else 'N/A'}"
     )
     return elapsed, timed_out
 
@@ -66,7 +66,7 @@ class TestTorqueManagerBlocking:
         data = o6_hand.torque.get_blocking(timeout_ms=500)
         assert data is not None
         assert len(data.torques) == 6
-        print(f"\n  Torques: {[f'{t:.1f}' for t in data.torques.to_list()]}")
+        print(f"\n  Torques: {[f'{t:.1f}' for t in list(data.torques)]}")
 
     def test_get_blocking_has_timestamp(self, o6_hand: O6):
         """Torque data should have a valid timestamp."""
@@ -76,11 +76,11 @@ class TestTorqueManagerBlocking:
 
     def test_set_torques_with_list(self, o6_hand: O6):
         """set_torques should accept list[float] without error."""
-        o6_hand.torque.set_torques([50.0] * 6)
+        o6_hand.torque.set_percentage_torques([50.0] * 6)
 
     def test_set_torques_with_o6_torque(self, o6_hand: O6):
         """set_torques should accept O6Torque instance without error."""
-        o6_hand.torque.set_torques(O6Torque.from_list([50.0] * 6))
+        o6_hand.torque.set_percentage_torques(O6Torque.from_list([50.0] * 6))
 
 
 class TestTorqueManagerSnapshot:
@@ -104,8 +104,8 @@ class TestTorqueInteractive:
         motion_results: list[tuple[str, float, bool]] = []
 
         # Set speed and acceleration to max for consistent observation
-        o6_hand.speed.set_speeds([100.0] * 6)
-        o6_hand.acceleration.set_accelerations([100.0] * 6)
+        o6_hand.speed.set_percentage_speeds([100.0] * 6)
+        o6_hand.acceleration.set_percentage_accelerations([100.0] * 6)
 
         def track(label: str, target: list[float]) -> None:
             elapsed, timed_out = _move_and_time(o6_hand, target)
@@ -115,7 +115,7 @@ class TestTorqueInteractive:
             session.step(
                 instruction=f"[{level} torque={torque_val}] Closing grip",
                 action=lambda lbl=f"{level} close", tv=torque_val: (
-                    o6_hand.torque.set_torques([tv] * 6),
+                    o6_hand.torque.set_percentage_torques([tv] * 6),
                     track(lbl, CLOSED),
                 ),
                 expected=(

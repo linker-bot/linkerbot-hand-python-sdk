@@ -1,123 +1,47 @@
-# 扭矩控制
+# 电流限制控制（协议称“扭矩”）
 
-## 概述
+L6 的扭矩字段在线上是 6 个 `0..255` 协议字节，用作电机电流限制。默认控制和反馈
+保留这些协议整数，不隐式换算为百分比或 mA。
 
-通过 `hand.torque` 访问扭矩控制功能，支持设置目标扭矩和读取当前扭矩。统一
-`HandDevice.submit_torques()` 使用电流上限单位 mA；L6 协议原值 `0..255` 约对应
-`0..1400 mA`（`raw * 1400 / 255`）。旧 manager 的 `set_torques()` 继续接受
-历史 `0..100` 百分比，使用 `L6Torque.to_milliamps()` / `from_milliamps()` 获取或构造
-物理单位值。
-
-旧兼容 `set_torques()` 的扭矩值范围为 **0-100**（无量纲，表示相对扭矩百分比），对应 L6 灵巧手的 6 个关节电机：
-
-| 索引 | 属性         | 关节电机 |
-| ---- | ------------ | -------- |
-| 0    | `thumb_flex` | 拇指弯曲 |
-| 1    | `thumb_abd`  | 拇指侧摆 |
-| 2    | `index`      | 食指     |
-| 3    | `middle`     | 中指     |
-| 4    | `ring`       | 无名指   |
-| 5    | `pinky`      | 小指     |
-
-## 设置扭矩
-
-```python
-# 使用列表
-hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-
-# 使用 L6Torque 对象
-from linkerbot.hand.l6 import L6Torque
-
-target = L6Torque(
-    thumb_flex=50.0, thumb_abd=30.0, index=60.0, middle=60.0, ring=60.0, pinky=60.0
-)
-hand.torque.set_torques(target)
-
-# 物理单位辅助转换（不改变旧 set_torques 的入参语义）
-target = L6Torque.from_milliamps([700.0] * 6)
-print(target.to_milliamps())
-```
-
-## 读取扭矩
-
-### 阻塞读取
-
-发送请求并等待响应：
-
-```python
-from linkerbot.exceptions import TimeoutError
-
-try:
-    data = hand.torque.get_blocking(timeout_ms=500)
-    print(f"拇指弯曲：{data.torques.thumb_flex}")
-    print(f"食指：{data.torques.index}")
-except TimeoutError:
-    print("读取超时")
-```
-
-### 缓存读取
-
-获取最近一次的缓存数据（非阻塞）：
-
-```python
-data = hand.torque.get_snapshot()
-if data:
-    print(f"扭矩：{data.torques.to_list()}")
-```
-
-## 流式读取
-
-通过顶层 `hand.stream()` 统一接收所有传感器事件：
-
-```python
-from linkerbot.hand.l6 import SensorSource, TorqueEvent
-
-hand.start_polling({SensorSource.TORQUE: 0.05})
-
-for event in hand.stream():
-    match event:
-        case TorqueEvent(data=data):
-            print(f"扭矩：{data.torques.to_list()}")
-
-hand.stop_polling()
-hand.stop_stream()
-```
-
-## 示例
-
-### 完整控制流程
+## 协议值控制
 
 ```python
 from linkerbot.hand import L6
-from linkerbot.hand.l6 import L6Torque
 
 with L6(side="left", interface_name="can0") as hand:
-    # 设置扭矩
-    hand.torque.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
-
-    # 阻塞读取当前扭矩
-    data = hand.torque.get_blocking(timeout_ms=200)
-    print(f"当前扭矩百分比：{data.torques.to_list()}")
-    print(f"当前电流上限约：{data.torques.to_milliamps()} mA")
+    hand.torque.set_torques([128, 96, 160, 160, 160, 160])
 ```
 
-### 实时监控
+需要 `0..100` 相对输入时调用显式方法：
 
 ```python
-from linkerbot.hand import L6
-from linkerbot.hand.l6 import SensorSource, TorqueEvent
-
-with L6(side="left", interface_name="can0") as hand:
-    hand.start_polling({SensorSource.TORQUE: 0.1})
-
-    try:
-        for event in hand.stream():
-            match event:
-                case TorqueEvent(data=data):
-                    if data.torques.index > 80:
-                        print("食指关节电机扭矩过高")
-                        break
-    finally:
-        hand.stop_polling()
-        hand.stop_stream()
+hand.torque.set_percentage_torques([50, 30, 60, 60, 60, 60])
 ```
+
+## 读取协议值
+
+```python
+data = hand.torque.get_blocking(timeout_ms=500)
+print(data.torques)  # tuple[int, ...]
+
+cached = hand.torque.get_snapshot()
+if cached is not None:
+    print(cached.torques)
+```
+
+事件流中的 `TorqueEvent.data.torques` 也是同一组协议整数。
+
+## 显式 mA 换算
+
+协议文档给出的满量程约为 1400 mA，即 `protocol * 1400 / 255`。转换不会自动进入
+控制或反馈路径：
+
+```python
+from linkerbot.hand.l6 import L6Torque
+
+milliamps = L6Torque.from_raw(list(data.torques)).to_milliamps()
+protocol_target = L6Torque.from_milliamps([700.0] * 6).to_raw()
+hand.torque.set_torques(protocol_target)
+```
+
+统一 capability 将命令范围和反馈标记为 `protocol_raw` / `u8`。

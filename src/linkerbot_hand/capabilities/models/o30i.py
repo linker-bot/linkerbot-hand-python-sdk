@@ -61,7 +61,9 @@ def _joints() -> tuple[JointCapability, ...]:
         JointCapability(
             index=index,
             name=name,
-            raw_angle_range=NumericRange(0, 255, "raw_u8", integer_only=True, step=1),
+            raw_angle_range=NumericRange(
+                0, 255, "protocol_raw_u8", integer_only=True, step=1
+            ),
             percentage_mapping=PercentageMapping(
                 raw_open=255 if index < 6 else 0,
                 raw_closed=0 if index < 6 else 255,
@@ -81,8 +83,12 @@ def _joints() -> tuple[JointCapability, ...]:
                     else JointEndpoint.EXTENDED
                 ),
             ),
-            speed_range=NumericRange(0, 255, "raw_u8", integer_only=True, step=1),
-            torque_range=NumericRange(0, 255, "raw_u8", integer_only=True, step=1),
+            speed_range=NumericRange(
+                0, 255, "protocol_raw_u8", integer_only=True, step=1
+            ),
+            torque_range=NumericRange(
+                0, 255, "protocol_raw_u8", integer_only=True, step=1
+            ),
             motion_type=_MOTION_TYPES[index],
         )
         for index, name in enumerate(_JOINTS)
@@ -95,22 +101,32 @@ CAPABILITIES = DeviceCapabilities(
     side=HandSide.UNKNOWN,
     joints=_joints(),
     sensors=(
-        sensor(SensorType.ANGLES, 30),
-        sensor(SensorType.SPEEDS, 30, unit="raw_u8"),
-        sensor(SensorType.ACCELERATION, 10),
-        sensor(SensorType.TORQUES, 30, unit="raw_u8"),
-        sensor(SensorType.TEMPERATURE, 1),
-        sensor(SensorType.CURRENT, 10, unit="raw_u8"),
-        sensor(SensorType.FAULTS, 5),
-        sensor(SensorType.VOLTAGE, 1),
-        sensor(SensorType.MOTION_TIME, 10),
+        *(
+            sensor(
+                sensor_type,
+                hz,
+                unit=unit,
+                encoding="u8",
+                value_range=NumericRange(0, 255, unit, True, 1),
+            )
+            for sensor_type, hz, unit in (
+                (SensorType.ANGLES, 30, "protocol_raw"),
+                (SensorType.SPEEDS, 30, "protocol_raw"),
+                (SensorType.ACCELERATION, 10, "protocol_raw"),
+                (SensorType.TORQUES, 30, "protocol_raw"),
+                (SensorType.TEMPERATURE, 1, "protocol_raw"),
+                (SensorType.CURRENT, 10, "protocol_raw"),
+                (SensorType.FAULTS, 5, "bitmask"),
+                (SensorType.VOLTAGE, 1, "protocol_raw"),
+                (SensorType.MOTION_TIME, 10, "protocol_tick"),
+            )
+        ),
     ),
     transport=TransportType.CAN_FD,
     features=DeviceFeatures(
         device_ack=True,
         acknowledged_commands=(
             CommandKind.ANGLES,
-            CommandKind.RAW_ANGLES,
             CommandKind.SPEEDS,
             CommandKind.TORQUES,
         ),

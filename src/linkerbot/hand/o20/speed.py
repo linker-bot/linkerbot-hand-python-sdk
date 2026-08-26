@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from linkerbot.hand._values import protocol_vector_to_scaled, scaled_vector_to_protocol
 from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
 
@@ -18,7 +19,33 @@ from .joints import O20_JOINT_COUNT, validate_int_values
 
 O20_SPEED_MIN = 0
 O20_SPEED_MAX = 100
-O20_SPEED_RPM_PER_RAW = 0.732
+O20_SPEED_RPM_PER_PROTOCOL_UNIT = 0.732
+
+
+def protocol_speeds_to_rpm(values: list[int] | tuple[int, ...]) -> tuple[float, ...]:
+    """Convert 16 signed protocol speed values to RPM explicitly."""
+    return protocol_vector_to_scaled(
+        values,
+        count=O20_JOINT_COUNT,
+        name="protocol_speeds",
+        minimum=-32768,
+        maximum=32767,
+        scale=O20_SPEED_RPM_PER_PROTOCOL_UNIT,
+    )
+
+
+def rpm_to_protocol_speeds(
+    values: list[float | int] | tuple[float | int, ...],
+) -> tuple[int, ...]:
+    """Quantize 16 RPM values to signed protocol speed values explicitly."""
+    return scaled_vector_to_protocol(
+        values,
+        count=O20_JOINT_COUNT,
+        name="rpm",
+        minimum=-32768,
+        maximum=32767,
+        scale=O20_SPEED_RPM_PER_PROTOCOL_UNIT,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,22 +53,20 @@ class O20SpeedData:
     """Immutable O20 speed data.
 
     Attributes:
-        speeds: 16 measured speed values in motor-ID order, in RPM.
+        speeds: 16 decoded signed protocol values in motor-ID order.
         timestamp: Unix timestamp when the data was decoded.
-        raw_speeds: Exact signed 16-bit protocol values when provided.
     """
 
-    speeds: tuple[float, ...]
+    speeds: tuple[int, ...]
     timestamp: float
-    raw_speeds: tuple[int, ...] = ()
 
 
 class SpeedManager:
     """Manager for O20 speed targets and measured speeds.
 
-    Speed targets use the documented O20 range of 0 through 100 for every
-    joint. Measured readback is decoded as a 17-slot signed 16-bit register
-    response with the trailing reserved slot dropped.
+    Speed targets use the documented protocol range 0 through 100. This range
+    is not a percentage mapping. Measured readback is decoded as a 17-slot
+    signed 16-bit response with the trailing reserved slot dropped.
     """
 
     def __init__(self, client: O20Client) -> None:
@@ -57,8 +82,8 @@ class SpeedManager:
         """Send per-joint speed targets.
 
         Args:
-            speeds: 16 integer speed values in motor-ID order. Each value must
-                be between 0 and 100.
+            speeds: 16 protocol integers in motor-ID order, each between 0 and
+                100.
 
         Raises:
             ValidationError: If the count, type, or speed range is invalid.
@@ -102,10 +127,8 @@ class SpeedManager:
         response = self._client.read(
             register=protocol.O20_REG_CURRENT_VEL, timeout_ms=timeout_ms
         )
-        raw_speeds = protocol.decode_i16_vector_response(response)
         data = O20SpeedData(
-            speeds=tuple(value * O20_SPEED_RPM_PER_RAW for value in raw_speeds),
-            raw_speeds=raw_speeds,
+            speeds=protocol.decode_i16_vector_response(response),
             timestamp=time.time(),
         )
         self._relay.push(data)

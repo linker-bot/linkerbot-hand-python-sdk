@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import can
 
+from linkerbot.hand._values import percentage_to_u8_vector, validate_u8_vector
 from linkerbot_transport.can import CANMessageDispatcher
 from linkerbot_transport.errors import ValidationError
 from linkerbot_transport.relay import DataRelay
@@ -17,7 +18,7 @@ from linkerbot_transport.relay import DataRelay
 
 @dataclass
 class L6Torque:
-    """Joint torque limits for L6 hand (0-100 legacy or 0-1400 mA).
+    """Explicit L6 torque-limit percentages with optional mA conversion.
 
     Attributes:
         thumb_flex: Thumb flexion joint torque (0-100)
@@ -104,7 +105,7 @@ class L6Torque:
 
     @classmethod
     def from_milliamps(cls, values: list[float]) -> "L6Torque":
-        """Construct a legacy torque object from 0..1400 mA values."""
+        """Construct a percentage helper from 0..1400 mA values."""
         if len(values) != 6:
             raise ValueError(f"Expected 6 values, got {len(values)}")
         if any(not isinstance(value, (int, float)) for value in values):
@@ -138,11 +139,11 @@ class TorqueData:
     """Immutable torque data container.
 
     Attributes:
-        torques: L6Torque instance containing joint torques (0-100 range).
+        torques: Six protocol-native unsigned-byte torque/current-limit values.
         timestamp: Unix timestamp when the data was received.
     """
 
-    torques: L6Torque
+    torques: tuple[int, ...]
     timestamp: float
 
 
@@ -171,28 +172,20 @@ class TorqueManager:
         self._dispatcher.subscribe(self._on_message)
         self._relay = DataRelay[TorqueData]()
 
-    def set_torques(self, torques: L6Torque | list[float]) -> None:
-        """Send target torques to the robotic hand.
+    def set_torques(self, torques: list[int] | tuple[int, ...]) -> None:
+        """Send protocol-native unsigned-byte torque/current-limit targets.
 
         Args:
-            torques: L6Torque instance or list of 6 target torques (range 0-100 each).
+            torques: Six integer protocol values in the range 0..255.
 
         Raises:
             ValidationError: If torques count is not 6 or values are out of range.
 
-        Example:
-            >>> manager.set_torques(L6Torque(thumb_flex=50.0, thumb_abd=30.0,
-            ...                              index=60.0, middle=60.0, ring=60.0, pinky=60.0))
-            >>> manager.set_torques([50.0, 30.0, 60.0, 60.0, 60.0, 60.0])
+        Use :meth:`set_percentage_torques` for explicit 0..100 targets.
         """
-        if isinstance(torques, L6Torque):
-            raw_torques = torques.to_raw()
-        elif isinstance(torques, list):
-            raw_torques = L6Torque.from_list(torques).to_raw()
-        else:
-            raise ValidationError(
-                f"Expected L6Torque or list, got {type(torques).__name__}"
-            )
+        raw_torques = validate_u8_vector(
+            torques, count=self._TORQUE_COUNT, name="torques"
+        )
 
         # Build and send message
         data = [self._CONTROL_CMD, *raw_torques]
@@ -202,6 +195,17 @@ class TorqueManager:
             is_extended_id=False,
         )
         self._dispatcher.send(msg)
+
+    def set_percentage_torques(
+        self, torques: L6Torque | list[float] | tuple[float, ...]
+    ) -> None:
+        """Convert explicit 0..100 torque limits and send protocol values."""
+        values = torques.to_list() if isinstance(torques, L6Torque) else torques
+        self.set_torques(
+            percentage_to_u8_vector(
+                values, count=self._TORQUE_COUNT, name="torque percentages"
+            )
+        )
 
     def get_blocking(self, timeout_ms: float = 100) -> TorqueData:
         """Request and wait for current joint torques (blocking).
@@ -260,6 +264,5 @@ class TorqueManager:
         if len(raw_torques) != self._TORQUE_COUNT:
             return
 
-        torques = L6Torque.from_raw(raw_torques)
-        torque_data = TorqueData(torques=torques, timestamp=time.time())
+        torque_data = TorqueData(torques=tuple(raw_torques), timestamp=time.time())
         self._relay.push(torque_data)
