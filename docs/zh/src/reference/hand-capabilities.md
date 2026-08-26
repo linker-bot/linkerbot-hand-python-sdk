@@ -114,7 +114,7 @@ O20 协议文档一处将当前位置写为 `0.087°/count`，但目标位置范
 | O6 | 力矩限制 | `count` / `u8` | `mA`，比例冲突，`scale=None` | `numeric` |
 | O6 | 加速度 | `count` / `u8` | `degree_per_second_squared`，比例冲突；raw 0 为特殊最大值 | `numeric` |
 | O6 | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
-| O6 | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `10x4` |
+| O6 `04-B` | 触觉 | `count` / `u8` | 未标定 | `tactile_matrix`，每指 `10x4` |
 | O6 | 故障 | `dimensionless` / `u8` | 无 | `bitmask`，保留位原值不丢失 |
 | L20Lite | 角度、速度、力矩 | `count` / `u8` | 未知 | `numeric` |
 | L20Lite | 温度 | `degree_celsius` / `u8` | 同原值，`scale=1`，`offset=0` | `numeric` |
