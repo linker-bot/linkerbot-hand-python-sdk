@@ -9,6 +9,8 @@ from ..api.errors import UnsupportedOperationError, ValidationError
 from ..capabilities.types import DeviceCapabilities
 from .base import ProtocolBackend
 from .l6 import L6ProtocolBackend
+from .l20lite import L20LiteProtocolBackend
+from .l25 import L25ProtocolBackend
 from .o6 import O6ProtocolBackend
 
 ProtocolBackendFactory = Callable[[HandSide], ProtocolBackend]
@@ -16,6 +18,8 @@ ProtocolBackendFactory = Callable[[HandSide], ProtocolBackend]
 _BACKEND_FACTORIES: dict[str, ProtocolBackendFactory] = {
     "L6": L6ProtocolBackend,
     "O6": O6ProtocolBackend,
+    "L20Lite": L20LiteProtocolBackend,
+    "L25": L25ProtocolBackend,
 }
 
 

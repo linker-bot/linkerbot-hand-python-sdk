@@ -137,6 +137,8 @@ def test_o6_configuration_reads_are_device_responses_not_measurements() -> None:
     (
         ("L6", HandSide.LEFT, 5, 12, 6, 0xC6),
         ("O6", HandSide.RIGHT, 20, 10, 4, 0xA4),
+        ("L20Lite", HandSide.LEFT, 10, 12, 6, 0xC6),
+        ("L25", HandSide.RIGHT, 10, 12, 6, 0xC6),
     ),
 )
 def test_angle_and_full_tactile_polling_publish_complete_samples(
@@ -178,11 +180,56 @@ def test_angle_and_full_tactile_polling_publish_complete_samples(
         )
         assert snapshot.force.tactile[0].raw[0] == tuple(range(columns))
         assert transport.script.read_counts[selector] >= 5
-        assert transport.script.read_counts[0x01] >= 2
+        angle_opcode = 0x41 if model == "L25" else 0x01
+        assert transport.script.read_counts[angle_opcode] >= 2
 
         counts_after_stop = transport.script.read_counts.copy()
         time.sleep(0.05)
         assert transport.script.read_counts == counts_after_stop
+    finally:
+        hand.close()
+
+
+@pytest.mark.parametrize(
+    ("model", "side", "joint_count", "expected_angles"),
+    (
+        ("L20Lite", HandSide.LEFT, 10, tuple(range(10, 20))),
+        ("L25", HandSide.RIGHT, 16, tuple(range(10, 26))),
+    ),
+)
+def test_extended_classic_profiles_open_and_control_multi_frame_objects(
+    model: str,
+    side: HandSide,
+    joint_count: int,
+    expected_angles: tuple[int, ...],
+) -> None:
+    hand, transport = _make_hand(model, side)
+    hand.open()
+    try:
+        capabilities = hand.get_capabilities()
+        snapshot = hand.get_snapshot()
+        assert capabilities.identity.verified
+        assert len(capabilities.joints) == joint_count
+        assert snapshot.angles is not None
+        assert snapshot.angles.raw == expected_angles
+        assert snapshot.faults is not None and snapshot.faults.meta.valid
+        assert snapshot.effort_limits is not None
+        assert snapshot.effort_limits.raw == (80,) * joint_count
+
+        values = tuple(range(joint_count))
+        angles = hand.set_angles(values)
+        assert angles.wait(timeout=1) is CommandStage.DISPATCHED
+        speeds = hand.set_speeds((70,) * joint_count)
+        assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
+        configured = hand.get_configured_speeds(timeout=0.2)
+
+        assert configured.raw == (70,) * joint_count
+        assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert sum(
+            1
+            for payload in transport.script.command_payloads
+            if payload[0] in ({0x01, 0x04} if model == "L20Lite" else range(0x41, 0x46))
+        ) == (2 if model == "L20Lite" else 5)
     finally:
         hand.close()
 

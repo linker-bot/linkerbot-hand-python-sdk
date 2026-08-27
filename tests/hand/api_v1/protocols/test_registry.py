@@ -7,6 +7,8 @@ import pytest
 from linkerbot_hand.api import HandSide, UnsupportedOperationError, ValidationError
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.protocols.l6 import L6ProtocolBackend
+from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
+from linkerbot_hand.protocols.l25 import L25ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 from linkerbot_hand.protocols.registry import create_protocol_backend
 from linkerbot_transport import CANRouteKey
@@ -19,6 +21,10 @@ from linkerbot_transport import CANRouteKey
         ("l6", "right", L6ProtocolBackend, 0x27),
         ("o6", "left", O6ProtocolBackend, 0x28),
         ("o6", "right", O6ProtocolBackend, 0x27),
+        ("l20lite", "left", L20LiteProtocolBackend, 0x28),
+        ("l20lite", "right", L20LiteProtocolBackend, 0x27),
+        ("l25", "left", L25ProtocolBackend, 0x28),
+        ("l25", "right", L25ProtocolBackend, 0x27),
     ),
 )
 def test_registry_selects_model_and_side_without_io(
@@ -41,8 +47,6 @@ def test_registry_selects_model_and_side_without_io(
 @pytest.mark.parametrize(
     ("model", "side"),
     (
-        ("l20lite", HandSide.LEFT),
-        ("l25", HandSide.RIGHT),
         ("o20", HandSide.LEFT),
         ("l30", None),
         ("o30i", HandSide.RIGHT),

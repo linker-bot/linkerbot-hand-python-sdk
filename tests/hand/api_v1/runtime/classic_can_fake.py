@@ -18,7 +18,7 @@ _FINGER_OPCODES = (0xB1, 0xB2, 0xB3, 0xB4, 0xB5)
 
 @dataclass(slots=True)
 class ClassicCANDeviceScript:
-    """Deterministic L6/O6 wire behavior expressed only as CAN frames."""
+    """Deterministic classic-hand wire behavior expressed only as CAN frames."""
 
     model: str
     side: HandSide
@@ -31,15 +31,10 @@ class ClassicCANDeviceScript:
     identity_queries: int = 0
 
     def __post_init__(self) -> None:
-        if self.model not in {"L6", "O6"}:
-            raise ValueError("script model must be L6 or O6")
-        self.readings.setdefault(0x01, (10, 20, 30, 40, 50, 60))
-        self.readings.setdefault(0x02, (80,) * 6)
-        self.readings.setdefault(0x05, (90,) * 6)
-        self.readings.setdefault(0x33, (30, 31, 32, 33, 34, 35))
-        self.readings.setdefault(0x35, (0,) * 6)
-        self.readings.setdefault(0x36, (1, 2, 3, 4, 5, 6))
-        self.readings.setdefault(0x87, (20,) * 6)
+        if self.model not in {"L6", "O6", "L20Lite", "L25"}:
+            raise ValueError("unsupported classic hand script model")
+        for opcode, values in _default_readings(self.model).items():
+            self.readings.setdefault(opcode, values)
 
     @property
     def arbitration_id(self) -> int:
@@ -51,13 +46,13 @@ class ClassicCANDeviceScript:
     def tactile_shape(self) -> tuple[int, int]:
         """Return rows and columns for the selected model's five sensors."""
 
-        return (12, 6) if self.model == "L6" else (10, 4)
+        return (10, 4) if self.model == "O6" else (12, 6)
 
     @property
     def tactile_selector(self) -> int:
         """Return the protocol selector for one full tactile matrix."""
 
-        return 0xC6 if self.model == "L6" else 0xA4
+        return 0xA4 if self.model == "O6" else 0xC6
 
     def respond(self, request: can.Message) -> tuple[can.Message, ...]:
         """Record one request and return its immediate scripted device frames."""
@@ -97,9 +92,12 @@ class ClassicCANDeviceScript:
         ):
             self.read_counts[data[1]] += 1
             return self._tactile_frames(data[0])
-        if len(data) == 7 and data[0] in {0x01, 0x02, 0x05, 0x87}:
+        if len(data) > 1 and data[0] in self.readings:
             self.command_payloads.append(data)
-            self.readings[data[0]] = tuple(data[1:])
+            if self.model == "L25" and data[0] in range(0x59, 0x5E):
+                self.readings[data[0]] = (0,) * 6
+            else:
+                self.readings[data[0]] = tuple(data[1:])
             return ()
         if len(data) == 7 and data[0] == 0x83:
             self.command_payloads.append(data)
@@ -160,7 +158,63 @@ def make_script(model: str, side: HandSide) -> ClassicCANDeviceScript:
             product_code=f"LHO6-04.1-730-{side_code}-B-1-D",
             firmware=(3, 1, 2),
         )
-    raise ValueError("script model must be L6 or O6")
+    if model == "L20Lite":
+        return ClassicCANDeviceScript(
+            model=model,
+            side=side,
+            product_code=f"LHT10-07-098-{side_code}-A-1-C",
+            firmware=(2, 5, 1),
+        )
+    if model == "L25":
+        return ClassicCANDeviceScript(
+            model=model,
+            side=side,
+            product_code=f"LHG20-010-001-{side_code}-Z-1-A",
+            firmware=(3, 0, 2),
+        )
+    raise ValueError("unsupported classic hand script model")
+
+
+def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
+    if model in {"L6", "O6"}:
+        return {
+            0x01: (10, 20, 30, 40, 50, 60),
+            0x02: (80,) * 6,
+            0x05: (90,) * 6,
+            0x33: (30, 31, 32, 33, 34, 35),
+            0x35: (0,) * 6,
+            0x36: (1, 2, 3, 4, 5, 6),
+            0x87: (20,) * 6,
+        }
+    if model == "L20Lite":
+        return {
+            0x01: tuple(range(10, 16)),
+            0x04: tuple(range(16, 20)),
+            0x02: (80,) * 5,
+            0x03: (80,) * 5,
+            0x05: (90,) * 5,
+            0x06: (90,) * 5,
+            0x33: tuple(range(30, 35)),
+            0x34: tuple(range(35, 40)),
+            0x35: (0,) * 5,
+            0x36: (0,) * 5,
+        }
+    if model == "L25":
+        layouts = {
+            0x41: (10, 11, 12, 0, 0, 13),
+            0x42: (14, 0, 15, 0, 0, 16),
+            0x43: (17, 0, 18, 0, 0, 19),
+            0x44: (20, 0, 21, 0, 0, 22),
+            0x45: (23, 0, 24, 0, 0, 25),
+        }
+        return {
+            **layouts,
+            **{opcode: (90,) * 6 for opcode in range(0x49, 0x4E)},
+            **{opcode: (80,) * 6 for opcode in range(0x51, 0x56)},
+            **{opcode: (0,) * 6 for opcode in range(0x59, 0x5E)},
+            **{opcode: (30 + opcode - 0x61,) * 6 for opcode in range(0x61, 0x66)},
+        }
+    raise ValueError("unsupported classic hand script model")
 
 
 def wait_until(predicate: Callable[[], bool], *, timeout_s: float = 1.0) -> None:

@@ -92,7 +92,15 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         identity=identity(
             "L25",
             side,
-            supported_fields=("firmware_version", "product_code", "side"),
+            supported_fields=(
+                "serial_number",
+                "pcb_version",
+                "firmware_version",
+                "mechanical_version",
+                "product_code",
+                "sensor_variant",
+                "side",
+            ),
         ),
         joints=joints,
         commands=(

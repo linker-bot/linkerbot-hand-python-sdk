@@ -97,7 +97,7 @@ class FactoryIdentity:
 def parse_factory_identity(
     product_code: str,
     *,
-    expected_model: str,
+    expected_model: str | tuple[str, ...],
     configured_side: HandSide,
 ) -> FactoryIdentity:
     """Parse and verify the common dash-separated classic product code."""
@@ -108,9 +108,17 @@ def parse_factory_identity(
     parts = tuple(part.strip() for part in normalized.split("-"))
     if len(parts) < 4 or any(not value for value in parts[:4]):
         raise ProtocolError("factory product code is incomplete")
-    if parts[0].upper() != expected_model.upper():
+    expected_models = (
+        (expected_model,) if isinstance(expected_model, str) else expected_model
+    )
+    if not expected_models or any(
+        not isinstance(value, str) or not value for value in expected_models
+    ):
+        raise ValidationError("expected_model must contain factory model names")
+    normalized_models = tuple(value.upper() for value in expected_models)
+    if parts[0].upper() not in normalized_models:
         raise IdentityMismatchError(
-            f"expected factory model {expected_model}, got {parts[0]}"
+            f"expected factory model {' or '.join(expected_models)}, got {parts[0]}"
         )
     side = {"L": HandSide.LEFT, "R": HandSide.RIGHT}.get(parts[3].upper())
     if side is None:
