@@ -185,8 +185,8 @@ class ProtocolBackend(Protocol):
         ...
 
     @property
-    def route_key(self) -> Hashable:
-        """Return the exact receive route owned by this hand endpoint."""
+    def route_keys(self) -> tuple[Hashable, ...]:
+        """Return exact receive routes feeding one endpoint inbox."""
         ...
 
     def identity_transaction(

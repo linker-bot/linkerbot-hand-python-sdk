@@ -37,6 +37,13 @@ class MessageTransport(Protocol):
         self, route_key: Hashable, *, queue_capacity: int | None = None
     ) -> object: ...
 
+    def subscribe_routes(
+        self,
+        route_keys: tuple[Hashable, ...],
+        *,
+        queue_capacity: int | None = None,
+    ) -> object: ...
+
     def get_health(self) -> TransportHealth: ...
 
 

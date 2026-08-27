@@ -43,6 +43,44 @@ def test_constructor_is_zero_io_and_open_verifies_identity_and_baseline() -> Non
         hand.close()
 
 
+def test_one_runtime_consumes_multiple_exact_routes_from_one_subscription() -> None:
+    hand, state, transport = make_hand(
+        route_keys=("fake-hand-identity", "fake-hand-state")
+    )
+
+    hand.open()
+    try:
+        assert state.query_log == [TelemetrySemantic.ANGLES]
+        assert transport.get_health().route_count == 2
+        angles = hand.get_angles(timeout=0.1)
+        assert angles.meta.valid
+        assert transport.get_health().route_count == 2
+    finally:
+        hand.close()
+
+    assert transport.get_health().route_count == 0
+
+
+@pytest.mark.parametrize(
+    ("route_keys", "message"),
+    (
+        ((), "non-empty tuple"),
+        (("duplicate", "duplicate"), "unique"),
+    ),
+)
+def test_protocol_route_group_rejects_empty_or_duplicate_keys(
+    route_keys: tuple[str, ...],
+    message: str,
+) -> None:
+    hand, _state, transport = make_hand()
+    transport.backends["fake-hand"].route_keys = route_keys
+
+    with pytest.raises(LifecycleError, match=message):
+        hand.open()
+
+    hand.close()
+
+
 def test_identity_refresh_faults_a_replaced_device_and_invalidates_state() -> None:
     hand, state, _transport = make_hand()
     hand.open()

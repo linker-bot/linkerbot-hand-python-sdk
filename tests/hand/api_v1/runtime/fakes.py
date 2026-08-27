@@ -94,10 +94,13 @@ class FakeProtocolBackend:
         *,
         endpoint_id: str = "fake-hand",
         route_key: str = "fake-hand-rx",
+        route_keys: tuple[str, ...] | None = None,
     ) -> None:
         self.state = state
         self.endpoint_id = endpoint_id
-        self.route_key = route_key
+        self.route_keys = (route_key,) if route_keys is None else route_keys
+        self.route_key = self.route_keys[0]
+        self._response_route_key = self.route_keys[-1]
 
     def identity_transaction(
         self, capabilities: DeviceCapabilities
@@ -248,7 +251,7 @@ class FakeProtocolBackend:
                 values = self.state.readings[semantic]
                 return (
                     WireMessage(
-                        self.route_key,
+                        self._response_route_key,
                         "read_reply",
                         semantic.value,
                         values,
@@ -263,7 +266,7 @@ class FakeProtocolBackend:
                 if capability.ack_support is AckSupport.SUPPORTED:
                     return (
                         WireMessage(
-                            self.route_key,
+                            self._response_route_key,
                             "command_ack",
                             semantic.value,
                         ),

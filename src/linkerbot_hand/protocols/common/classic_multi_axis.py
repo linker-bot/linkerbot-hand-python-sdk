@@ -54,10 +54,10 @@ class ClassicMultiAxisBackend:
         return self._route
 
     @property
-    def route_key(self) -> CANRouteKey:
-        """Return the exact standard-frame receive route."""
+    def route_keys(self) -> tuple[CANRouteKey, ...]:
+        """Return the sole standard-frame receive route."""
 
-        return self._route
+        return (self._route,)
 
     def identity_transaction(
         self, capabilities: DeviceCapabilities

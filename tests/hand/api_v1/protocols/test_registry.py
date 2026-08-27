@@ -41,7 +41,7 @@ def test_registry_selects_model_and_side_without_io(
     endpoint = backend.endpoint_id
     assert isinstance(endpoint, CANRouteKey)
     assert endpoint.arbitration_id == arbitration_id
-    assert backend.route_key == endpoint
+    assert backend.route_keys == (endpoint,)
 
 
 @pytest.mark.parametrize(

@@ -17,13 +17,14 @@ def make_hand(
     *,
     config: DeviceConfig | None = None,
     capabilities: DeviceCapabilities | None = None,
+    route_keys: tuple[str, ...] | None = None,
 ) -> tuple[HandDevice, FakeProtocolState, ScriptedFakeTransport]:
     """Build one unopened fake-backed hand without touching transport I/O."""
 
     if capabilities is None:
         capabilities = get_declared_capabilities("l6", side="left")
     state = FakeProtocolState(capabilities)
-    backend = FakeProtocolBackend(state)
+    backend = FakeProtocolBackend(state, route_keys=route_keys)
     transport = ScriptedFakeTransport(backend)
     side = (
         None

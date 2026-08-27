@@ -77,7 +77,7 @@ class DeviceActor:
         self._thread: threading.Thread | None = None
         self._mailbox = RouteMailbox(
             binding=binding,
-            route_key=backend.route_key,
+            route_keys=backend.route_keys,
             route_capacity=config.route_queue_capacity,
             mailbox_capacity=config.mailbox_capacity,
             model=state.declared.model,

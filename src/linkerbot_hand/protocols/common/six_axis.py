@@ -55,10 +55,10 @@ class ClassicSixAxisBackend:
         return self._route
 
     @property
-    def route_key(self) -> CANRouteKey:
-        """Return the exact standard-frame receive route for this hand."""
+    def route_keys(self) -> tuple[CANRouteKey, ...]:
+        """Return the sole standard-frame receive route for this hand."""
 
-        return self._route
+        return (self._route,)
 
     def identity_transaction(
         self,

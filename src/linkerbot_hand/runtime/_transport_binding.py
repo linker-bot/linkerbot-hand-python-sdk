@@ -139,12 +139,17 @@ class TransportBinding:
             self._transport_generation = recovered_generation
             self._accepting = True
 
-    def subscribe_route(self, route_key: Hashable, *, queue_capacity: int):
-        """Register one generation-bound exact receive route."""
+    def subscribe_routes(
+        self,
+        route_keys: tuple[Hashable, ...],
+        *,
+        queue_capacity: int,
+    ):
+        """Register one generation-bound inbox for exact receive routes."""
 
         with self._lock:
-            return self._require_transport_locked().subscribe_route(
-                route_key,
+            return self._require_transport_locked().subscribe_routes(
+                route_keys,
                 queue_capacity=queue_capacity,
             )
 
@@ -263,7 +268,7 @@ def _validate_transport(transport: object) -> MessageTransport:
         "close",
         "recover",
         "send",
-        "subscribe_route",
+        "subscribe_routes",
         "get_health",
     ):
         if not callable(getattr(transport, name, None)):

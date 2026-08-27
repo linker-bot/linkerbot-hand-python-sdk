@@ -438,12 +438,24 @@ def _resolve_backend(
     ):
         if not callable(getattr(backend, name, None)):
             raise LifecycleError(f"protocol backend must provide callable {name}()")
-    for name in ("endpoint_id", "route_key"):
-        try:
-            hash(getattr(backend, name))
-        except (AttributeError, TypeError) as error:
-            raise LifecycleError(f"protocol backend {name} must be hashable") from error
-    return cast(ProtocolBackend, backend)
+    candidate = cast(ProtocolBackend, backend)
+    try:
+        hash(candidate.endpoint_id)
+    except (AttributeError, TypeError) as error:
+        raise LifecycleError("protocol backend endpoint_id must be hashable") from error
+    try:
+        route_keys = candidate.route_keys
+    except AttributeError as error:
+        raise LifecycleError("protocol backend must provide route_keys") from error
+    if not isinstance(route_keys, tuple) or not route_keys:
+        raise LifecycleError("protocol backend route_keys must be a non-empty tuple")
+    try:
+        unique_route_keys = set(route_keys)
+    except TypeError as error:
+        raise LifecycleError("protocol backend route_keys must be hashable") from error
+    if len(unique_route_keys) != len(route_keys):
+        raise LifecycleError("protocol backend route_keys must be unique")
+    return candidate
 
 
 __all__ = ["DeviceRuntime"]

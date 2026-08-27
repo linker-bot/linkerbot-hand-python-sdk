@@ -36,13 +36,13 @@ class _RouteSubscription(Protocol):
 
 
 class RouteMailbox:
-    """Copy one exact transport route into a bounded actor-owned inbox."""
+    """Copy one exact-route group into a bounded actor-owned inbox."""
 
     def __init__(
         self,
         *,
         binding: TransportBinding,
-        route_key: Hashable,
+        route_keys: tuple[Hashable, ...],
         route_capacity: int,
         mailbox_capacity: int,
         model: str,
@@ -50,7 +50,7 @@ class RouteMailbox:
         wake: threading.Event,
     ) -> None:
         self._binding = binding
-        self._route_key = route_key
+        self._route_keys = route_keys
         self._route_capacity = route_capacity
         self._mailbox_capacity = mailbox_capacity
         self._model = model
@@ -77,12 +77,12 @@ class RouteMailbox:
             self._failure = None
 
     def start(self, *, actor_stop: threading.Event) -> None:
-        """Subscribe and start the route-copy thread exactly once."""
+        """Subscribe to the route group and start its copy thread once."""
 
         route = cast(
             _RouteSubscription,
-            self._binding.subscribe_route(
-                self._route_key,
+            self._binding.subscribe_routes(
+                self._route_keys,
                 queue_capacity=self._route_capacity,
             ),
         )
