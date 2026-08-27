@@ -1,5 +1,5 @@
 include CHANGELOG.md
 include README.en.md
 graft docs
-graft tests
+prune tests
 global-exclude __pycache__ *.py[cod]

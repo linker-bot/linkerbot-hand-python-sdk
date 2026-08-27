@@ -1,44 +1,47 @@
-"""Distribution dependency compatibility tests."""
+"""Distribution boundary regression tests."""
 
 from pathlib import Path
+from typing import Any
 
-import pytest
 import tomli
 from packaging.requirements import Requirement
 from packaging.version import Version
 
 
-def _numpy_requirement(python_version: str) -> Requirement:
-    project = tomli.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
-    requirements = [
-        Requirement(value)
-        for value in project["dependencies"]
-        if Requirement(value).name == "numpy"
-    ]
-    active = [
-        requirement
-        for requirement in requirements
-        if requirement.marker is None
-        or requirement.marker.evaluate({"python_version": python_version})
-    ]
-    assert len(active) == 1
-    return active[0]
+def _project_metadata() -> dict[str, Any]:
+    return tomli.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
 
 
-@pytest.mark.parametrize(
-    ("python_version", "supported", "unsupported"),
-    (
-        ("3.10", ("1.21.6", "1.26.4"), ("1.21.5", "2.0.0")),
-        ("3.12", ("1.26.4",), ("1.21.5", "2.0.0")),
-        ("3.13", ("2.1.0", "2.5.2"), ("1.26.4", "3.0.0")),
-    ),
-)
-def test_numpy_requirement_matches_supported_python_runtime(
-    python_version: str,
-    supported: tuple[str, ...],
-    unsupported: tuple[str, ...],
-) -> None:
-    requirement = _numpy_requirement(python_version)
+def test_runtime_dependency_surface_is_transport_only() -> None:
+    project = _project_metadata()
+    requirements = tuple(Requirement(value) for value in project["dependencies"])
 
-    assert all(Version(version) in requirement.specifier for version in supported)
-    assert all(Version(version) not in requirement.specifier for version in unsupported)
+    assert tuple(requirement.name for requirement in requirements) == (
+        "linkerbot-transport",
+    )
+    assert all(requirement.name != "numpy" for requirement in requirements)
+
+
+def test_transport_dependency_requests_only_can_backends() -> None:
+    project = _project_metadata()
+    requirement = Requirement(project["dependencies"][0])
+
+    assert requirement.extras == {"can", "canfd"}
+    assert requirement.marker is None
+    assert Version("0.1.3") in requirement.specifier
+    assert Version("0.1.2") not in requirement.specifier
+    assert Version("0.2.0") not in requirement.specifier
+
+
+def test_distribution_discovers_only_the_linkerbot_hand_namespace() -> None:
+    metadata = tomli.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    package_find = metadata["tool"]["setuptools"]["packages"]["find"]
+
+    assert package_find["include"] == ["linkerbot_hand*"]
+    assert package_find["namespaces"] is False
+
+
+def test_source_distribution_excludes_internal_tests() -> None:
+    manifest = Path("MANIFEST.in").read_text(encoding="utf-8").splitlines()
+
+    assert "prune tests" in manifest
