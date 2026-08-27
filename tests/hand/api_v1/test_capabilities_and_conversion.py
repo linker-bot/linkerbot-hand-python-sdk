@@ -91,6 +91,7 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     o6 = get_declared_capabilities("o6", side="right")
     o20 = get_declared_capabilities("o20", side="left")
     l30 = get_declared_capabilities("l30")
+    o30i = get_declared_capabilities("o30i", side="right")
 
     l6_speed = l6.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
     assert l6_speed is not None
@@ -104,6 +105,11 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     assert not l30_configured.device_queried
     assert l30_configured.read_mode.value == "command_cache"
     assert l30.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is not None
+    o30i_measured = o30i.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS)
+    o30i_configured = o30i.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
+    assert o30i_measured is not None and o30i_measured.device_measured
+    assert o30i_configured is not None and not o30i_configured.device_measured
+    assert o30i_measured.device_queried and o30i_configured.device_queried
 
 
 def test_limit_semantics_do_not_claim_true_torque() -> None:
@@ -138,6 +144,22 @@ def test_o30i_stall_contract_maps_only_installed_channels() -> None:
     assert stall.detection_time.raw_unit is None
     assert capabilities.operations.read_stall_protection
     assert capabilities.operations.write_stall_protection
+    assert stall.detection_time.raw_encoding == "u8_v25_object"
+    assert stall.threshold.raw_encoding == "u8_v25_object"
+    assert stall.hold_current.raw_encoding == "u8_v25_object"
+
+
+def test_o30i_capability_declares_compact_hop_transport_contract() -> None:
+    capabilities = get_declared_capabilities("o30i", side="left")
+
+    assert all(
+        command.raw_encoding == "u8_v25_object" for command in capabilities.commands
+    )
+    assert capabilities.transport.nominal_bitrate == 1_000_000
+    assert capabilities.transport.data_bitrate == 1_000_000
+    assert "0x001" in capabilities.transport.addressing_note
+    assert "0x401" in capabilities.transport.addressing_note
+    assert "BRS disabled" in capabilities.transport.addressing_note
 
 
 def test_o30i_writes_declare_matchable_hop_response_ack() -> None:

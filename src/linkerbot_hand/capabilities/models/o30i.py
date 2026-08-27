@@ -9,6 +9,7 @@ from ..types import (
     StallFieldCapability,
     StallProtectionCapability,
     TelemetrySemantic,
+    TransportCapability,
 )
 from ._common import (
     U8_RANGE,
@@ -18,8 +19,9 @@ from ._common import (
     identity,
     joint,
     telemetry,
-    transport,
 )
+
+_RAW_ENCODING = "u8_v25_object"
 
 _JOINT_SPECS = (
     (
@@ -76,9 +78,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
     names = tuple(value.name for value in joints)
     stall_field = StallFieldCapability(
         raw_range=U8_RANGE,
-        raw_encoding="u8_36_slot_object",
+        raw_encoding=_RAW_ENCODING,
         raw_unit=None,
-        raw_scale_note="public 20 channels map to installed slots in a 36-slot object",
+        raw_scale_note="public 20 channels map to installed slots in V25",
         unit_confidence=Confidence.UNKNOWN,
     )
     stall = StallProtectionCapability(
@@ -97,22 +99,20 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             side,
             supported_fields=(
                 "serial_number",
+                "pcb_version",
                 "firmware_version",
-                "product_code",
+                "mechanical_version",
                 "sensor_variant",
-                "side",
             ),
         ),
         joints=joints,
         commands=(
-            angle_command(
-                joints, "u8_36_slot_object", ack_support=AckSupport.SUPPORTED
-            ),
+            angle_command(joints, _RAW_ENCODING, ack_support=AckSupport.SUPPORTED),
             command(
                 CommandSemantic.SPEEDS,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit="count",
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -121,7 +121,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.ACCELERATIONS,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit="count",
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -130,7 +130,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.EFFORT_LIMITS,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -139,7 +139,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.MOTION_TIMES,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit="count",
                 raw_scale_note="documentation states 10 ms/count; API returns count",
                 unit_confidence=Confidence.DOCUMENTED,
@@ -149,7 +149,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.STALL_DETECTION_TIMES,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -158,7 +158,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.STALL_THRESHOLDS,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -167,7 +167,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.STALL_HOLD_CURRENTS,
                 names,
                 U8_RANGE,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
                 ack_support=AckSupport.SUPPORTED,
@@ -176,14 +176,26 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         telemetry=(
             angle_telemetry(
                 joints,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 recommended_hz=30,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.MEASURED_SPEEDS,
+                names,
+                _RAW_ENCODING,
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=30,
+                stale_after_s=0.1,
                 estimated_transaction_s=0.004,
             ),
             telemetry(
                 TelemetrySemantic.CONFIGURED_SPEEDS,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -196,7 +208,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.CONFIGURED_ACCELERATIONS,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -209,7 +221,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.EFFORT_LIMITS,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
@@ -222,7 +234,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.TEMPERATURES,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -234,7 +246,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.CURRENTS,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -246,7 +258,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.FAULTS,
                 names,
-                "u8_bitmask_36_slot_object",
+                "u8_bitmask_v25_object",
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
@@ -258,7 +270,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.VOLTAGES,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -270,7 +282,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             telemetry(
                 TelemetrySemantic.MOTION_TIMES,
                 names,
-                "u8_36_slot_object",
+                _RAW_ENCODING,
                 shape=(20,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
@@ -285,7 +297,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 telemetry(
                     semantic,
                     names,
-                    "u8_36_slot_object",
+                    _RAW_ENCODING,
                     shape=(20,),
                     raw_range=U8_RANGE,
                     raw_unit=None,
@@ -303,7 +315,15 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             ),
         ),
         stall_protection=stall,
-        transport=transport(TransportKind.CAN_FD),
+        transport=TransportCapability(
+            kind=TransportKind.CAN_FD,
+            nominal_bitrate=1_000_000,
+            data_bitrate=1_000_000,
+            addressing_note=(
+                "HOP uses standard request ID 0x001 and response ID 0x401 with "
+                "CAN FD BRS disabled."
+            ),
+        ),
         operations=OperationCapabilities(
             read_stall_protection=True,
             write_stall_protection=True,

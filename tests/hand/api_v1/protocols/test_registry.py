@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from linkerbot_hand.api import HandSide, UnsupportedOperationError, ValidationError
+from linkerbot_hand.api import HandSide, ValidationError
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.protocols.l6 import L6ProtocolBackend
 from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
@@ -12,6 +12,7 @@ from linkerbot_hand.protocols.l25 import L25ProtocolBackend
 from linkerbot_hand.protocols.l30 import L30ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 from linkerbot_hand.protocols.o20 import O20ProtocolBackend
+from linkerbot_hand.protocols.o30i import O30iProtocolBackend
 from linkerbot_hand.protocols.registry import create_protocol_backend
 from linkerbot_transport import CANRouteKey
 
@@ -46,23 +47,6 @@ def test_registry_selects_model_and_side_without_io(
     assert backend.route_keys == (endpoint,)
 
 
-@pytest.mark.parametrize(
-    ("model", "side"),
-    (("o30i", HandSide.RIGHT),),
-)
-def test_registry_rejects_unmigrated_models_with_stable_error(
-    model: str,
-    side: HandSide | None,
-) -> None:
-    capabilities = get_declared_capabilities(model, side=side)
-
-    with pytest.raises(UnsupportedOperationError, match="not available") as raised:
-        create_protocol_backend(capabilities)
-
-    assert raised.value.operation == "open"
-    assert raised.value.model == capabilities.model
-
-
 def test_registry_selects_o20_can_fd_routes_without_io() -> None:
     capabilities = get_declared_capabilities("o20", side="right")
 
@@ -73,6 +57,16 @@ def test_registry_selects_o20_can_fd_routes_without_io() -> None:
     assert len(backend.route_keys) == 18
     assert len(set(backend.route_keys)) == len(backend.route_keys)
     assert all(route.is_extended_id for route in backend.route_keys)
+
+
+def test_registry_selects_o30i_standard_can_fd_route_without_io() -> None:
+    capabilities = get_declared_capabilities("o30i", side=HandSide.RIGHT)
+
+    backend = create_protocol_backend(capabilities)
+
+    assert isinstance(backend, O30iProtocolBackend)
+    assert backend.endpoint_id == ("o30i", 0x001, 0x401)
+    assert backend.route_keys == (CANRouteKey(0x401, False),)
 
 
 def test_registry_selects_side_neutral_l30_can_fd_routes_without_io() -> None:
