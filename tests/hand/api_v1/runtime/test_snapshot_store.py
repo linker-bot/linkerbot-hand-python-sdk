@@ -26,7 +26,29 @@ def make_store(*, model: str = "l6") -> tuple[SnapshotStore, DeviceCapabilities]
     capabilities = get_declared_capabilities(model, side="left")
     store = SnapshotStore(capabilities, make_initial_snapshot(capabilities))
     store.begin_generation(capabilities, generation=1, captured_at=100.0)
+    store.commit_generation(generation=1)
     return store, capabilities
+
+
+def test_candidate_generation_remains_hidden_until_atomic_commit() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    store = SnapshotStore(capabilities, make_initial_snapshot(capabilities))
+    store.begin_generation(capabilities, generation=1, captured_at=100.0)
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.ANGLES, raw=(1,) * 6),
+        generation=1,
+        collected_at=101.0,
+        collected_monotonic=10.0,
+    )
+
+    before = store.view(captured_at=101.0, monotonic_now=10.0)
+    assert before.connection_generation == 0
+    assert before.angles is not None and not before.angles.meta.valid
+
+    store.commit_generation(generation=1)
+    after = store.view(captured_at=101.0, monotonic_now=10.0)
+    assert after.connection_generation == 1
+    assert after.angles is not None and after.angles.meta.valid
 
 
 def test_angle_publication_keeps_raw_and_derives_declared_representations() -> None:

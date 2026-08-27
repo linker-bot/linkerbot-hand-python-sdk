@@ -104,6 +104,31 @@ def test_poll_joins_an_inflight_active_read_without_a_second_claim() -> None:
     assert waiter.wait() == (1, 2)
 
 
+def test_caller_joining_after_publication_waits_for_next_transaction() -> None:
+    coordinator, _clock, _wake = make_coordinator()
+    coordinator.activate()
+    first = coordinator.request(
+        TelemetrySemantic.ANGLES,
+        start_sequence=4,
+        deadline_s=1.0,
+    )
+    assert coordinator.take_next() is not None
+
+    late = coordinator.request(
+        TelemetrySemantic.ANGLES,
+        start_sequence=5,
+        deadline_s=1.0,
+    )
+    coordinator.complete(TelemetrySemantic.ANGLES, "sample-5", sequence=5)
+
+    assert first.wait() == "sample-5"
+    assert coordinator.pending_count == 1
+    assert coordinator.waiter_count == 1
+    assert coordinator.take_next() is not None
+    coordinator.complete(TelemetrySemantic.ANGLES, "sample-6", sequence=6)
+    assert late.wait() == "sample-6"
+
+
 def test_one_waiter_timeout_does_not_cancel_shared_transaction() -> None:
     coordinator, clock, _wake = make_coordinator()
     coordinator.activate()

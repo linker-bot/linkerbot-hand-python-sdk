@@ -143,9 +143,7 @@ class HealthStatus:
     def pending_commands(self) -> int:
         """Return pending continuous and discrete command count."""
 
-        return self.discrete_queue_depth + sum(
-            metrics.pending for metrics in self.command_families
-        )
+        return sum(metrics.pending for metrics in self.command_families)
 
     @property
     def superseded_commands(self) -> int:

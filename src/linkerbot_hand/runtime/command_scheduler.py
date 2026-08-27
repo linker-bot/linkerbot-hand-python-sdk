@@ -263,6 +263,53 @@ class CommandIngress:
                     raise RuntimeError("command FIFO changed while locked")
             return command
 
+    def take_latest(self, family: CommandFamily) -> ScheduledCommand | None:
+        """Temporarily take one newer target for transport-level replacement."""
+
+        if not isinstance(family, CommandFamily):
+            raise ValidationError("family must be CommandFamily")
+        if scheduling_policy_for(family) is not SchedulingPolicy.LATEST:
+            raise ValidationError("family does not use latest scheduling")
+        with self._lock:
+            return self._latest.pop(family, None)
+
+    def restore_latest(self, command: ScheduledCommand) -> bool:
+        """Restore a target when its prior transport job was already claimed.
+
+        A concurrent newer target remains authoritative. If lifecycle admission
+        closed while the command was temporarily removed, it fails instead of
+        being retained for a later connection generation.
+        """
+
+        if not isinstance(command, ScheduledCommand):
+            raise ValidationError("command must be ScheduledCommand")
+        if command.policy is not SchedulingPolicy.LATEST:
+            raise ValidationError("only latest commands can be restored")
+        retained = False
+        with self._lock:
+            metrics = self._metrics[command.family]
+            now = self._monotonic()
+            if not self._accepting:
+                command.handle._mark_failed(
+                    self._admission_error,
+                    timestamp=now,
+                    sent_frames=0,
+                )
+                metrics.failed += 1
+            else:
+                newer = self._latest.get(command.family)
+                if newer is None:
+                    self._latest[command.family] = command
+                    retained = True
+                else:
+                    if newer.sequence <= command.sequence:
+                        raise RuntimeError("latest command sequence moved backwards")
+                    command.handle._mark_superseded(timestamp=now)
+                    metrics.superseded += 1
+        if retained:
+            self._wake()
+        return retained
+
     def fail_pending(self, error: HandError) -> tuple[CommandHandle, ...]:
         """Fail and remove all unclaimed work from an ending generation."""
 

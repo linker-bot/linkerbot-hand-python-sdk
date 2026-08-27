@@ -7,6 +7,7 @@ from linkerbot_hand.api.errors import PollingPlanError
 from linkerbot_hand.api.health import DataAge
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import TelemetrySemantic
+from linkerbot_hand.runtime._clock import SystemClock
 from linkerbot_hand.runtime.poll_scheduler import PollScheduler
 
 
@@ -57,12 +58,36 @@ def test_due_ticks_keep_only_the_next_deadline_without_backlog() -> None:
     assert metrics["angles"].missed_deadlines == 99
 
 
-def test_equivalent_active_read_satisfies_poll_and_moves_deadline() -> None:
+def test_poll_response_time_does_not_reduce_the_requested_frequency() -> None:
     scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
     scheduler.replace(PollingPlan(angles_hz=10), now=0.0)
 
     assert scheduler.take_due(now=0.0) is TelemetrySemantic.ANGLES
-    scheduler.mark_completed(TelemetrySemantic.ANGLES, now=0.05)
+    scheduler.mark_completed(
+        TelemetrySemantic.ANGLES,
+        now=0.05,
+        requested_by_poll=True,
+    )
+
+    assert scheduler.take_due(now=0.099) is None
+    assert scheduler.take_due(now=0.1) is TelemetrySemantic.ANGLES
+
+
+def test_active_read_satisfies_the_next_poll_without_creating_backlog() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    scheduler.replace(PollingPlan(angles_hz=10), now=0.0)
+    assert scheduler.take_due(now=0.0) is TelemetrySemantic.ANGLES
+    scheduler.mark_completed(
+        TelemetrySemantic.ANGLES,
+        now=0.01,
+        requested_by_poll=True,
+    )
+
+    scheduler.mark_completed(
+        TelemetrySemantic.ANGLES,
+        now=0.05,
+        requested_by_poll=False,
+    )
 
     assert scheduler.take_due(now=0.1) is None
     assert scheduler.take_due(now=0.15) is TelemetrySemantic.ANGLES
@@ -99,3 +124,17 @@ def test_metrics_keep_declared_channels_even_when_polling_is_off() -> None:
         item.semantic.value for item in capabilities.telemetry
     }
     assert all(item.requested_hz == 0 for item in metrics)
+
+
+def test_stop_prevents_new_poll_claims_and_idle_tracks_started_work() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    clock = SystemClock()
+    scheduler.replace(PollingPlan(angles_hz=10), now=0.0)
+
+    assert scheduler.begin_poll(TelemetrySemantic.ANGLES)
+    assert not scheduler.wait_idle(clock=clock, timeout_s=0)
+    assert scheduler.stop()
+    assert not scheduler.begin_poll(TelemetrySemantic.ANGLES)
+
+    scheduler.finish_poll()
+    assert scheduler.wait_idle(clock=clock, timeout_s=0)

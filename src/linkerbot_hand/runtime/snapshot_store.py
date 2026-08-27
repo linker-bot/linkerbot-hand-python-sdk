@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import threading
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from ..api._initial_state import make_initial_snapshot
 from ..api.device_info import DeviceInfo
@@ -28,6 +28,17 @@ from ._snapshot_samples import (
 )
 
 
+@dataclass(slots=True)
+class _GenerationState:
+    capabilities: DeviceCapabilities
+    generation: int
+    snapshot: HandSnapshot
+    collected_monotonic: dict[TelemetrySemantic, float]
+    device_info_collected_monotonic: float | None
+    sequences: dict[TelemetrySemantic, int]
+    device_info_sequence: int
+
+
 class SnapshotStore:
     """Publish immutable channel samples and build bounded zero-I/O views."""
 
@@ -41,13 +52,8 @@ class SnapshotStore:
         if not isinstance(initial_snapshot, HandSnapshot):
             raise ValidationError("initial_snapshot must be HandSnapshot")
         self._lock = threading.Lock()
-        self._capabilities = capabilities
-        self._snapshot = initial_snapshot
-        self._generation = initial_snapshot.connection_generation
-        self._collected_monotonic: dict[TelemetrySemantic, float] = {}
-        self._device_info_collected_monotonic: float | None = None
-        self._sequences = {semantic: 0 for semantic in SAMPLE_ATTRIBUTES}
-        self._device_info_sequence = 0
+        self._current = _generation_state(capabilities, initial_snapshot)
+        self._candidate: _GenerationState | None = None
 
     def begin_generation(
         self,
@@ -56,7 +62,7 @@ class SnapshotStore:
         generation: int,
         captured_at: float,
     ) -> None:
-        """Atomically reset all state before publishing a new baseline."""
+        """Create a hidden candidate generation for identity and baseline data."""
 
         if not isinstance(capabilities, DeviceCapabilities):
             raise ValidationError("capabilities must be DeviceCapabilities")
@@ -66,13 +72,41 @@ class SnapshotStore:
         initial = make_initial_snapshot(capabilities)
         invalid = snapshot_with_generation(initial, generation, captured_at)
         with self._lock:
-            self._capabilities = capabilities
-            self._generation = generation
-            self._snapshot = invalid
-            self._collected_monotonic.clear()
-            self._device_info_collected_monotonic = None
-            self._sequences = {semantic: 0 for semantic in SAMPLE_ATTRIBUTES}
-            self._device_info_sequence = 0
+            if self._candidate is not None:
+                raise ProtocolError("a snapshot generation is already being prepared")
+            if generation <= self._current.generation:
+                raise ProtocolError("candidate generation must advance monotonically")
+            self._candidate = _generation_state(capabilities, invalid)
+
+    def commit_generation(self, *, generation: int) -> None:
+        """Atomically publish one fully verified candidate generation."""
+
+        with self._lock:
+            candidate = self._candidate
+            if candidate is None or candidate.generation != generation:
+                raise ProtocolError("snapshot candidate generation is unavailable")
+            self._current = candidate
+            self._candidate = None
+
+    def reset_invalid(
+        self,
+        capabilities: DeviceCapabilities,
+        *,
+        generation: int,
+        captured_at: float,
+    ) -> None:
+        """Roll back a failed candidate to one fully invalid cached generation."""
+
+        if not isinstance(capabilities, DeviceCapabilities):
+            raise ValidationError("capabilities must be DeviceCapabilities")
+        if type(generation) is not int or generation < 0:
+            raise ValidationError("generation must be a non-negative int")
+        _validate_time(captured_at)
+        initial = make_initial_snapshot(capabilities)
+        invalid = snapshot_with_generation(initial, generation, captured_at)
+        with self._lock:
+            self._current = _generation_state(capabilities, invalid)
+            self._candidate = None
 
     def publish(
         self,
@@ -89,14 +123,14 @@ class SnapshotStore:
         _validate_time(collected_at)
         _validate_time(collected_monotonic)
         with self._lock:
-            self._require_generation_locked(generation)
-            telemetry = self._capabilities.telemetry_channel(payload.semantic)
+            state = self._state_for_generation_locked(generation)
+            telemetry = state.capabilities.telemetry_channel(payload.semantic)
             if telemetry is None:
                 raise ProtocolError(
                     f"profile has no {payload.semantic.value} telemetry"
                 )
-            validate_payload_shape(payload, self._capabilities)
-            sequence = self._sequences[payload.semantic] + 1
+            validate_payload_shape(payload, state.capabilities)
+            sequence = state.sequences[payload.semantic] + 1
             meta = SampleMeta(
                 sequence=sequence,
                 collected_at=collected_at,
@@ -105,22 +139,22 @@ class SnapshotStore:
                 stale=False,
                 connection_generation=generation,
                 origin=payload.origin,
-                within_declared_range=payload_within_range(payload, self._capabilities),
+                within_declared_range=payload_within_range(payload, state.capabilities),
             )
-            sample = build_sample(payload, meta, self._capabilities)
+            sample = build_sample(payload, meta, state.capabilities)
             attribute = SAMPLE_ATTRIBUTES[payload.semantic]
             updated = replace(
-                self._snapshot,
+                state.snapshot,
                 captured_at=collected_at,
-                snapshot_sequence=self._snapshot.snapshot_sequence + 1,
+                snapshot_sequence=state.snapshot.snapshot_sequence + 1,
                 **{attribute: sample},
             )
-            self._snapshot = replace(
+            state.snapshot = replace(
                 updated,
-                joints=build_joints(updated, self._capabilities),
+                joints=build_joints(updated, state.capabilities),
             )
-            self._sequences[payload.semantic] = sequence
-            self._collected_monotonic[payload.semantic] = collected_monotonic
+            state.sequences[payload.semantic] = sequence
+            state.collected_monotonic[payload.semantic] = collected_monotonic
             return sample
 
     def publish_device_info(
@@ -138,17 +172,17 @@ class SnapshotStore:
         _validate_time(collected_at)
         _validate_time(collected_monotonic)
         with self._lock:
-            self._require_generation_locked(generation)
+            state = self._state_for_generation_locked(generation)
             if (
-                device_info.model != self._capabilities.model
-                or device_info.side is not self._capabilities.side
+                device_info.model != state.capabilities.model
+                or device_info.side is not state.capabilities.side
             ):
                 raise ProtocolError("device info does not match verified capability")
-            self._device_info_sequence += 1
+            state.device_info_sequence += 1
             published = replace(
                 device_info,
                 meta=SampleMeta(
-                    sequence=self._device_info_sequence,
+                    sequence=state.device_info_sequence,
                     collected_at=collected_at,
                     age_s=0.0,
                     valid=True,
@@ -158,13 +192,13 @@ class SnapshotStore:
                     within_declared_range=True,
                 ),
             )
-            self._snapshot = replace(
-                self._snapshot,
+            state.snapshot = replace(
+                state.snapshot,
                 captured_at=collected_at,
-                snapshot_sequence=self._snapshot.snapshot_sequence + 1,
+                snapshot_sequence=state.snapshot.snapshot_sequence + 1,
                 device_info=published,
             )
-            self._device_info_collected_monotonic = collected_monotonic
+            state.device_info_collected_monotonic = collected_monotonic
             return published
 
     def invalidate(self, *, generation: int, captured_at: float) -> None:
@@ -172,14 +206,16 @@ class SnapshotStore:
 
         _validate_time(captured_at)
         with self._lock:
-            self._require_generation_locked(generation)
-            self._snapshot = invalidate_snapshot(
-                self._snapshot,
+            if generation != self._current.generation:
+                raise ProtocolError("sample belongs to a stale connection generation")
+            self._current.snapshot = invalidate_snapshot(
+                self._current.snapshot,
                 generation=generation,
                 captured_at=captured_at,
             )
-            self._collected_monotonic.clear()
-            self._device_info_collected_monotonic = None
+            self._current.collected_monotonic.clear()
+            self._current.device_info_collected_monotonic = None
+            self._candidate = None
 
     def view(self, *, captured_at: float, monotonic_now: float) -> HandSnapshot:
         """Return an immutable cache-only view with current age and stale flags."""
@@ -187,27 +223,28 @@ class SnapshotStore:
         _validate_time(captured_at)
         _validate_time(monotonic_now)
         with self._lock:
+            state = self._current
             updates: dict[str, object] = {"captured_at": captured_at}
             for semantic, attribute in SAMPLE_ATTRIBUTES.items():
-                sample = getattr(self._snapshot, attribute)
+                sample = getattr(state.snapshot, attribute)
                 if sample is not None:
                     updates[attribute] = age_sample(
                         semantic,
                         sample,
                         monotonic_now=monotonic_now,
-                        collected_monotonic=self._collected_monotonic.get(semantic),
-                        capabilities=self._capabilities,
-                        generation=self._generation,
+                        collected_monotonic=state.collected_monotonic.get(semantic),
+                        capabilities=state.capabilities,
+                        generation=state.generation,
                     )
-            device_info = self._snapshot.device_info
+            device_info = state.snapshot.device_info
             if device_info is not None:
                 updates["device_info"] = age_device_info(
                     device_info,
                     monotonic_now=monotonic_now,
-                    collected_monotonic=self._device_info_collected_monotonic,
-                    generation=self._generation,
+                    collected_monotonic=state.device_info_collected_monotonic,
+                    generation=state.generation,
                 )
-            return replace(self._snapshot, **updates)
+            return replace(state.snapshot, **updates)
 
     def sample(
         self,
@@ -229,14 +266,14 @@ class SnapshotStore:
         """Return the current generation's channel sequence."""
 
         with self._lock:
-            return self._sequences.get(semantic, 0)
+            return self._current.sequences.get(semantic, 0)
 
     @property
     def device_info_sequence(self) -> int:
         """Return the current generation's identity sample sequence."""
 
         with self._lock:
-            return self._device_info_sequence
+            return self._current.device_info_sequence
 
     def data_ages(
         self, *, captured_at: float, monotonic_now: float
@@ -259,9 +296,30 @@ class SnapshotStore:
             )
         return result
 
-    def _require_generation_locked(self, generation: int) -> None:
-        if type(generation) is not int or generation != self._generation:
+    def _state_for_generation_locked(self, generation: int) -> _GenerationState:
+        if type(generation) is not int:
             raise ProtocolError("sample belongs to a stale connection generation")
+        candidate = self._candidate
+        if candidate is not None and candidate.generation == generation:
+            return candidate
+        if self._current.generation == generation:
+            return self._current
+        raise ProtocolError("sample belongs to a stale connection generation")
+
+
+def _generation_state(
+    capabilities: DeviceCapabilities,
+    snapshot: HandSnapshot,
+) -> _GenerationState:
+    return _GenerationState(
+        capabilities=capabilities,
+        generation=snapshot.connection_generation,
+        snapshot=snapshot,
+        collected_monotonic={},
+        device_info_collected_monotonic=None,
+        sequences={semantic: 0 for semantic in SAMPLE_ATTRIBUTES},
+        device_info_sequence=0,
+    )
 
 
 def _validate_time(value: object) -> None:

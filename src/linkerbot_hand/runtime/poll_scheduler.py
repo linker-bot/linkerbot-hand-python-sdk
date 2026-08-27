@@ -10,6 +10,7 @@ from ..api.config import PollingPlan
 from ..api.errors import PollingPlanError, ValidationError
 from ..api.health import ChannelMetrics, DataAge
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
+from ._clock import RuntimeClock
 
 POLL_CHANNELS = {
     "angles": TelemetrySemantic.ANGLES,
@@ -47,6 +48,19 @@ class PollScheduler:
         self._lock = threading.Lock()
         self._plan: PollingPlan | None = None
         self._states: dict[TelemetrySemantic, _PollState] = {}
+        self._in_flight = 0
+        self._idle = threading.Event()
+        self._idle.set()
+
+    def reconfigure(self, capabilities: DeviceCapabilities) -> None:
+        """Replace the verified profile only while polling is stopped."""
+
+        if not isinstance(capabilities, DeviceCapabilities):
+            raise ValidationError("capabilities must be DeviceCapabilities")
+        with self._lock:
+            if self._states:
+                raise PollingPlanError("cannot change capabilities while polling")
+            self._capabilities = capabilities
 
     def replace(self, plan: PollingPlan, *, now: float) -> bool:
         """Atomically install a plan; equal plans are strict no-ops."""
@@ -105,16 +119,28 @@ class PollScheduler:
             state.next_deadline_s += periods * state.period_s
             return semantic
 
-    def mark_completed(self, semantic: TelemetrySemantic, *, now: float) -> None:
-        """Count a matching poll/read and schedule the next fresh sample."""
+    def mark_completed(
+        self,
+        semantic: TelemetrySemantic,
+        *,
+        now: float,
+        requested_by_poll: bool,
+    ) -> None:
+        """Count a sample without adding response time to periodic deadlines."""
 
         _validate_time(now)
+        if not isinstance(requested_by_poll, bool):
+            raise ValidationError("requested_by_poll must be bool")
         with self._lock:
             state = self._states.get(semantic)
             if state is None:
                 return
             state.completed += 1
-            state.next_deadline_s = max(state.next_deadline_s, now + state.period_s)
+            if not requested_by_poll:
+                state.next_deadline_s = max(
+                    state.next_deadline_s,
+                    now + state.period_s,
+                )
 
     def mark_timeout(self, semantic: TelemetrySemantic) -> None:
         """Count one failed due transaction without creating a retry backlog."""
@@ -123,6 +149,42 @@ class PollScheduler:
             state = self._states.get(semantic)
             if state is not None:
                 state.timeouts += 1
+
+    def begin_poll(self, semantic: TelemetrySemantic) -> bool:
+        """Register a due poll only if its plan is still active."""
+
+        if not isinstance(semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        with self._lock:
+            if semantic not in self._states:
+                return False
+            self._in_flight += 1
+            self._idle.clear()
+            return True
+
+    def finish_poll(self) -> None:
+        """Release one registered poll and wake a stopping caller."""
+
+        with self._lock:
+            if self._in_flight <= 0:
+                raise RuntimeError("poll in-flight count moved below zero")
+            self._in_flight -= 1
+            if self._in_flight == 0:
+                self._idle.set()
+
+    def wait_idle(self, *, clock: RuntimeClock, timeout_s: float) -> bool:
+        """Wait boundedly until every poll that already started has finished."""
+
+        if not callable(getattr(clock, "wait", None)):
+            raise ValidationError("clock must provide wait()")
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not math.isfinite(timeout_s)
+            or timeout_s < 0
+        ):
+            raise ValidationError("timeout_s must be finite and non-negative")
+        return clock.wait(self._idle, float(timeout_s))
 
     def next_deadline(self) -> float | None:
         """Return the next scheduler wake-up time without changing state."""

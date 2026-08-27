@@ -171,6 +171,51 @@ def test_high_rate_submission_remains_capacity_one_and_sends_final_target() -> N
     assert angles.pending == 0
 
 
+def test_transport_replacement_candidate_restores_without_overwriting_newer_target() -> (
+    None
+):
+    ingress, _ = make_ingress()
+    ingress.activate(generation=1)
+    old_handle = ingress.submit(
+        CommandSemantic.ANGLES,
+        (10,),
+        ack_support=AckSupport.UNSUPPORTED,
+    )
+    old = ingress.take_latest(CommandFamily.ANGLE_TARGET)
+    assert old is not None
+    newer_handle = ingress.submit(
+        CommandSemantic.ANGLES,
+        (20,),
+        ack_support=AckSupport.UNSUPPORTED,
+    )
+
+    assert not ingress.restore_latest(old)
+
+    assert old_handle.stage is CommandStage.SUPERSEDED
+    retained = ingress.take_next()
+    assert retained is not None
+    assert retained.handle is newer_handle
+    assert retained.values == (20,)
+
+
+def test_transport_replacement_candidate_cannot_cross_a_closed_generation() -> None:
+    ingress, _ = make_ingress()
+    ingress.activate(generation=1)
+    handle = ingress.submit(
+        CommandSemantic.ANGLES,
+        (10,),
+        ack_support=AckSupport.UNSUPPORTED,
+    )
+    candidate = ingress.take_latest(CommandFamily.ANGLE_TARGET)
+    assert candidate is not None
+    ingress.reject_new(ClosedError("closing", generation=1))
+
+    assert not ingress.restore_latest(candidate)
+
+    assert handle.stage is CommandStage.FAILED
+    assert ingress.pending_count == 0
+
+
 def test_generation_end_fails_every_unclaimed_command_without_replay() -> None:
     ingress, _ = make_ingress()
     ingress.activate(generation=7)

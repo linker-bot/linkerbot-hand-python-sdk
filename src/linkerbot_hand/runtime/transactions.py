@@ -199,15 +199,29 @@ class TransactionCoordinator:
             return TransactionClaim(entry.key, entry.requested_by_poll)
 
     def complete(self, key: Hashable, result: object, *, sequence: int) -> None:
-        """Publish first, then complete every caller joined to this transaction."""
+        """Complete callers predating the sample and retain later callers."""
 
         with self._lock:
-            entry = self._entries.pop(key, None)
+            entry = self._entries.get(key)
             if entry is None:
                 return
-            waiters = tuple(entry.waiters)
-            self._waiter_count -= len(waiters)
-        for waiter in waiters:
+            completed = tuple(
+                waiter for waiter in entry.waiters if waiter.start_sequence < sequence
+            )
+            remaining = [
+                waiter for waiter in entry.waiters if waiter.start_sequence >= sequence
+            ]
+            self._waiter_count -= len(completed)
+            if remaining:
+                entry.waiters = remaining
+                entry.requested_by_poll = False
+                entry.in_flight = False
+                self._next_order += 1
+                entry.order = self._next_order
+                self._entries.move_to_end(key)
+            else:
+                del self._entries[key]
+        for waiter in completed:
             waiter.complete(result, sequence=sequence)
 
     def fail(self, key: Hashable, error: HandError) -> None:
@@ -237,6 +251,33 @@ class TransactionCoordinator:
             self._waiter_count = 0
         for waiter in waiters:
             waiter.fail(error)
+
+    def cancel_polls(self) -> bool:
+        """Remove poll-only work that the actor has not claimed yet."""
+
+        changed = False
+        with self._lock:
+            for key, entry in tuple(self._entries.items()):
+                if not entry.requested_by_poll:
+                    continue
+                entry.requested_by_poll = False
+                changed = True
+                if not entry.waiters and not entry.in_flight:
+                    del self._entries[key]
+        return changed
+
+    def cancel_poll_if_unobserved(self, key: Hashable) -> bool:
+        """Discard a claimed poll unless a fresh active reader joined it."""
+
+        _validate_key(key)
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return True
+            if entry.waiters:
+                return False
+            del self._entries[key]
+            return True
 
     def cancel(self, waiter: TransactionWaiter) -> None:
         """Remove one timed-out caller without cancelling shared in-flight work."""

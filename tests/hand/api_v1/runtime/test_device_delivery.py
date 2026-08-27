@@ -1,0 +1,482 @@
+"""Command delivery, cache, and read-coalescing runtime contracts."""
+
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import replace
+
+import pytest
+
+from linkerbot_hand.api import (
+    AckSupport,
+    AngleSample,
+    CommandStage,
+    ErrorCode,
+    PollingPlan,
+    TimeoutError,
+)
+from linkerbot_hand.api.enums import DataOrigin
+from linkerbot_hand.capabilities.registry import get_declared_capabilities
+from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
+
+from .factories import hold_next_idle_deadline_check, make_hand, make_shared_hands
+from .fakes import WireMessage, wait_until
+
+
+def test_acknowledged_command_reports_every_real_delivery_stage() -> None:
+    declared = get_declared_capabilities("l6", side="left")
+    capabilities = replace(
+        declared,
+        commands=tuple(
+            replace(command, ack_support=AckSupport.SUPPORTED)
+            if command.semantic is CommandSemantic.ANGLES
+            else command
+            for command in declared.commands
+        ),
+    )
+    hand, state, _transport = make_hand(capabilities=capabilities)
+    hand.open()
+    try:
+        handle = hand.set_angles((10,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert tuple(item.stage for item in handle.history) == (
+            CommandStage.ACCEPTED,
+            CommandStage.DISPATCHED,
+            CommandStage.ACKNOWLEDGED,
+        )
+        with state.lock:
+            assert state.command_log == [(CommandSemantic.ANGLES, (10,) * 6)]
+    finally:
+        hand.close()
+
+
+def test_response_before_transport_receipt_preserves_delivery_order() -> None:
+    declared = get_declared_capabilities("l6", side="left")
+    capabilities = replace(
+        declared,
+        commands=tuple(
+            replace(command, ack_support=AckSupport.SUPPORTED)
+            if command.semantic is CommandSemantic.ANGLES
+            else command
+            for command in declared.commands
+        ),
+    )
+    hand, _state, transport = make_hand(capabilities=capabilities)
+    backend = transport.backends["fake-hand"]
+    original = backend.command_transaction
+    response_consumed = threading.Event()
+
+    def command_transaction(*args, **kwargs):
+        transaction = original(*args, **kwargs)
+        consumer = transaction.response_consumer
+        assert consumer is not None
+
+        def consume(message):
+            progress = consumer(message)
+            if progress.matched:
+                response_consumed.set()
+            return progress
+
+        return replace(transaction, response_consumer=consume)
+
+    backend.command_transaction = command_transaction  # ty: ignore[invalid-assignment]
+
+    def wait_for_response() -> None:
+        response_consumed.wait(timeout=0.2)
+
+    transport.command_sent_hook = wait_for_response
+    hand.open()
+    try:
+        handle = hand.set_angles((10,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert response_consumed.is_set()
+        assert tuple(item.stage for item in handle.history) == (
+            CommandStage.ACCEPTED,
+            CommandStage.DISPATCHED,
+            CommandStage.ACKNOWLEDGED,
+        )
+    finally:
+        transport.command_sent_hook = None
+        hand.close()
+
+
+def test_transport_failure_never_reports_dispatched() -> None:
+    hand, state, transport = make_hand()
+    hand.open()
+    try:
+        with state.lock:
+            state.command_log.clear()
+        transport.current_dispatcher.send_error = OSError("simulated bus write failure")
+
+        handle = hand.set_angles((10,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert tuple(item.stage for item in handle.history) == (
+            CommandStage.ACCEPTED,
+            CommandStage.FAILED,
+        )
+        assert handle.sent_frames == 0
+        assert handle.error is not None
+        assert handle.error.code is ErrorCode.TRANSPORT
+        with state.lock:
+            assert state.command_log == []
+        wait_until(lambda: not hand.get_health().connected)
+    finally:
+        hand.close()
+
+
+def test_command_cache_returns_configured_speed_without_device_query() -> None:
+    hand, state, transport = make_hand()
+    hand.open()
+    try:
+        handle = hand.set_speeds((7,) * 6)
+        assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+        sent_before = len(transport.sent)
+
+        sample = hand.get_configured_speeds(timeout=0.1)
+
+        assert sample.raw == (7,) * 6
+        assert sample.meta.origin is DataOrigin.COMMAND_CACHE
+        assert len(transport.sent) == sent_before
+        with state.lock:
+            assert TelemetrySemantic.CONFIGURED_SPEEDS not in state.query_log
+    finally:
+        hand.close()
+
+
+def test_active_read_satisfies_equivalent_poll_without_second_query() -> None:
+    hand, state, transport = make_hand()
+    hand.open()
+    result: list[AngleSample] = []
+    try:
+        with state.lock:
+            state.query_log.clear()
+            state.readings[TelemetrySemantic.ANGLES] = (42,) * 6
+        transport.read_send_started.clear()
+        transport.read_gate.clear()
+
+        reader = threading.Thread(
+            target=lambda: result.append(hand.get_angles(timeout=1))
+        )
+        reader.start()
+        assert transport.read_send_started.wait(timeout=1)
+        hand.start_polling(PollingPlan(angles_hz=1))
+        transport.read_gate.set()
+        reader.join(timeout=1)
+        hand.stop_polling()
+
+        assert not reader.is_alive()
+        assert len(result) == 1 and result[0].raw == (42,) * 6
+        with state.lock:
+            assert state.query_log == [TelemetrySemantic.ANGLES]
+    finally:
+        transport.read_gate.set()
+        hand.close()
+
+
+def test_pending_command_total_does_not_double_count_discrete_fifo() -> None:
+    hand, _state, transport = make_hand()
+    hand.open()
+    try:
+        transport.command_send_started.clear()
+        transport.command_gate.clear()
+        motion = hand.set_angles((10,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+        discrete = hand.clear_faults()
+
+        wait_until(lambda: hand.get_health().discrete_queue_depth == 1)
+        health = hand.get_health()
+        assert health.pending_commands == 1
+        assert health.discrete_queue_depth == 1
+
+        transport.command_gate.set()
+        assert motion.wait(timeout=1) is CommandStage.DISPATCHED
+        assert discrete.wait(timeout=1) is CommandStage.DISPATCHED
+    finally:
+        transport.command_gate.set()
+        hand.close()
+
+
+def test_new_target_replaces_an_old_target_waiting_on_a_shared_transport() -> None:
+    l6, l6_state, o6, _o6_state, transport = make_shared_hands()
+    l6.open()
+    o6.open()
+    try:
+        with l6_state.lock:
+            l6_state.command_log.clear()
+        transport.command_send_started.clear()
+        transport.command_gate.clear()
+        blocker = o6.set_angles((30,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+        old = l6.set_angles((10,) * 6)
+        wait_until(lambda: l6.get_health().transport.pending_tx >= 2)
+        before = l6.get_snapshot().angles
+        assert before is not None
+
+        latest = l6.set_angles((20,) * 6)
+        transport.emit(
+            WireMessage(
+                "l6-left-rx",
+                "report",
+                TelemetrySemantic.ANGLES.value,
+                (55,) * 6,
+            )
+        )
+
+        wait_until(lambda: old.stage is CommandStage.SUPERSEDED)
+
+        def latest_report_was_published() -> bool:
+            angles = l6.get_snapshot().angles
+            return angles is not None and angles.raw == (55,) * 6
+
+        wait_until(latest_report_was_published)
+        assert old.wait(timeout=0.1) is CommandStage.SUPERSEDED
+        assert latest.stage is CommandStage.ACCEPTED
+        assert l6.get_health().transport.pending_tx == 2
+
+        transport.command_gate.set()
+        assert blocker.wait(timeout=1) is CommandStage.DISPATCHED
+        assert latest.wait(timeout=1) is CommandStage.DISPATCHED
+        with l6_state.lock:
+            assert l6_state.command_log == [(CommandSemantic.ANGLES, (20,) * 6)]
+    finally:
+        transport.command_gate.set()
+        l6.close()
+        o6.close()
+
+
+def test_fifo_receipt_wait_keeps_processing_unsolicited_reports() -> None:
+    l6, _l6_state, o6, _o6_state, transport = make_shared_hands()
+    l6.open()
+    o6.open()
+    try:
+        transport.command_send_started.clear()
+        transport.command_gate.clear()
+        blocker = o6.set_angles((30,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+        discrete = l6.clear_faults()
+        wait_until(lambda: l6.get_health().transport.pending_tx >= 2)
+
+        transport.emit(
+            WireMessage(
+                "l6-left-rx",
+                "report",
+                TelemetrySemantic.ANGLES.value,
+                (66,) * 6,
+            )
+        )
+
+        def fifo_report_was_published() -> bool:
+            angles = l6.get_snapshot().angles
+            return angles is not None and angles.raw == (66,) * 6
+
+        wait_until(fifo_report_was_published)
+        assert discrete.stage is CommandStage.ACCEPTED
+
+        transport.command_gate.set()
+        assert blocker.wait(timeout=1) is CommandStage.DISPATCHED
+        assert discrete.wait(timeout=1) is CommandStage.DISPATCHED
+    finally:
+        transport.command_gate.set()
+        l6.close()
+        o6.close()
+
+
+def test_new_target_waits_in_device_slot_after_prior_target_is_claimed() -> None:
+    declared = get_declared_capabilities("l6", side="left")
+    capabilities = replace(
+        declared,
+        commands=tuple(
+            replace(command, ack_support=AckSupport.SUPPORTED)
+            if command.semantic is CommandSemantic.ANGLES
+            else command
+            for command in declared.commands
+        ),
+    )
+    hand, state, transport = make_hand(capabilities=capabilities)
+    hand.open()
+    try:
+        with state.lock:
+            state.command_log.clear()
+        transport.command_send_started.clear()
+        transport.command_gate.clear()
+        claimed = hand.set_angles((10,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+
+        latest = hand.set_angles((20,) * 6)
+
+        wait_until(lambda: hand.get_health().pending_commands == 1)
+        assert claimed.stage is CommandStage.ACCEPTED
+        assert latest.stage is CommandStage.ACCEPTED
+        assert hand.get_health().transport.pending_tx == 1
+
+        transport.command_gate.set()
+        assert claimed.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert latest.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        with state.lock:
+            assert state.command_log == [
+                (CommandSemantic.ANGLES, (10,) * 6),
+                (CommandSemantic.ANGLES, (20,) * 6),
+            ]
+    finally:
+        transport.command_gate.set()
+        hand.close()
+
+
+def test_close_reports_a_claimed_successful_send_as_dispatched() -> None:
+    hand, state, transport = make_hand()
+    hand.open()
+    transport.command_send_started.clear()
+    transport.command_gate.clear()
+    handle = hand.set_angles((10,) * 6)
+    assert transport.command_send_started.wait(timeout=1)
+    errors: list[BaseException] = []
+
+    def close() -> None:
+        try:
+            hand.close()
+        except BaseException as error:  # noqa: BLE001 - test thread boundary
+            errors.append(error)
+
+    closer = threading.Thread(target=close)
+    closer.start()
+    wait_until(lambda: hand.get_health().lifecycle_state.value == "closing")
+    try:
+        assert closer.is_alive()
+        assert handle.stage is CommandStage.ACCEPTED
+    finally:
+        transport.command_gate.set()
+    closer.join(timeout=1)
+
+    assert not closer.is_alive()
+    assert errors == []
+    assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+    assert tuple(item.stage for item in handle.history) == (
+        CommandStage.ACCEPTED,
+        CommandStage.DISPATCHED,
+    )
+    with state.lock:
+        assert state.command_log == [(CommandSemantic.ANGLES, (10,) * 6)]
+
+
+def test_unsolicited_report_wakes_an_idle_actor_and_updates_snapshot() -> None:
+    hand, _state, transport = make_hand()
+    hand.open()
+    try:
+        before = hand.get_snapshot().angles
+        assert before is not None
+
+        transport.emit(
+            WireMessage(
+                "fake-hand-rx",
+                "report",
+                TelemetrySemantic.ANGLES.value,
+                (42,) * 6,
+            )
+        )
+
+        def report_was_published() -> bool:
+            angles = hand.get_snapshot().angles
+            return angles is not None and angles.meta.sequence > before.meta.sequence
+
+        wait_until(report_was_published)
+        angles = hand.get_snapshot().angles
+        assert angles is not None and angles.raw == (42,) * 6
+    finally:
+        hand.close()
+
+
+def test_timed_out_reply_is_quarantined_instead_of_published_as_a_report() -> None:
+    hand, state, transport = make_hand()
+    hand.open()
+    try:
+        with state.lock:
+            state.drop_reads.add(TelemetrySemantic.ANGLES)
+            state.late_response_guard_s = 0.1
+        before = hand.get_snapshot().angles
+        assert before is not None
+
+        with pytest.raises(TimeoutError, match="response"):
+            hand.get_angles(timeout=1)
+
+        transport.emit(
+            WireMessage(
+                "fake-hand-rx",
+                "read_reply",
+                TelemetrySemantic.ANGLES.value,
+                (99,) * 6,
+            )
+        )
+        time.sleep(0.02)
+
+        quarantined = hand.get_snapshot().angles
+        assert quarantined is not None
+        assert quarantined.meta.sequence == before.meta.sequence
+        assert quarantined.raw == before.raw
+    finally:
+        hand.close()
+
+
+def test_unsolicited_report_is_not_starved_by_sustained_commands() -> None:
+    hand, _state, transport = make_hand()
+    hand.open()
+    keep_refilling = threading.Event()
+    keep_refilling.set()
+    submitted = 0
+
+    def refill() -> None:
+        nonlocal submitted
+        if not keep_refilling.is_set():
+            return
+        submitted += 1
+        hand.set_angles((submitted % 256,) * 6)
+
+    transport.command_sent_hook = refill
+    try:
+        before = hand.get_snapshot().angles
+        assert before is not None
+        hand.set_angles((1,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+        transport.emit(
+            WireMessage(
+                "fake-hand-rx",
+                "report",
+                TelemetrySemantic.ANGLES.value,
+                (77,) * 6,
+            )
+        )
+
+        def report_was_published() -> bool:
+            angles = hand.get_snapshot().angles
+            return angles is not None and angles.raw == (77,) * 6
+
+        wait_until(report_was_published, timeout_s=0.5)
+        assert submitted > 0
+    finally:
+        keep_refilling.clear()
+        transport.command_sent_hook = None
+        hand.close()
+
+
+def test_idle_polling_start_cannot_be_lost_before_actor_wait() -> None:
+    hand, state, _transport = make_hand()
+    hand.open()
+    entered, release, restore = hold_next_idle_deadline_check(hand)
+    try:
+        assert entered.wait(timeout=1)
+        with state.lock:
+            state.query_log.clear()
+
+        hand.start_polling(PollingPlan(angles_hz=10))
+        restore()
+        release.set()
+
+        wait_until(lambda: bool(state.query_log))
+    finally:
+        restore()
+        release.set()
+        hand.stop_polling()
+        hand.close()
