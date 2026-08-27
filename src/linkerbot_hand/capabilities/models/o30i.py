@@ -124,6 +124,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "u8_36_slot_object",
                 raw_unit="count",
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.EFFORT_LIMITS,
@@ -142,6 +143,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_unit="count",
                 raw_scale_note="documentation states 10 ms/count; API returns count",
                 unit_confidence=Confidence.DOCUMENTED,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.STALL_DETECTION_TIMES,
@@ -150,6 +152,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "u8_36_slot_object",
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.STALL_THRESHOLDS,
@@ -158,6 +161,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "u8_36_slot_object",
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.STALL_HOLD_CURRENTS,
@@ -166,6 +170,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "u8_36_slot_object",
                 raw_unit=None,
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
         ),
         telemetry=(

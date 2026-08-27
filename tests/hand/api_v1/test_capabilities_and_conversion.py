@@ -4,7 +4,12 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from linkerbot_hand.api import Confidence, HandSide, UnsupportedOperationError
+from linkerbot_hand.api import (
+    AckSupport,
+    Confidence,
+    HandSide,
+    UnsupportedOperationError,
+)
 from linkerbot_hand.api.errors import ValidationError
 from linkerbot_hand.capabilities.registry import (
     SUPPORTED_MODELS,
@@ -119,6 +124,15 @@ def test_o30i_stall_contract_maps_only_installed_channels() -> None:
     assert stall.detection_time.raw_unit is None
     assert capabilities.operations.read_stall_protection
     assert capabilities.operations.write_stall_protection
+
+
+def test_o30i_writes_declare_matchable_hop_response_ack() -> None:
+    capabilities = get_declared_capabilities("o30i", side="right")
+
+    assert capabilities.commands
+    assert all(
+        command.ack_support is AckSupport.SUPPORTED for command in capabilities.commands
+    )
 
 
 def test_o6_declared_sensor_shape_matches_04_b_contract() -> None:
