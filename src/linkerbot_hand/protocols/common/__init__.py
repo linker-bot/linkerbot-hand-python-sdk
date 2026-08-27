@@ -8,9 +8,11 @@ from .classic_can import (
     decode_u8_vector,
     parse_factory_identity,
 )
+from .six_axis import ClassicSixAxisBackend
 
 __all__ = [
     "ClassicIdentityCollector",
+    "ClassicSixAxisBackend",
     "FactoryIdentity",
     "build_classic_message",
     "classic_route",
