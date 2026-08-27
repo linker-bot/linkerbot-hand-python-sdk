@@ -92,6 +92,7 @@ def tactile_transaction(
     selector: int,
     rows: int,
     columns: int,
+    request_interval_s: float,
     response_timeout_s: float,
     late_response_guard_s: float,
 ) -> ProtocolTransaction:
@@ -140,7 +141,7 @@ def tactile_transaction(
         response_timeout_s=response_timeout_s,
         estimated_duration_s=telemetry.estimated_transaction_s,
         response_consumer=consume,
-        request_interval_s=0,
+        request_interval_s=request_interval_s,
         late_response_guard_s=late_response_guard_s,
     )
 

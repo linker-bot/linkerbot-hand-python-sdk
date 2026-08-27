@@ -17,6 +17,7 @@ def l6_tactile_transaction(
         selector=0xC6,
         rows=12,
         columns=6,
+        request_interval_s=0,
         response_timeout_s=0.15,
         late_response_guard_s=0.1,
     )

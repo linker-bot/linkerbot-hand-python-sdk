@@ -41,7 +41,15 @@ def _requests(transaction) -> tuple[bytes, ...]:
 
 
 @pytest.mark.parametrize(
-    ("backend", "capabilities", "selector", "rows", "columns", "side"),
+    (
+        "backend",
+        "capabilities",
+        "selector",
+        "rows",
+        "columns",
+        "side",
+        "request_interval_s",
+    ),
     (
         (
             L6ProtocolBackend(HandSide.LEFT),
@@ -50,6 +58,7 @@ def _requests(transaction) -> tuple[bytes, ...]:
             12,
             6,
             HandSide.LEFT,
+            0,
         ),
         (
             O6ProtocolBackend(HandSide.RIGHT),
@@ -58,6 +67,7 @@ def _requests(transaction) -> tuple[bytes, ...]:
             10,
             4,
             HandSide.RIGHT,
+            0.002,
         ),
     ),
 )
@@ -69,13 +79,14 @@ def test_tactile_transaction_pipelines_and_atomically_assembles_all_fingers(
     rows: int,
     columns: int,
     side: HandSide,
+    request_interval_s: float,
     nibble_markers: bool,
 ) -> None:
     transaction = backend.read_transaction(TelemetrySemantic.FORCE, capabilities)
     assert _requests(transaction) == tuple(
         bytes((opcode, selector)) for opcode in _FINGERS
     )
-    assert transaction.request_interval_s == 0
+    assert transaction.request_interval_s == request_interval_s
 
     progress = None
     frames = [
