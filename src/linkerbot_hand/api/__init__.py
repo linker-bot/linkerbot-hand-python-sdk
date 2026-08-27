@@ -48,6 +48,7 @@ from .health import (
 )
 from .readings import (
     AngleSample,
+    ConfiguredAccelerationSample,
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
@@ -55,6 +56,7 @@ from .readings import (
     FaultSample,
     ForceSample,
     MeasuredSpeedSample,
+    MotionTimeSample,
     RawNumber,
     SampleMeta,
     TactileMatrix,
@@ -80,6 +82,7 @@ __all__ = [
     "CommandStage",
     "CommandTransition",
     "Confidence",
+    "ConfiguredAccelerationSample",
     "ConfiguredSpeedSample",
     "ConnectionState",
     "CurrentLimitSample",
@@ -106,6 +109,7 @@ __all__ = [
     "LifecycleError",
     "LifecycleState",
     "MeasuredSpeedSample",
+    "MotionTimeSample",
     "PollingPlan",
     "PollingPlanError",
     "ProtocolError",

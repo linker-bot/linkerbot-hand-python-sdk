@@ -1,147 +1,184 @@
-"""L20Lite capability declaration."""
+"""Declared L20Lite capability profile."""
 
-from ...contracts import (
+from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
+from ..types import (
+    CommandSemantic,
     DeviceCapabilities,
-    HandSide,
-    JointEndpoint,
-    JointMotionType,
-    NumericRange,
-    SensorType,
-    SensorValueKind,
-    TransportType,
+    OperationCapabilities,
+    TelemetrySemantic,
 )
-from ..builders import classic_joints, sensor
-
-_COUNT_RANGE = NumericRange(0, 255, "count", True, 1)
-_TEMPERATURE_RANGE = NumericRange(
-    0,
-    255,
-    "degree_celsius",
-    True,
-    1,
-    physical_unit="degree_celsius",
-    physical_minimum=0,
-    physical_maximum=255,
-    scale=1,
-    offset=0,
+from ._common import (
+    U8_RANGE,
+    angle_command,
+    angle_telemetry,
+    command,
+    identity,
+    joint,
+    telemetry,
+    transport,
 )
 
-CAPABILITIES = DeviceCapabilities(
-    model="L20Lite",
-    firmware=None,
-    side=HandSide.UNKNOWN,
-    joints=classic_joints(
-        (
-            "thumb_flex",
-            "thumb_abd",
-            "index_flex",
-            "middle_flex",
-            "ring_flex",
-            "pinky_flex",
-            "index_abd",
-            "ring_abd",
-            "pinky_abd",
-            "thumb_yaw",
-        ),
-        (
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-            (255, 0),
-        ),
-        {1, 6, 7, 8, 9},
-        motion_types=(
-            JointMotionType.FLEXION,
-            JointMotionType.ROLL,
-            JointMotionType.FLEXION,
-            JointMotionType.FLEXION,
-            JointMotionType.FLEXION,
-            JointMotionType.FLEXION,
-            JointMotionType.ABDUCTION,
-            JointMotionType.ABDUCTION,
-            JointMotionType.ABDUCTION,
-            JointMotionType.ROTATION,
-        ),
-        direction_endpoints={
-            1: (
-                JointEndpoint.PERPENDICULAR_TO_PALM,
-                JointEndpoint.PARALLEL_TO_PALM,
-            ),
-            6: (
-                JointEndpoint.TOWARD_MIDDLE_FINGER,
-                JointEndpoint.AWAY_FROM_MIDDLE_FINGER,
-            ),
-            7: (
-                JointEndpoint.TOWARD_MIDDLE_FINGER,
-                JointEndpoint.AWAY_FROM_MIDDLE_FINGER,
-            ),
-            8: (
-                JointEndpoint.TOWARD_MIDDLE_FINGER,
-                JointEndpoint.AWAY_FROM_MIDDLE_FINGER,
-            ),
-            9: (
-                JointEndpoint.TOWARD_INDEX_FINGER,
-                JointEndpoint.AWAY_FROM_INDEX_FINGER,
-            ),
-        },
+_JOINT_SPECS = (
+    ("thumb_flex", JointMotionType.FLEXION, "flexed", "extended"),
+    (
+        "thumb_roll",
+        JointMotionType.ROLL,
+        "perpendicular_to_palm",
+        "parallel_to_palm",
     ),
-    sensors=(
-        sensor(
-            SensorType.ANGLES,
-            60,
-            unit="count",
-            encoding="u8",
-            value_range=_COUNT_RANGE,
-        ),
-        sensor(
-            SensorType.SPEEDS,
-            30,
-            unit="count",
-            encoding="u8",
-            value_range=_COUNT_RANGE,
-        ),
-        sensor(
-            SensorType.TORQUES,
-            30,
-            unit="count",
-            encoding="u8",
-            value_range=_COUNT_RANGE,
-        ),
-        sensor(
-            SensorType.FORCE,
-            30,
-            unit="count",
-            encoding="u8",
-            value_range=_COUNT_RANGE,
-            value_kind=SensorValueKind.TACTILE_MATRIX,
-            matrix_shape=(12, 6),
-        ),
-        sensor(
-            SensorType.TEMPERATURE,
-            1,
-            unit="degree_celsius",
-            encoding="u8",
-            value_range=_TEMPERATURE_RANGE,
-            physical_unit="degree_celsius",
-            scale=1,
-            offset=0,
-        ),
-        sensor(
-            SensorType.FAULTS,
-            5,
-            unit="dimensionless",
-            encoding="u8",
-            value_range=NumericRange(0, 255, "dimensionless", True, 1),
-            value_kind=SensorValueKind.BITMASK,
-        ),
+    ("index_flex", JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_flex", JointMotionType.FLEXION, "flexed", "extended"),
+    ("ring_flex", JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_flex", JointMotionType.FLEXION, "flexed", "extended"),
+    (
+        "index_abd",
+        JointMotionType.ABDUCTION,
+        "toward_middle_finger",
+        "away_from_middle_finger",
     ),
-    transport=TransportType.CAN,
+    (
+        "ring_abd",
+        JointMotionType.ABDUCTION,
+        "toward_middle_finger",
+        "away_from_middle_finger",
+    ),
+    (
+        "pinky_abd",
+        JointMotionType.ABDUCTION,
+        "toward_middle_finger",
+        "away_from_middle_finger",
+    ),
+    (
+        "thumb_rotation",
+        JointMotionType.ROTATION,
+        "toward_index_finger",
+        "away_from_index_finger",
+    ),
 )
+_FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
-__all__ = ["CAPABILITIES"]
+
+def declared_capabilities(side: HandSide) -> DeviceCapabilities:
+    """Return immutable, unverified L20Lite metadata for ``side``."""
+
+    joints = tuple(
+        joint(
+            index,
+            name,
+            motion_type,
+            U8_RANGE,
+            raw_at_zero=0,
+            raw_at_hundred=255,
+            zero_label=zero_label,
+            hundred_label=hundred_label,
+        )
+        for index, (name, motion_type, zero_label, hundred_label) in enumerate(
+            _JOINT_SPECS
+        )
+    )
+    names = tuple(value.name for value in joints)
+    return DeviceCapabilities(
+        identity=identity(
+            "L20Lite",
+            side,
+            supported_fields=("firmware_version", "product_code", "side"),
+        ),
+        joints=joints,
+        commands=(
+            angle_command(joints, "u8"),
+            command(
+                CommandSemantic.SPEEDS,
+                names,
+                U8_RANGE,
+                "u8",
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+            command(
+                CommandSemantic.EFFORT_LIMITS,
+                names,
+                U8_RANGE,
+                "u8",
+                raw_unit=None,
+                raw_scale_note="physical meaning remains unverified",
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+        ),
+        telemetry=(
+            angle_telemetry(
+                joints,
+                "u8",
+                recommended_hz=60,
+                estimated_transaction_s=0.006,
+            ),
+            telemetry(
+                TelemetrySemantic.CONFIGURED_SPEEDS,
+                names,
+                "u8",
+                shape=(10,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.006,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.EFFORT_LIMITS,
+                names,
+                "u8",
+                shape=(10,),
+                raw_range=U8_RANGE,
+                raw_unit=None,
+                raw_scale_note="physical meaning remains unverified",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.006,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.FORCE,
+                _FINGERS,
+                "u8",
+                shape=(5, 12, 6),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.02,
+            ),
+            telemetry(
+                TelemetrySemantic.TEMPERATURES,
+                names,
+                "u8",
+                shape=(10,),
+                raw_range=U8_RANGE,
+                raw_unit="degree_celsius",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=1,
+                stale_after_s=3,
+                estimated_transaction_s=0.006,
+            ),
+            telemetry(
+                TelemetrySemantic.FAULTS,
+                names,
+                "u8_bitmask",
+                shape=(10,),
+                raw_range=U8_RANGE,
+                raw_unit=None,
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=5,
+                stale_after_s=0.5,
+                estimated_transaction_s=0.006,
+            ),
+        ),
+        stall_protection=None,
+        transport=transport(TransportKind.CAN),
+        operations=OperationCapabilities(),
+    )
+
+
+__all__ = ["declared_capabilities"]

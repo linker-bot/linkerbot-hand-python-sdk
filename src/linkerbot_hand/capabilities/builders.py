@@ -1,6 +1,7 @@
 """Reusable builders for model capability declarations."""
 
-from collections.abc import Sequence, Set
+from collections.abc import Sequence
+from collections.abc import Set as AbstractSet
 
 from ..contracts import (
     JointCapability,
@@ -67,7 +68,7 @@ def sensor(
 def classic_joints(
     names: Sequence[str],
     endpoints: Sequence[tuple[int, int]],
-    directional_axes: Set[int],
+    directional_axes: AbstractSet[int],
     *,
     motion_types: Sequence[JointMotionType] | None = None,
     direction_endpoints: dict[int, tuple[JointEndpoint, JointEndpoint]] | None = None,

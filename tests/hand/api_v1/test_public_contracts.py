@@ -53,7 +53,7 @@ def test_polling_plan_uses_zero_to_disable_a_channel() -> None:
 @pytest.mark.parametrize("value", [-1, float("nan"), float("inf"), True, "1"])
 def test_polling_plan_rejects_invalid_rates(value: object) -> None:
     with pytest.raises(ValidationError):
-        PollingPlan(angles_hz=value)  # type: ignore[arg-type]
+        PollingPlan(angles_hz=value)  # ty: ignore[invalid-argument-type]
 
 
 def test_device_config_rejects_unbounded_or_invalid_limits() -> None:
@@ -74,7 +74,7 @@ def test_sample_contracts_are_immutable_and_keep_all_angle_representations() -> 
     assert sample.raw == (0, 127, 255)
     assert sample.percent == (0.0, 49.8, 100.0)
     with pytest.raises(FrozenInstanceError):
-        sample.raw = (1, 2, 3)  # type: ignore[misc]
+        sample.raw = (1, 2, 3)  # ty: ignore[invalid-assignment]
 
 
 def test_angle_sample_rejects_mismatched_representations() -> None:
@@ -138,7 +138,7 @@ def test_snapshot_is_an_immutable_atomic_view() -> None:
 
     assert snapshot.angles is angles
     with pytest.raises(FrozenInstanceError):
-        snapshot.snapshot_sequence = 5  # type: ignore[misc]
+        snapshot.snapshot_sequence = 5  # ty: ignore[invalid-assignment]
 
 
 def test_structured_hand_error_keeps_stable_context() -> None:
@@ -202,4 +202,4 @@ def test_health_contract_is_immutable_and_zero_state_is_explicit() -> None:
     assert not health.connected
     assert not health.polling_active
     with pytest.raises(FrozenInstanceError):
-        health.connected = True  # type: ignore[misc]
+        health.connected = True  # ty: ignore[invalid-assignment]

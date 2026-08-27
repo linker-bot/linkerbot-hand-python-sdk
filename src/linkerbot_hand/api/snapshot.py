@@ -9,6 +9,7 @@ from .device_info import DeviceInfo
 from .errors import ValidationError
 from .readings import (
     AngleSample,
+    ConfiguredAccelerationSample,
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
@@ -16,6 +17,7 @@ from .readings import (
     FaultSample,
     ForceSample,
     MeasuredSpeedSample,
+    MotionTimeSample,
     RawNumber,
     TemperatureSample,
     TorqueSample,
@@ -86,6 +88,7 @@ class HandSnapshot:
     angles: AngleSample | None = None
     measured_speeds: MeasuredSpeedSample | None = None
     configured_speeds: ConfiguredSpeedSample | None = None
+    configured_accelerations: ConfiguredAccelerationSample | None = None
     currents: CurrentSample | None = None
     current_limits: CurrentLimitSample | None = None
     effort_limits: EffortLimitSample | None = None
@@ -94,6 +97,7 @@ class HandSnapshot:
     force: ForceSample | None = None
     faults: FaultSample | None = None
     voltages: VoltageSample | None = None
+    motion_times: MotionTimeSample | None = None
     stall_detection_times: StallDetectionTimeSample | None = None
     stall_thresholds: StallThresholdSample | None = None
     stall_hold_currents: StallHoldCurrentSample | None = None

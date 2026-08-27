@@ -1,232 +1,240 @@
-"""L30 capability declaration."""
+"""Declared side-independent L30 capability profile."""
 
-from ...contracts import (
-    CommandKind,
+from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
+from ..ranges import NumericRange
+from ..types import (
+    CommandSemantic,
     DeviceCapabilities,
-    DeviceFeatures,
-    HandSide,
-    JointCapability,
-    JointEndpoint,
-    JointMotionType,
-    NumericRange,
-    PercentageMapping,
-    PercentageSemantics,
-    SensorType,
-    SensorValueKind,
-    TransportType,
+    OperationCapabilities,
+    TelemetrySemantic,
 )
-from ..builders import sensor
-
-_JOINTS = (
-    ("j1", 0, 900),
-    ("j2", 0, 1200),
-    ("j3", 0, 900),
-    ("j4", 0, 800),
-    ("j5", -200, 200),
-    ("j6", 0, 1500),
-    ("j7", 0, 1600),
-    ("j8", 0, 1600),
-    ("j9", 0, 1500),
-    ("j10", 0, 1600),
-    ("j11", 0, 1500),
-    ("j12", -200, 200),
-    ("j13", -200, 200),
-    ("j14", -200, 200),
-    ("j15", 0, 1600),
-    ("j16", 0, 1500),
-    ("j17", -1000, 1000),
-)
-_DIRECTIONAL_AXES = {2, 3, 4, 11, 12, 13, 16}
-_DIRECTION_ENDPOINTS = {
-    2: (JointEndpoint.AWAY_FROM_THUMB_WEB, JointEndpoint.TOWARD_THUMB_WEB),
-    3: (JointEndpoint.AWAY_FROM_PALM, JointEndpoint.TOWARD_PALM),
-    4: (JointEndpoint.TOWARD_LITTLE_FINGER, JointEndpoint.TOWARD_INDEX_FINGER),
-    11: (JointEndpoint.TOWARD_LITTLE_FINGER, JointEndpoint.TOWARD_INDEX_FINGER),
-    12: (JointEndpoint.TOWARD_LITTLE_FINGER, JointEndpoint.TOWARD_INDEX_FINGER),
-    13: (JointEndpoint.TOWARD_LITTLE_FINGER, JointEndpoint.TOWARD_INDEX_FINGER),
-    16: (JointEndpoint.FORWARD, JointEndpoint.BACKWARD),
-}
-_MOTION_TYPES = (
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ROTATION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.FLEXION,
-    JointMotionType.FLEXION,
-    JointMotionType.WRIST,
+from ._common import (
+    U8_RANGE,
+    angle_command,
+    angle_telemetry,
+    command,
+    identity,
+    joint,
+    telemetry,
+    transport,
 )
 
+_JOINT_SPECS = (
+    ("thumb_root", 0, 900, JointMotionType.FLEXION, "flexed", "extended"),
+    ("thumb_tip", 0, 1200, JointMotionType.FLEXION, "flexed", "extended"),
+    (
+        "thumb_abd",
+        0,
+        900,
+        JointMotionType.ABDUCTION,
+        "away_from_thumb_web",
+        "toward_thumb_web",
+    ),
+    (
+        "thumb_rotation",
+        0,
+        800,
+        JointMotionType.ROTATION,
+        "away_from_palm",
+        "toward_palm",
+    ),
+    (
+        "ring_abd",
+        -200,
+        200,
+        JointMotionType.ABDUCTION,
+        "toward_little_finger",
+        "toward_index_finger",
+    ),
+    ("ring_tip", 0, 1500, JointMotionType.FLEXION, "flexed", "extended"),
+    ("ring_root", 0, 1600, JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_root", 0, 1600, JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_tip", 0, 1500, JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_root", 0, 1600, JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_tip", 0, 1500, JointMotionType.FLEXION, "flexed", "extended"),
+    (
+        "pinky_abd",
+        -200,
+        200,
+        JointMotionType.ABDUCTION,
+        "toward_little_finger",
+        "toward_index_finger",
+    ),
+    (
+        "middle_abd",
+        -200,
+        200,
+        JointMotionType.ABDUCTION,
+        "toward_little_finger",
+        "toward_index_finger",
+    ),
+    (
+        "index_abd",
+        -200,
+        200,
+        JointMotionType.ABDUCTION,
+        "toward_little_finger",
+        "toward_index_finger",
+    ),
+    ("index_root", 0, 1600, JointMotionType.FLEXION, "flexed", "extended"),
+    ("index_tip", 0, 1500, JointMotionType.FLEXION, "flexed", "extended"),
+    ("wrist", -1000, 1000, JointMotionType.WRIST, "forward", "backward"),
+)
+_FINGERS = ("thumb", "index", "middle", "ring", "pinky")
+_I16_RANGE = NumericRange(-32768, 32767, integer_only=True, step=1)
 
-def _joints() -> tuple[JointCapability, ...]:
-    return tuple(
-        JointCapability(
-            index=index,
-            name=name,
-            raw_angle_range=NumericRange(
-                minimum,
-                maximum,
-                "count",
-                integer_only=True,
-                step=1,
+
+def declared_capabilities(side: HandSide) -> DeviceCapabilities:
+    """Return immutable, unverified L30 metadata.
+
+    Args:
+        side: Must be :attr:`HandSide.NOT_APPLICABLE`; L30 has one mapping.
+    """
+
+    joints = tuple(
+        joint(
+            index,
+            name,
+            motion_type,
+            NumericRange(minimum, maximum, integer_only=True, step=1),
+            raw_at_zero=(
+                maximum if motion_type is JointMotionType.FLEXION else minimum
             ),
-            percentage_mapping=PercentageMapping(
-                raw_open=maximum if index in _DIRECTIONAL_AXES else minimum,
-                raw_closed=minimum if index in _DIRECTIONAL_AXES else maximum,
-                semantics=(
-                    PercentageSemantics.POSITION
-                    if index in _DIRECTIONAL_AXES
-                    else PercentageSemantics.OPENNESS
-                ),
-                zero_endpoint=_DIRECTION_ENDPOINTS.get(
-                    index,
-                    (JointEndpoint.FLEXED, JointEndpoint.EXTENDED),
-                )[0],
-                hundred_endpoint=_DIRECTION_ENDPOINTS.get(
-                    index,
-                    (JointEndpoint.FLEXED, JointEndpoint.EXTENDED),
-                )[1],
+            raw_at_hundred=(
+                minimum if motion_type is JointMotionType.FLEXION else maximum
             ),
-            speed_range=NumericRange(
-                1,
-                250,
-                "count",
-                integer_only=True,
-                step=1,
-                physical_unit="rpm",
-                physical_minimum=0.732,
-                physical_maximum=183,
-                scale=0.732,
-                offset=0,
-            ),
-            # The protocol calls this field torque, but it is a raw motor
-            # current-limit count. Physical conversion is 6.5 mA/LSB.
-            torque_range=NumericRange(
-                60,
-                800,
-                "count",
-                integer_only=True,
-                step=1,
-                physical_unit="mA",
-                physical_minimum=390,
-                physical_maximum=5200,
-                scale=6.5,
-                offset=0,
-            ),
-            motion_type=_MOTION_TYPES[index],
+            zero_label=zero_label,
+            hundred_label=hundred_label,
         )
-        for index, (name, minimum, maximum) in enumerate(_JOINTS)
+        for index, (
+            name,
+            minimum,
+            maximum,
+            motion_type,
+            zero_label,
+            hundred_label,
+        ) in enumerate(_JOINT_SPECS)
+    )
+    names = tuple(value.name for value in joints)
+    return DeviceCapabilities(
+        identity=identity(
+            "L30",
+            side,
+            supported_fields=("firmware_version", "product_code"),
+        ),
+        joints=joints,
+        commands=(
+            angle_command(joints, "i16_be"),
+            command(
+                CommandSemantic.SPEEDS,
+                names,
+                NumericRange(1, 250, integer_only=True, step=1),
+                "u16_be",
+                raw_unit="count",
+                raw_scale_note="0.732 rpm/count is documented but awaits hardware confirmation",
+                unit_confidence=Confidence.DOCUMENTED,
+            ),
+            command(
+                CommandSemantic.CURRENT_LIMITS,
+                names,
+                NumericRange(60, 800, integer_only=True, step=1),
+                "u16_be",
+                raw_unit="mA",
+                raw_scale_note="protocol values are already expressed in mA",
+                unit_confidence=Confidence.MEASURED,
+            ),
+        ),
+        telemetry=(
+            angle_telemetry(
+                joints,
+                "i16_be",
+                recommended_hz=60,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.MEASURED_SPEEDS,
+                names,
+                "i16_be",
+                shape=(17,),
+                raw_range=_I16_RANGE,
+                raw_unit="count",
+                raw_scale_note="0.732 rpm/count is documented but awaits hardware confirmation",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.CURRENTS,
+                names,
+                "i16_be",
+                shape=(17,),
+                raw_range=_I16_RANGE,
+                raw_unit="mA",
+                unit_confidence=Confidence.MEASURED,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.CURRENT_LIMITS,
+                names,
+                "u16_be",
+                shape=(17,),
+                raw_range=NumericRange(60, 800, integer_only=True, step=1),
+                raw_unit="mA",
+                unit_confidence=Confidence.MEASURED,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.004,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.FORCE,
+                _FINGERS,
+                "u8",
+                shape=(5, 12, 6),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.02,
+            ),
+            telemetry(
+                TelemetrySemantic.TEMPERATURES,
+                names,
+                "u8",
+                shape=(17,),
+                raw_range=U8_RANGE,
+                raw_unit="degree_celsius",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=1,
+                stale_after_s=3,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.FAULTS,
+                names,
+                "u8_bitmask",
+                shape=(17,),
+                raw_range=U8_RANGE,
+                raw_unit=None,
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=5,
+                stale_after_s=0.5,
+                estimated_transaction_s=0.004,
+            ),
+        ),
+        stall_protection=None,
+        transport=transport(TransportKind.CAN_FD),
+        operations=OperationCapabilities(
+            enable=True,
+            disable=True,
+            calibrate=True,
+            acknowledged_operations=("enable", "disable", "calibrate"),
+        ),
     )
 
 
-CAPABILITIES = DeviceCapabilities(
-    model="L30",
-    firmware=None,
-    side=HandSide.UNKNOWN,
-    joints=_joints(),
-    sensors=(
-        sensor(SensorType.ANGLES, 60, unit="count", encoding="i16_be"),
-        sensor(
-            SensorType.SPEEDS,
-            30,
-            unit="count",
-            encoding="i16_be",
-            value_range=NumericRange(
-                -32768,
-                32767,
-                "count",
-                True,
-                1,
-                physical_unit="rpm",
-                physical_minimum=-23986.176,
-                physical_maximum=23985.444,
-                scale=0.732,
-                offset=0,
-            ),
-            physical_unit="rpm",
-            scale=0.732,
-            offset=0,
-        ),
-        sensor(
-            SensorType.FORCE,
-            30,
-            unit="count",
-            encoding="u8",
-            value_range=NumericRange(0, 255, "count", True, 1),
-            value_kind=SensorValueKind.TACTILE_MATRIX,
-            matrix_shape=(12, 6),
-        ),
-        sensor(
-            SensorType.TEMPERATURE,
-            1,
-            unit="degree_celsius",
-            encoding="u8",
-            value_range=NumericRange(
-                0,
-                255,
-                "degree_celsius",
-                True,
-                1,
-                physical_unit="degree_celsius",
-                physical_minimum=0,
-                physical_maximum=255,
-                scale=1,
-                offset=0,
-            ),
-            physical_unit="degree_celsius",
-            scale=1,
-            offset=0,
-        ),
-        sensor(
-            SensorType.CURRENT,
-            10,
-            unit="count",
-            encoding="i16_be",
-            value_range=NumericRange(
-                -32768,
-                32767,
-                "count",
-                True,
-                1,
-                physical_unit="mA",
-                physical_minimum=-212992,
-                physical_maximum=212985.5,
-                scale=6.5,
-                offset=0,
-            ),
-            physical_unit="mA",
-            scale=6.5,
-            offset=0,
-        ),
-        sensor(
-            SensorType.FAULTS,
-            5,
-            unit="dimensionless",
-            encoding="u8",
-            value_range=NumericRange(0, 255, "dimensionless", True, 1),
-            value_kind=SensorValueKind.BITMASK,
-        ),
-    ),
-    transport=TransportType.CAN_FD,
-    features=DeviceFeatures(
-        device_ack=True,
-        enable=True,
-        calibration=True,
-        acknowledged_commands=(
-            CommandKind.ENABLE,
-            CommandKind.DISABLE,
-            CommandKind.CALIBRATE,
-        ),
-    ),
-)
-
-__all__ = ["CAPABILITIES"]
+__all__ = ["declared_capabilities"]

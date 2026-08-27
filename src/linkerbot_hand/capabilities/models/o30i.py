@@ -1,167 +1,309 @@
-"""O30i capability declaration."""
+"""Declared O30i profile exposing only twenty installed protocol slots."""
 
-from ...contracts import (
-    CommandKind,
+from ...api.commands import AckSupport
+from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
+from ..types import (
+    CommandSemantic,
     DeviceCapabilities,
-    DeviceFeatures,
-    HandSide,
-    JointCapability,
-    JointEndpoint,
-    JointMotionType,
-    NumericRange,
-    PercentageMapping,
-    PercentageSemantics,
-    SensorType,
-    SensorValueKind,
-    TransportType,
+    OperationCapabilities,
+    StallFieldCapability,
+    StallProtectionCapability,
+    TelemetrySemantic,
 )
-from ..builders import sensor
-
-_U8_COUNT_RANGE = NumericRange(0, 255, "count", integer_only=True, step=1)
-_MOTION_TIME_RANGE = NumericRange(
-    0,
-    255,
-    "count",
-    integer_only=True,
-    step=1,
-    physical_unit="millisecond",
-    physical_minimum=0,
-    physical_maximum=2550,
-    scale=10,
-    offset=0,
+from ._common import (
+    U8_RANGE,
+    angle_command,
+    angle_telemetry,
+    command,
+    identity,
+    joint,
+    telemetry,
+    transport,
 )
 
-_JOINTS = (
-    "roll_0",
-    "yaw_0",
-    "yaw_1",
-    "yaw_2",
-    "yaw_3",
-    "yaw_4",
-    "root1_0",
-    "root1_1",
-    "root1_2",
-    "root1_3",
-    "root1_4",
-    "root2_1",
-    "root2_2",
-    "root2_3",
-    "root2_4",
-    "tip_0",
-    "tip_1",
-    "tip_2",
-    "tip_3",
-    "tip_4",
+_JOINT_SPECS = (
+    (
+        "thumb_rotation",
+        JointMotionType.ROTATION,
+        "away_from_index_finger",
+        "toward_index_finger",
+    ),
+    (
+        "thumb_roll",
+        JointMotionType.ROLL,
+        "parallel_to_palm",
+        "perpendicular_to_palm",
+    ),
+    ("index_abd", JointMotionType.ABDUCTION, "toward_thumb", "away_from_thumb"),
+    ("middle_abd", JointMotionType.ABDUCTION, "toward_thumb", "away_from_thumb"),
+    ("ring_abd", JointMotionType.ABDUCTION, "toward_thumb", "away_from_thumb"),
+    ("pinky_abd", JointMotionType.ABDUCTION, "toward_thumb", "away_from_thumb"),
+    ("thumb_root1", JointMotionType.FLEXION, "flexed", "extended"),
+    ("index_root1", JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_root1", JointMotionType.FLEXION, "flexed", "extended"),
+    ("ring_root1", JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_root1", JointMotionType.FLEXION, "flexed", "extended"),
+    ("index_root2", JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_root2", JointMotionType.FLEXION, "flexed", "extended"),
+    ("ring_root2", JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_root2", JointMotionType.FLEXION, "flexed", "extended"),
+    ("thumb_tip", JointMotionType.FLEXION, "flexed", "extended"),
+    ("index_tip", JointMotionType.FLEXION, "flexed", "extended"),
+    ("middle_tip", JointMotionType.FLEXION, "flexed", "extended"),
+    ("ring_tip", JointMotionType.FLEXION, "flexed", "extended"),
+    ("pinky_tip", JointMotionType.FLEXION, "flexed", "extended"),
 )
-_DIRECTION_ENDPOINTS = (
-    (JointEndpoint.AWAY_FROM_INDEX_FINGER, JointEndpoint.TOWARD_INDEX_FINGER),
-    (JointEndpoint.PARALLEL_TO_PALM, JointEndpoint.PERPENDICULAR_TO_PALM),
-    (JointEndpoint.TOWARD_THUMB, JointEndpoint.AWAY_FROM_THUMB),
-    (JointEndpoint.TOWARD_THUMB, JointEndpoint.AWAY_FROM_THUMB),
-    (JointEndpoint.TOWARD_THUMB, JointEndpoint.AWAY_FROM_THUMB),
-    (JointEndpoint.TOWARD_THUMB, JointEndpoint.AWAY_FROM_THUMB),
-)
-_MOTION_TYPES = (
-    JointMotionType.ROTATION,
-    JointMotionType.ROLL,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ABDUCTION,
-    JointMotionType.ABDUCTION,
-) + (JointMotionType.FLEXION,) * 14
 
 
-def _joints() -> tuple[JointCapability, ...]:
-    return tuple(
-        JointCapability(
-            index=index,
-            name=name,
-            raw_angle_range=_U8_COUNT_RANGE,
-            percentage_mapping=PercentageMapping(
-                raw_open=255 if index < 6 else 0,
-                raw_closed=0 if index < 6 else 255,
-                semantics=(
-                    PercentageSemantics.POSITION
-                    if index < 6
-                    else PercentageSemantics.OPENNESS
-                ),
-                zero_endpoint=(
-                    _DIRECTION_ENDPOINTS[index][0]
-                    if index < 6
-                    else JointEndpoint.FLEXED
-                ),
-                hundred_endpoint=(
-                    _DIRECTION_ENDPOINTS[index][1]
-                    if index < 6
-                    else JointEndpoint.EXTENDED
-                ),
-            ),
-            speed_range=_U8_COUNT_RANGE,
-            torque_range=_U8_COUNT_RANGE,
-            motion_type=_MOTION_TYPES[index],
+def declared_capabilities(side: HandSide) -> DeviceCapabilities:
+    """Return immutable, unverified O30i metadata for ``side``."""
+
+    joints = tuple(
+        joint(
+            index,
+            name,
+            motion_type,
+            U8_RANGE,
+            raw_at_zero=(255 if motion_type is JointMotionType.FLEXION else 0),
+            raw_at_hundred=(0 if motion_type is JointMotionType.FLEXION else 255),
+            zero_label=zero_label,
+            hundred_label=hundred_label,
         )
-        for index, name in enumerate(_JOINTS)
+        for index, (name, motion_type, zero_label, hundred_label) in enumerate(
+            _JOINT_SPECS
+        )
+    )
+    names = tuple(value.name for value in joints)
+    stall_field = StallFieldCapability(
+        raw_range=U8_RANGE,
+        raw_encoding="u8_36_slot_object",
+        raw_unit=None,
+        raw_scale_note="public 20 channels map to installed slots in a 36-slot object",
+        unit_confidence=Confidence.UNKNOWN,
+    )
+    stall = StallProtectionCapability(
+        channels=names,
+        detection_time=stall_field,
+        threshold=stall_field,
+        hold_current=stall_field,
+        physical_semantics_confidence=Confidence.UNKNOWN,
+        safety_range_verified=False,
+        read_supported=True,
+        write_supported=True,
+    )
+    return DeviceCapabilities(
+        identity=identity(
+            "O30i",
+            side,
+            supported_fields=(
+                "serial_number",
+                "firmware_version",
+                "product_code",
+                "sensor_variant",
+                "side",
+            ),
+        ),
+        joints=joints,
+        commands=(
+            angle_command(
+                joints, "u8_36_slot_object", ack_support=AckSupport.SUPPORTED
+            ),
+            command(
+                CommandSemantic.SPEEDS,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
+                CommandSemantic.ACCELERATIONS,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+            command(
+                CommandSemantic.EFFORT_LIMITS,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit=None,
+                unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
+                CommandSemantic.MOTION_TIMES,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit="count",
+                raw_scale_note="documentation states 10 ms/count; API returns count",
+                unit_confidence=Confidence.DOCUMENTED,
+            ),
+            command(
+                CommandSemantic.STALL_DETECTION_TIMES,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit=None,
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+            command(
+                CommandSemantic.STALL_THRESHOLDS,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit=None,
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+            command(
+                CommandSemantic.STALL_HOLD_CURRENTS,
+                names,
+                U8_RANGE,
+                "u8_36_slot_object",
+                raw_unit=None,
+                unit_confidence=Confidence.UNKNOWN,
+            ),
+        ),
+        telemetry=(
+            angle_telemetry(
+                joints,
+                "u8_36_slot_object",
+                recommended_hz=30,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.CONFIGURED_SPEEDS,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.004,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.CONFIGURED_ACCELERATIONS,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.004,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.EFFORT_LIMITS,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit=None,
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.004,
+                device_measured=False,
+            ),
+            telemetry(
+                TelemetrySemantic.TEMPERATURES,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=1,
+                stale_after_s=3,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.CURRENTS,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.FAULTS,
+                names,
+                "u8_bitmask_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit=None,
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=5,
+                stale_after_s=0.5,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.VOLTAGES,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                unit_confidence=Confidence.UNKNOWN,
+                recommended_hz=1,
+                stale_after_s=3,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.MOTION_TIMES,
+                names,
+                "u8_36_slot_object",
+                shape=(20,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                raw_scale_note="documentation states 10 ms/count; API returns count",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.004,
+                device_measured=False,
+            ),
+            *(
+                telemetry(
+                    semantic,
+                    names,
+                    "u8_36_slot_object",
+                    shape=(20,),
+                    raw_range=U8_RANGE,
+                    raw_unit=None,
+                    unit_confidence=Confidence.UNKNOWN,
+                    recommended_hz=1,
+                    stale_after_s=3,
+                    estimated_transaction_s=0.004,
+                    device_measured=False,
+                )
+                for semantic in (
+                    TelemetrySemantic.STALL_DETECTION_TIMES,
+                    TelemetrySemantic.STALL_THRESHOLDS,
+                    TelemetrySemantic.STALL_HOLD_CURRENTS,
+                )
+            ),
+        ),
+        stall_protection=stall,
+        transport=transport(TransportKind.CAN_FD),
+        operations=OperationCapabilities(
+            read_stall_protection=True,
+            write_stall_protection=True,
+        ),
     )
 
 
-CAPABILITIES = DeviceCapabilities(
-    model="O30i",
-    firmware=None,
-    side=HandSide.UNKNOWN,
-    joints=_joints(),
-    sensors=(
-        *(
-            sensor(
-                sensor_type,
-                hz,
-                unit="count",
-                encoding="u8",
-                value_range=_U8_COUNT_RANGE,
-            )
-            for sensor_type, hz in (
-                (SensorType.ANGLES, 30),
-                (SensorType.SPEEDS, 30),
-                (SensorType.ACCELERATION, 10),
-                (SensorType.TORQUES, 30),
-                (SensorType.TEMPERATURE, 1),
-                (SensorType.CURRENT, 10),
-            )
-        ),
-        sensor(
-            SensorType.FAULTS,
-            5,
-            unit="dimensionless",
-            encoding="u8",
-            value_range=NumericRange(0, 255, "dimensionless", True, 1),
-            value_kind=SensorValueKind.BITMASK,
-        ),
-        sensor(
-            SensorType.VOLTAGE,
-            1,
-            unit="count",
-            encoding="u8",
-            value_range=_U8_COUNT_RANGE,
-        ),
-        sensor(
-            SensorType.MOTION_TIME,
-            10,
-            unit="count",
-            encoding="u8",
-            value_range=_MOTION_TIME_RANGE,
-            physical_unit="millisecond",
-            scale=10,
-            offset=0,
-        ),
-    ),
-    transport=TransportType.CAN_FD,
-    features=DeviceFeatures(
-        device_ack=True,
-        acknowledged_commands=(
-            CommandKind.ANGLES,
-            CommandKind.SPEEDS,
-            CommandKind.TORQUES,
-        ),
-    ),
-)
-
-__all__ = ["CAPABILITIES"]
+__all__ = ["declared_capabilities"]

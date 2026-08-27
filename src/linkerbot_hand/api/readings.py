@@ -169,6 +169,11 @@ class ConfiguredSpeedSample(_RawVectorSample):
 
 
 @dataclass(frozen=True, slots=True)
+class ConfiguredAccelerationSample(_RawVectorSample):
+    """Configured acceleration protocol values, never implied to be measured."""
+
+
+@dataclass(frozen=True, slots=True)
 class CurrentSample(_RawVectorSample):
     """Device-measured current protocol values."""
 
@@ -196,6 +201,11 @@ class TemperatureSample(_RawVectorSample):
 @dataclass(frozen=True, slots=True)
 class VoltageSample(_RawVectorSample):
     """Voltage protocol values returned without SDK conversion."""
+
+
+@dataclass(frozen=True, slots=True)
+class MotionTimeSample(_RawVectorSample):
+    """Configured motion-time protocol values returned without conversion."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +273,7 @@ class ForceSample:
 
 __all__ = [
     "AngleSample",
+    "ConfiguredAccelerationSample",
     "ConfiguredSpeedSample",
     "CurrentLimitSample",
     "CurrentSample",
@@ -270,6 +281,7 @@ __all__ = [
     "FaultSample",
     "ForceSample",
     "MeasuredSpeedSample",
+    "MotionTimeSample",
     "RawNumber",
     "SampleMeta",
     "TactileMatrix",
