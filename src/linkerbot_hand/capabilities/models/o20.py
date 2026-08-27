@@ -125,6 +125,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             side,
             supported_fields=(
                 "serial_number",
+                "pcb_version",
                 "firmware_version",
                 "product_code",
                 "side",
@@ -137,7 +138,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.SPEEDS,
                 names,
                 NumericRange(0, 100, integer_only=True, step=1),
-                "u8",
+                "i16_le",
                 raw_unit="count",
                 unit_confidence=Confidence.DOCUMENTED,
             ),
@@ -145,9 +146,12 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 CommandSemantic.EFFORT_LIMITS,
                 names,
                 NumericRange(0, 1000, integer_only=True, step=1),
-                "protocol_object",
+                "u16_le",
                 raw_unit=None,
-                raw_scale_note="target effort width and 6.5 mA interpretation require confirmation",
+                raw_scale_note=(
+                    "protocol calls this target torque; its physical interpretation "
+                    "requires confirmation"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
             ),
         ),
@@ -169,6 +173,34 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=30,
                 stale_after_s=0.1,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.CONFIGURED_SPEEDS,
+                names,
+                "i16_le",
+                shape=(16,),
+                raw_range=NumericRange(0, 100, integer_only=True, step=1),
+                raw_unit="count",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.EFFORT_LIMITS,
+                names,
+                "u16_le",
+                shape=(16,),
+                raw_range=NumericRange(0, 1000, integer_only=True, step=1),
+                raw_unit=None,
+                raw_scale_note=(
+                    "protocol calls this target torque; its physical interpretation "
+                    "requires confirmation"
+                ),
+                unit_confidence=Confidence.CONFLICTING,
+                recommended_hz=10,
+                stale_after_s=0.3,
                 estimated_transaction_s=0.004,
             ),
             telemetry(

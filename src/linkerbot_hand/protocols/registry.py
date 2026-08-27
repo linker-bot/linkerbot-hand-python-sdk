@@ -12,6 +12,7 @@ from .l6 import L6ProtocolBackend
 from .l20lite import L20LiteProtocolBackend
 from .l25 import L25ProtocolBackend
 from .o6 import O6ProtocolBackend
+from .o20 import O20ProtocolBackend
 
 ProtocolBackendFactory = Callable[[HandSide], ProtocolBackend]
 
@@ -20,6 +21,15 @@ _BACKEND_FACTORIES: dict[str, ProtocolBackendFactory] = {
     "O6": O6ProtocolBackend,
     "L20Lite": L20LiteProtocolBackend,
     "L25": L25ProtocolBackend,
+    "O20": O20ProtocolBackend,
+}
+
+_TRANSPORT_KINDS = {
+    "L6": TransportKind.CAN,
+    "O6": TransportKind.CAN,
+    "L20Lite": TransportKind.CAN,
+    "L25": TransportKind.CAN,
+    "O20": TransportKind.CAN_FD,
 }
 
 
@@ -47,9 +57,11 @@ def create_protocol_backend(capabilities: DeviceCapabilities) -> ProtocolBackend
             operation="open",
             model=capabilities.model,
         ) from error
-    if capabilities.transport.kind is not TransportKind.CAN:
+    expected_transport = _TRANSPORT_KINDS[capabilities.model]
+    if capabilities.transport.kind is not expected_transport:
         raise ValidationError(
-            f"{capabilities.model} protocol backend requires classic CAN capabilities"
+            f"{capabilities.model} protocol backend requires "
+            f"{expected_transport.value} capabilities"
         )
     if capabilities.side not in {HandSide.LEFT, HandSide.RIGHT}:
         raise ValidationError(

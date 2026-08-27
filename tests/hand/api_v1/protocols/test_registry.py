@@ -10,6 +10,7 @@ from linkerbot_hand.protocols.l6 import L6ProtocolBackend
 from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
 from linkerbot_hand.protocols.l25 import L25ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
+from linkerbot_hand.protocols.o20 import O20ProtocolBackend
 from linkerbot_hand.protocols.registry import create_protocol_backend
 from linkerbot_transport import CANRouteKey
 
@@ -47,7 +48,6 @@ def test_registry_selects_model_and_side_without_io(
 @pytest.mark.parametrize(
     ("model", "side"),
     (
-        ("o20", HandSide.LEFT),
         ("l30", None),
         ("o30i", HandSide.RIGHT),
     ),
@@ -63,6 +63,18 @@ def test_registry_rejects_unmigrated_models_with_stable_error(
 
     assert raised.value.operation == "open"
     assert raised.value.model == capabilities.model
+
+
+def test_registry_selects_o20_can_fd_routes_without_io() -> None:
+    capabilities = get_declared_capabilities("o20", side="right")
+
+    backend = create_protocol_backend(capabilities)
+
+    assert isinstance(backend, O20ProtocolBackend)
+    assert backend.endpoint_id == ("o20", 1)
+    assert len(backend.route_keys) == 18
+    assert len(set(backend.route_keys)) == len(backend.route_keys)
+    assert all(route.is_extended_id for route in backend.route_keys)
 
 
 def test_registry_requires_capability_contract() -> None:

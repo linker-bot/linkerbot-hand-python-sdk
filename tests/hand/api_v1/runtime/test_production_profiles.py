@@ -22,6 +22,7 @@ from .classic_can_fake import (
     make_script,
     wait_until,
 )
+from .o20_canfd_fake import O20DeviceScript, ScriptedO20Transport
 
 
 def _make_hand(
@@ -38,6 +39,15 @@ def _make_hand(
         transport=transport,
         config=config,
     )
+    return hand, transport
+
+
+def _make_o20_hand(
+    side: HandSide,
+) -> tuple[HandDevice, ScriptedO20Transport]:
+    script = O20DeviceScript(side)
+    transport = ScriptedO20Transport(script)
+    hand = HandDevice(model="O20", side=side.value, transport=transport)
     return hand, transport
 
 
@@ -230,6 +240,101 @@ def test_extended_classic_profiles_open_and_control_multi_frame_objects(
             for payload in transport.script.command_payloads
             if payload[0] in ({0x01, 0x04} if model == "L20Lite" else range(0x41, 0x46))
         ) == (2 if model == "L20Lite" else 5)
+    finally:
+        hand.close()
+
+
+def test_o20_profile_exposes_complete_raw_control_and_telemetry() -> None:
+    hand, transport = _make_o20_hand(HandSide.RIGHT)
+    assert transport.dispatchers == []
+
+    hand.open()
+    try:
+        capabilities = hand.get_capabilities()
+        snapshot = hand.get_snapshot()
+        assert capabilities.identity.verified
+        assert capabilities.identity.hardware_revision == "H1.3"
+        assert snapshot.device_info is not None
+        assert snapshot.device_info.serial_number == "SN-O20-0001"
+        assert snapshot.angles is not None
+        assert snapshot.angles.raw == tuple(range(10, 26))
+        assert snapshot.faults is not None and snapshot.faults.meta.valid
+        assert snapshot.effort_limits is not None
+        assert snapshot.effort_limits.raw == (400,) * 16
+
+        angles = hand.set_angles((0,) * 16)
+        assert angles.wait(timeout=1) is CommandStage.DISPATCHED
+        speeds = hand.set_speeds((70,) * 16)
+        assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
+        effort = hand.set_effort_limits((500,) * 16)
+        assert effort.wait(timeout=1) is CommandStage.DISPATCHED
+
+        assert hand.get_speeds(timeout=0.2).raw == tuple(range(-8, 8))
+        configured = hand.get_configured_speeds(timeout=0.2)
+        assert configured.raw == (70,) * 16
+        assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert hand.get_effort_limits(timeout=0.2).raw == (500,) * 16
+        assert hand.get_currents(timeout=0.2).raw == tuple(range(100, 116))
+        assert hand.get_temperatures(timeout=0.2).raw == tuple(range(30, 46))
+
+        force = hand.get_force(timeout=0.2)
+        assert len(force.tactile) == 5
+        assert all(matrix.online for matrix in force.tactile)
+        assert force.tactile[0].raw[0] == tuple(range(6))
+
+        clear = hand.clear_faults()
+        assert clear.wait(timeout=1) is CommandStage.DISPATCHED
+        assert transport.script.read_counts[0x09] == 1
+        assert transport.script.read_counts[0x12] == 1
+        assert all(
+            message.data[-2:] == b"\x00\x00"
+            for message in transport.script.command_messages
+            if len(message.data) == 34
+        )
+    finally:
+        hand.close()
+
+
+def test_o20_polling_is_atomic_and_stops_without_trailing_queries() -> None:
+    hand, transport = _make_o20_hand(HandSide.LEFT)
+    hand.open()
+    try:
+        initial = hand.get_snapshot().angles
+        assert initial is not None
+        hand.start_polling(PollingPlan(angles_hz=50, force_hz=20))
+
+        def polling_ready() -> bool:
+            snapshot = hand.get_snapshot()
+            angles = snapshot.angles
+            force = snapshot.force
+            return (
+                angles is not None
+                and angles.meta.sequence > initial.meta.sequence
+                and force is not None
+                and force.meta.valid
+            )
+
+        wait_until(polling_ready, timeout_s=1)
+        hand.stop_polling()
+        counts_after_stop = transport.script.read_counts.copy()
+        time.sleep(0.05)
+        assert transport.script.read_counts == counts_after_stop
+    finally:
+        hand.close()
+
+
+def test_o20_recovery_rejects_a_replacement_serial_number() -> None:
+    hand, transport = _make_o20_hand(HandSide.RIGHT)
+    hand.open()
+    try:
+        transport.current_dispatcher.disconnect()
+        wait_until(lambda: not hand.get_health().connected)
+        transport.script.serial_number = "SN-O20-REPLACED"
+
+        with pytest.raises(IdentityMismatchError, match="fingerprint changed"):
+            hand.recover(timeout=1)
+
+        assert not hand.get_health().connected
     finally:
         hand.close()
 
