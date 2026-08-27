@@ -1,42 +1,43 @@
-# CAN FD 总线（L30 / O20 / O30i）
+# CAN FD transport
 
-本页说明如何在 Linux 上通过 **python-can + SocketCAN** 连接 L30、O20 和 O30i。SDK 仍保留厂商动态库后端；如需使用 `libcanbus.so` / `HCanbus.dll`，请分别参考 [L30](./l30/README.md)、[O20](./o20/README.md) 和 [O30i](./o30i/README.md)。
+O20、L30 和 O30i 使用 CAN FD。当前 capability：
 
-## 两种 CAN FD 后端
+| 型号 | 仲裁速率 | 数据速率 | side |
+| --- | ---: | ---: | --- |
+| O20 | 1 Mbit/s | 5 Mbit/s | 必填 |
+| L30 | 1 Mbit/s | 5 Mbit/s | 不适用，禁止传入 |
+| O30i | 1 Mbit/s | 1 Mbit/s | 必填 |
 
-| 后端       | `interface_type`   | 适用环境        | 连接参数                                                            |
-| ---------- | ------------------ | --------------- | ------------------------------------------------------------------- |
-| 厂商动态库 | `"ctypes"`（默认） | Linux / Windows | `device_index`、`channel_index` 或 O20 的 `device`、`channel`       |
-| SocketCAN  | `"socketcan"`      | Linux           | L30 使用 `channel="can0"`；O20/O30i 使用 `socketcan_channel="can0"` |
+协议 profile 负责 CAN ID、标准/扩展帧、FD 和 BRS 标志。应用只选择物理 transport，
+不再传旧型号类的 `frame_type`、`node_id`、`host_id` 或 manager 参数。
 
-选择 SocketCAN 后不需要 `libcanbus.so`，但 Linux 必须已经识别 CAN 适配器，并将对应网络接口配置为 CAN FD 模式。
+## Linux SocketCAN FD
 
-## 安装系统工具
-
-`python-can` 已是 SDK 的运行依赖。建议另外安装 `iproute2` 和 `can-utils`：
+安装工具：
 
 ```bash
 sudo apt update
-sudo apt install -y iproute2 can-utils
+sudo apt install -y can-utils iproute2
 ```
 
-查看系统识别到的 CAN 接口：
-
-```bash
-ip -details link show type can
-```
-
-以下示例假设接口名为 `can0`。实际名称也可能是 `can1`、`slcan0` 等，请以系统输出为准。
-
-## 配置 CAN FD 链路
-
-L30 使用 1 Mbit/s 仲裁段、5 Mbit/s 数据段；协议指定仲裁段采样点 80%、数据段采样点 75%。已经处于 UP 状态的接口需要先关闭再配置：
+O20/L30：
 
 ```bash
 sudo ip link set can0 down
 sudo ip link set can0 type can \
-  bitrate 1000000 sample-point 0.800 \
-  dbitrate 5000000 dsample-point 0.750 \
+  bitrate 1000000 \
+  dbitrate 5000000 \
+  fd on
+sudo ip link set can0 up
+```
+
+O30i：
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can \
+  bitrate 1000000 \
+  dbitrate 1000000 \
   fd on
 sudo ip link set can0 up
 ```
@@ -47,170 +48,115 @@ sudo ip link set can0 up
 ip -details -statistics link show can0
 ```
 
-L30、O20 和 O30i 默认都使用 `frame_type=0x04`，即发送 CAN FD 帧但不启用 bit-rate switching。同一条按上述方式配置的 CAN FD 链路仍需保留 5 Mbit/s 数据段，以接收设备可能发送的 BRS 帧。
+## SocketCANFDTransport
 
-## 连接 L30
-
-第一次连通性检查建议关闭自动周期上报，只读取设备信息，不使能电机也不发送运动命令：
+L30：
 
 ```python
-from linkerbot.hand import L30
+from linkerbot_hand import HandDevice
+from linkerbot_transport.canfd import SocketCANFDTransport
 
-with L30(
-    node_id=1,
-    host_id=0,
-    interface_type="socketcan",
+transport = SocketCANFDTransport(
     channel="can0",
-    frame_type=0x04,  # 默认值：CAN FD，不启用发送端 BRS
-    auto_start_periodic=False,
-) as hand:
-    info = hand.version.get_device_info(timeout_ms=1000)
-    print(info)
+    bitrate=1_000_000,
+    data_bitrate=5_000_000,
+    fd=True,
+    auto_reconfigure=False,
+)
+hand = HandDevice(
+    model="l30",
+    transport=transport,
+)
 ```
 
-L30 的 SocketCAN 参数：
-
-| 参数               | 默认值      | 说明                                     |
-| ------------------ | ----------- | ---------------------------------------- |
-| `interface_type`   | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
-| `channel`          | `None`      | SocketCAN 接口名，例如 `"can0"`          |
-| `bitrate`          | `1_000_000` | 仲裁段速率                               |
-| `data_bitrate`     | `5_000_000` | 数据段速率                               |
-| `frame_type`       | `0x04`      | CAN FD、不启用 BRS；`0x0C` 显式启用 BRS  |
-| `auto_reconfigure` | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `node_id`          | `1`         | L30 设备 NodeID，范围 1～31              |
-| `host_id`          | `0`         | 主机节点 ID，范围 0～31                  |
-
-L30 默认让主机请求保持 CAN FD、但不切换数据速率。设备返回帧仍可能
-启用 BRS，因此 SocketCAN 接口仍需按 `data_bitrate` 配置。只有确认适配器
-能够稳定发送 BRS 帧时，才应显式传 `frame_type=0x0C`。
-
-## 连接 O20
-
-O20 的左右手默认使用不同设备 ID：右手为 `0x01`，左手为 `0x02`。也可以通过 `device_id` 显式覆盖。
+O20：
 
 ```python
-from linkerbot.hand.o20 import O20
-
-with O20(
+hand = HandDevice(
+    model="o20",
     side="right",
-    interface_type="socketcan",
-    socketcan_channel="can0",
-) as hand:
-    info = hand.version.get_device_info(timeout_ms=1000)
-    print(info)
+    transport=SocketCANFDTransport(
+        "can0",
+        bitrate=1_000_000,
+        data_bitrate=5_000_000,
+    ),
+)
 ```
 
-O20 的 SocketCAN 参数：
-
-| 参数                | 默认值      | 说明                                     |
-| ------------------- | ----------- | ---------------------------------------- |
-| `interface_type`    | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
-| `socketcan_channel` | `None`      | SocketCAN 接口名，例如 `"can0"`          |
-| `bitrate`           | `1_000_000` | 仲裁速率                                 |
-| `data_bitrate`      | `5_000_000` | CAN FD 链路的数据段配置值                |
-| `auto_reconfigure`  | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `frame_type`        | `0x04`      | CAN FD、不启用 BRS；通常不要覆盖         |
-| `side`              | `"right"`   | 决定默认 `device_id`                     |
-| `device_id`         | `None`      | 显式覆盖 O20 设备 ID                     |
-
-L30 与 O20/O30i 的 SocketCAN 接口参数名称不同，是为了保留各手型原有构造函数中整数 `channel` 参数的兼容性。
-
-## 连接 O30i
-
-O30i 使用 HandProtocol_v1.0（HOP）、11 位标准帧 ID，实测默认请求 ID 为 `0x001`、响应 ID 为 `0x401`。它与 O20 一样使用 CAN FD、无 BRS（`frame_type=0x04`）。
+O30i：
 
 ```python
-from linkerbot.hand import O30i
-
-with O30i(
-    interface_type="socketcan",
-    socketcan_channel="can0",
-) as hand:
-    info = hand.version.get_device_info(timeout_ms=1000)
-    print(info.product_model, info.protocol_name, info.protocol_version)
+hand = HandDevice(
+    model="o30i",
+    side="right",
+    transport=SocketCANFDTransport(
+        "can0",
+        bitrate=1_000_000,
+        data_bitrate=1_000_000,
+    ),
+)
 ```
 
-O30i 的 SocketCAN 参数：
+transport 和 `HandDevice` 构造都不触碰网络接口。默认
+`auto_reconfigure=False`；`open()` 会使用当前系统配置。只有确认当前进程独占接口且具备
+`CAP_NET_ADMIN` 时才启用自动配置。
 
-| 参数                | 默认值      | 说明                                     |
-| ------------------- | ----------- | ---------------------------------------- |
-| `interface_type`    | `"ctypes"`  | 使用 SocketCAN 时显式传 `"socketcan"`    |
-| `socketcan_channel` | `None`      | SocketCAN 接口名，例如 `"can0"`          |
-| `bitrate`           | `1_000_000` | 仲裁速率                                 |
-| `data_bitrate`      | `5_000_000` | CAN FD 链路的数据段配置值                |
-| `auto_reconfigure`  | `False`     | 是否允许 SDK 调用 `ip link` 重新配置接口 |
-| `frame_type`        | `0x04`      | CAN FD、不启用 BRS；通常不要覆盖         |
-| `request_id`        | `0x001`     | 11 位标准帧请求 ID                       |
-| `response_id`       | `None`      | 默认自动计算为 `request_id \| 0x400`     |
+同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。按当前
+capability，应把 O30i 1M/1M 与 O20/L30 1M/5M 视为不同物理总线配置，除非硬件和
+transport 团队完成兼容验证。
 
-O30i 的连接、协议安全边界和控制接口详见 [O30i reference](./o30i/README.md)。
+## 厂商 CAN FD backend
 
-## 让 SDK 配置接口
-
-默认 `auto_reconfigure=False`，SDK 只读取并校验现有接口的 FD、仲裁速率和数据速率；配置不匹配时会给出可执行的 `ip link` 命令，不会中断其他进程正在使用的总线。
-
-确认接口可由当前进程安全独占时，可以启用自动配置：
+需要厂商动态库时使用 `CANFDTransport`：
 
 ```python
-from linkerbot.hand import L30
+from linkerbot_transport.canfd import CANFDTransport
 
-with L30(
-    interface_type="socketcan",
-    channel="can0",
-    auto_reconfigure=True,
-    auto_start_periodic=False,
-) as hand:
-    print(hand.version.get_node_id(timeout_ms=1000))
+transport = CANFDTransport(
+    device_index=0,
+    channel_index=0,
+    library_path="/path/to/libcanbus.so",
+)
 ```
 
-自动配置要求 `CAP_NET_ADMIN`，通常需要 root 权限。当前 SDK 自动校验速率和 FD 模式，但不校验采样点；L30 需要严格满足 80%/75% 采样点时，应使用本页前面的手动配置命令。
+厂商 backend 参数只属于 transport。`HandDevice` 构造、生命周期、命令和状态 API 与
+SocketCAN 完全一致。
 
-## 监控总线
+## 多设备共享
 
-在另一个终端查看收发帧：
+同一物理 CAN FD 配置下的多个设备应复用同一个 transport 对象。共享 runtime 统一串行化
+发送、路由回复并执行公平调度；每个设备不能各自创建 RX/TX 线程并直接写总线。
+
+应用需要同时控制多个设备时，分别创建 `HandDevice`，但传入同一个 transport：
+
+```python
+transport = SocketCANFDTransport(
+    "can0",
+    bitrate=1_000_000,
+    data_bitrate=5_000_000,
+)
+o20 = HandDevice(model="o20", side="right", transport=transport)
+l30 = HandDevice(model="l30", transport=transport)
+```
+
+是否能把两个具体设备接在同一物理线上，仍需同时满足协议地址不冲突、终端电阻、供电和设备
+固件约束。
+
+## 监控和故障处理
+
+查看 CAN FD 标志和时间戳：
 
 ```bash
 candump -tz -x can0
 ```
 
-只查看扩展帧和 CAN FD 标志时，保留 `-x` 很有帮助。停止监控按 `Ctrl+C`。
+无响应或频率下降时检查：
 
-## 关闭连接
+- `ip -details -statistics link show can0` 中的 FD、bitrate、dbitrate 和 bus-off；
+- 设备是否发送 BRS，以及适配器是否支持对应数据速率；
+- 型号、side 和 firmware profile 是否匹配；
+- RX route miss、missing fragment、transaction timeout 和 TX queue latency；
+- 完整触觉事务产生的帧数和设备首帧延迟；
+- 是否存在绕过 `linkerbot-transport` 的第二个周期查询方。
 
-推荐始终使用上下文管理器：
-
-```python
-with L30(interface_type="socketcan", channel="can0") as hand:
-    pass
-```
-
-退出 `with` 后 SDK 会停止收发线程并关闭自己的 SocketCAN socket，但不会执行 `ip link set can0 down`。网络接口属于系统共享资源，可能仍被 `candump` 或其他进程使用。
-
-## 常见问题
-
-### 提示接口不存在或配置不匹配
-
-先执行：
-
-```bash
-ip -details link show can0
-```
-
-确认接口名、`fd on`、`bitrate 1000000` 和 `dbitrate 5000000`。如果接口已 UP，修改参数前必须先执行 `sudo ip link set can0 down`。
-
-### 能打开接口，但设备不响应
-
-依次检查：
-
-- 灵巧手和 CAN 适配器是否供电；
-- CAN_H、CAN_L 和 GND 是否正确连接；
-- 总线两端是否各有一个 120 Ω 终端电阻；
-- L30 的 `node_id`、O20 的 `side/device_id`，或 O30i 的 `request_id/response_id` 是否与设备一致；
-- `ip -details -statistics link show can0` 中是否出现 `bus-off`、错误计数持续增长；
-- 是否显式设置了 `frame_type=0x0C`；若 BRS 发送后 bus-off 或发送队列卡住，恢复默认 `0x04`；
-- `candump -tz -x can0` 是否能看到请求帧和设备应答帧。
-
-### `Operation not permitted`
-
-配置网络接口需要 root 或 `CAP_NET_ADMIN`。接口配置并启动后，普通用户通常可以运行 SDK；具体权限仍取决于系统的网络和容器配置。
+`close()` 释放 SDK lease，但不会关闭系统的 `can0` 网络接口。

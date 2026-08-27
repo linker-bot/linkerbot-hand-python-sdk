@@ -2,6 +2,17 @@
 
 本项目遵循语义化版本。正式发布前的开发版本可能继续增加兼容修正。
 
+## 未发布
+
+- 删除 `linkerbot.hand` 七型号类、manager、`HandSession`、legacy backend 和重复
+  runtime，只保留 `linkerbot_hand.HandDevice` 一种公开调用方式。
+- 普通 `set_*()` / `get_*()` 统一表示协议原值；百分比接口统一使用
+  `set_percent_*()` 命名，删除 LUT、标准 raw、hardware raw 和 `submit_*` 别名。
+- capability registry 只返回 Hand 1.0 不可变类型，不再生成旧 contract 兼容视图。
+- 核心发行依赖移除 NumPy，并将 transport 依赖限制为 CAN/CAN FD extras；wheel 不再包含
+  `linkerbot` namespace，sdist 不再携带内部测试。
+- 重写 README、API reference 和破坏性迁移说明，删除只能调用旧 manager 的型号文档。
+
 ## 0.2.1 - 2026-08-26
 
 - 解析 O6 `0xC0` 出厂编码中的产品版本、左右手和传感器类型；

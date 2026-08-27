@@ -1,108 +1,152 @@
-# 统一协议值接口迁移说明
+# Hand SDK 1.0 迁移说明
 
-本版本把型号 manager 与 `HandDevice` 的默认数值契约统一为协议值。这是有意的破坏性
-变更，不保留旧的用户角度映射行为。迁移目标是让设备控制、遥操采集、回放和模型训练
-使用同一份数据，不再依赖隐式换算。
+Hand SDK 1.0 是有意的破坏性版本。新仓库没有保留旧型号实现外壳，因为同时维护型号类、
+manager、`HandSession` 和新 actor runtime 会形成两套生命周期、两套状态源和两套测试矩阵。
 
-## 导入与创建
+升级前应在独立分支完成调用迁移和实机回归，不要把新 wheel 当作旧 API 的原位兼容补丁。
 
-统一类型从 `linkerbot_hand` 导入，内置硬件驱动通过 `create_hand_device()` 创建：
+## 唯一入口
+
+旧代码：
 
 ```python
-from linkerbot.hand import create_hand_device
-from linkerbot_hand import CommandStage, PollingPlan
+from linkerbot.hand import L6
 
-hand = create_hand_device("L6", side="left", interface_name="can0")
+hand = L6(side="left", interface_name="can0")
+```
+
+新代码：
+
+```python
+from linkerbot_hand import HandDevice
+from linkerbot_transport.can import CANTransport
+
+hand = HandDevice(
+    model="l6",
+    side="left",
+    transport=CANTransport("can0"),
+)
+```
+
+已删除：
+
+- `from linkerbot.hand import L6, O6, L20lite, L25, O20, L30, O30i`；
+- `from linkerbot import L6`；
+- `create_hand_device()`；
+- `HandSession`；
+- `LegacyHandBackend`；
+- 型号 manager、事件流和 manager snapshot；
+- `linkerbot.hand` namespace。
+
+安装其他旧发行物后，Python 环境里仍可能存在一个外部 `linkerbot` namespace，但它不由
+新 `linkerbot-hand` 提供，也不属于 1.0 兼容契约。
+
+## 方法映射
+
+| 旧调用 | 1.0 调用 | 变化 |
+| --- | --- | --- |
+| `create_hand_device(...)` / 型号构造 | `HandDevice(model=..., side=..., transport=...)` | transport 与设备协议显式分离 |
+| `hand.angle.set_angles(values)` | `hand.set_angles(values)` | 协议原值，非阻塞，返回 handle |
+| `submit_angles(values)` | `set_angles(values)` | 删除重复动词 |
+| `set_percentage_angles(values)` / `submit_percentage_angles(values)` | `set_percent_angles(values)` | 公开契约统一使用 `percent` |
+| `set_raw_angles(...)` / `set_hardware_raw_angles(...)` | `set_angles(...)` | raw 只剩精确协议原值一种 |
+| `hand.speed.set_speeds(values)` / `submit_speeds(values)` | `set_speeds(values)` | 配置速度协议值 |
+| `submit_torques(values)` | 按 capability 改为 `set_current_limits()`、`set_effort_limits()` 或 `set_torques()` | 不再把限制值统称扭矩 |
+| `manager.get_blocking(timeout_ms=...)` | 对应 `get_*(timeout=seconds)` | 主动读取命名统一，timeout 全部为秒 |
+| `manager.get_snapshot()` | `hand.get_snapshot()` | 唯一不可变 canonical cache |
+| `get_version()` / `hand.version.*` | `get_device_info(timeout)` | 身份和全部可用版本字段统一返回 |
+| 旧 polling/event stream | `start_polling(PollingPlan(...))` + `get_snapshot()` | SDK 成为唯一周期查询方 |
+| 异常字符串判断 | 捕获 `HandError` 子类或映射 `ErrorCode` | 稳定错误分类 |
+
+## 生命周期迁移
+
+旧型号类可能在构造或 manager 初始化时开始轮询。1.0 必须显式管理：
+
+```python
 hand.open()
+try:
+    hand.start_polling(plan)
+    ...
+finally:
+    hand.stop_polling()
+    hand.close()
 ```
 
-构造不产生 I/O；必须显式 `open()`，并通过 `start_polling()` 启动查询。
+构造后不会连接或查询。`open/close/start/stop` 幂等，`close()` 有界等待 runtime 和
+transport 退出。不要依赖 `__del__`，也不要假设 `HandDevice` 支持 `with`。
 
-## 数值接口对照
+ROS 2 映射：
 
-| 用途 | 型号 manager | 统一接口 | 数据语义 |
-| --- | --- | --- | --- |
-| 角度控制 | `angle.set_angles(values)` | `submit_angles(values)` | 协议位置值 |
-| 百分比角度 | `angle.set_percentage_angles(values)` | `submit_percentage_angles(values)` | 显式 `0..100` |
-| 速度控制 | `speed.set_speeds(values)` | `submit_speeds(values)` | 协议速度值 |
-| 百分比速度 | `speed.set_percentage_speeds(values)` | `submit_percentage_speeds(values)` | 显式 `0..100`，能力受限 |
-| 力矩/限制控制 | `torque.set_torques(values)` | `submit_torques(values)` | 协议值 |
-| 状态读取 | `manager.get_blocking()` | `start_polling()` + `get_snapshot()` | 协议解码值 |
-
-原来把 `set_angles()` 或 `set_speeds()` 当作百分比的调用点，必须改用带
-`percentage` 的方法。已经持有设备协议值的调用点继续使用简短默认方法，不再增加
-第二个 raw 命名入口。
-
-型号 manager 的改名入口保留显式数值换算：四款经典型号线性映射到 `0..255`，O20 / L30
-按逐轴最小值到最大值映射；O30i 的前 6 个方向轴正向映射，后 14 个屈伸轴反向映射，并与
-统一 capability 使用相同端点。O20 / L30 的 manager 与统一
-`submit_percentage_angles()` 在部分轴上方向仍不同。跨入口迁移时先转换为协议值，不能只
-替换方法名后混用百分比数组。
-
-百分比角度以 capability 的逐轴端点为准。百分比速度目前只由 L6、O6、L20Lite 和
-L25 明确支持；L30、O20 和 O30i 会抛出 `UnsupportedOperationError`。特别注意，
-O20 的协议速度目标恰好是 `0..100`，仍不能解释成百分比。
-
-## 状态数据迁移
-
-`SensorSample.values` 现在是唯一数值载荷，始终表示协议解码值。读取时同时保存：
-
-```python
-sample = hand.get_snapshot().angles
-if sample is not None and sample.valid:
-    values = sample.values
-    unit = sample.unit
-    encoding = sample.encoding
-    physical_unit = sample.physical_unit
-    scale = sample.scale
-    offset = sample.offset
-```
-
-`JointState.angle`、`speed` 和 `torque` 也直接来自这些协议样本。数据集应记录型号、
-固件、关节顺序、范围、单位、编码、物理元数据和值类型，不能只保存一个无上下文的
-数值数组。`unit` 始终描述 `values`；只有 `scale` 与 `offset` 都存在时才能按
-`physical = raw * scale + offset` 换算。`physical_unit` 存在而比例为空时，表示仅确认了
-物理维度，不能自行根据端点推导比例。
-
-需要百分比或物理量时，在数据边界显式调用转换 helper。角度可使用
-`percent_to_raw()` / `raw_to_percent()`；能力发布物理标定后才可使用
-`raw_to_physical_angles()` / `physical_angles_to_raw()`。RPM 与 mA 的型号换算见
-[协议值、百分比与显式换算](./angle-coordinates.md)。
-
-## ROS Lifecycle 映射
-
-| ROS 阶段 | SDK 操作 |
+| ROS Lifecycle | SDK |
 | --- | --- |
-| `on_configure` | 创建 `HandDevice`，读取静态 capability，不打开设备。 |
-| `on_activate` | `open()`，再启动 `PollingPlan`。 |
-| subscription callback | 调用 `submit_*()` 后立即返回，不调用 `wait()`。 |
-| publisher timer | 只读取 `get_snapshot()` / `get_health()`。 |
-| `on_deactivate` | `stop_polling()`，不自动发送动作。 |
-| cleanup / shutdown | `close()`。 |
+| `on_configure` | 构造 transport 和 `HandDevice`，读取 declared capability |
+| `on_activate` | `open()`，读取 verified capability，`start_polling()` |
+| command callback | 只调用 `set_*()` 并立即返回 |
+| publisher/diagnostics | 只调用 `get_snapshot()` / `get_health()` |
+| `on_deactivate` | `stop_polling()` |
+| `on_cleanup` / shutdown | `close()` |
 
-ROS 不应维护第二份型号范围或换算表。协议值 topic 与百分比 topic 必须使用不同名称；
-百分比 topic 只能调用显式 percentage 方法。禁用 SDK 轮询后，只读取快照不会产生查询帧。
+ROS 不再创建传感器查询 timer，也不维护 `MODEL_SPECS`。
 
-## 命令完成语义
+## 角度数据迁移
 
-`submit_*()` 返回 `CommandHandle`。不支持设备 ACK 的命令以 `DISPATCHED` 为成功终态；
-只有 capability 的 `acknowledged_commands` 明确列出的命令才可能进入
-`ACKNOWLEDGED`。机械到位需要根据协议反馈另行判断。
+旧实现中的“百分比”“标准 raw”“用户 LUT raw”和“hardware raw”可能不是同一坐标。
+1.0 只保留：
+
+- `set_angles()` / `AngleSample.raw`：设备协议原值。
+- `set_percent_angles()` / `AngleSample.percent`：固定 capability 映射。
+
+屈伸轴的 percent 产品定义为 `0=弯曲，100=伸直`。不要直接把旧百分比数据按相同字段名
+回放；先记录旧入口、映射版本、型号、side 和关节顺序，再转换为 1.0 raw 或 percent。
+
+旧 LUT 文件不会读取、迁移或保存。需要业务级标定时，应在应用或标定服务中形成显式版本化
+数据，不改变 SDK 的设备协议事实。
+
+## 状态迁移
+
+旧的通用 `SensorSample.values` 和 manager 数据类改为类型化样本：
+
+| 数据 | 1.0 snapshot 字段 |
+| --- | --- |
+| 角度 | `snapshot.angles.raw / percent / physical_rad` |
+| 实测速度 | `snapshot.measured_speeds.raw` |
+| 配置速度 | `snapshot.configured_speeds.raw` |
+| 实测电流 | `snapshot.currents.raw` |
+| 电流上限 | `snapshot.current_limits.raw` |
+| 未确认 effort limit | `snapshot.effort_limits.raw` |
+| 真实扭矩 | `snapshot.torques.raw`，仅 capability 明确支持时存在 |
+| 温度 | `snapshot.temperatures.raw` |
+| 触觉/力 | `snapshot.force.raw / tactile` |
+| 故障 | `snapshot.faults.raw` |
+| 设备信息 | `snapshot.device_info` |
+| 堵转配置 | 三个独立 `snapshot.stall_*` 字段 |
+
+每个样本独立携带 `SampleMeta`。不要用 snapshot 的进程读取时间替代设备数据
+`collected_at`，也不要把旧连接代次的数据当作有效反馈。
+
+## 命令送达迁移
+
+1.0 setter 的返回值不是设备 ACK：
 
 ```python
-handle = hand.submit_angles(protocol_target)
-if handle.stage is CommandStage.SUPERSEDED:
-    dropped_targets += 1
+handle = hand.set_angles(values)
+assert handle.stage.value == "accepted"
 ```
 
-## 建议迁移顺序
+`ACCEPTED` 只表示进入调度器；`DISPATCHED` 才表示 transport 全部发送成功；
+`ACKNOWLEDGED` 只用于设备协议明确确认。机械到位必须由上层根据状态反馈判断。
 
-1. 从 capability 读取关节顺序、命令范围、单位、编码、物理元数据和值语义。
-2. 将协议值调用保留在默认接口，将百分比调用改成显式 percentage 接口。
-3. 将状态消费者改为读取 `SensorSample.values` 及其元数据和 `JointState.angle`。
-4. 删除应用侧的隐式百分比、RPM、mA 和逐型号角度映射。
-5. 把周期查询交给 `PollingPlan`，发布线程只读缓存。
-6. 用 fake backend 验证协议值逐项不变，再按 capability 顺序做实物往返验证。
+高频目标不要逐条 `wait()`。保存需要追踪的 handle，或消费 command status/health 指标；
+ROS callback 中严禁同步等待。
 
-断线后由 `recover()` 或自动重连替换并验证连接。恢复会清除尚未发送的旧目标，不会
-重放动作、自动张开、握拳或清除故障。
+## 升级检查
+
+1. 搜索并删除 `linkerbot.hand`、型号类、manager、`HandSession` 和 `submit_*` 导入。
+2. 为每个设备显式创建正确的 CAN/CAN FD transport。
+3. 从 capability 获取 joint names、范围、单位、推荐频率和操作支持。
+4. 区分 raw、percent、配置值、测量值、电流上限、effort limit 和真实扭矩。
+5. 将所有 timeout 从毫秒调用点改为秒制参数。
+6. 确保只有 SDK 产生周期设备查询。
+7. 为命令阶段、snapshot meta、断线恢复和 unsupported 分支补自动测试。
+8. 逐型号、逐轴验证 `set_percent_angles(0/50/100)`、`set_angles()` 和 raw 回读。
+9. 在目标 firmware、真实传感器和实际总线负载下重新测量稳定频率上限。

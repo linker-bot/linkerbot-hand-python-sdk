@@ -1,175 +1,172 @@
 # linkerbot-hand
 
-[简体中文](README.md) | English
+`linkerbot-hand` is the standalone Python SDK for the Linkerbot hand family.
+L6, O6, L20Lite, L25, O20, L30, and O30i all use one `HandDevice` API.
+Model differences are reported by `get_capabilities()`; model classes,
+managers, `HandSession`, and the `linkerbot.hand` compatibility namespace are
+not part of this package.
 
-`linkerbot-hand` is the independently installable SDK for Linkerbot dexterous
-hands. It contains the common `HandDevice` / `HandSession` contract, capability
-data, command scheduling, cached snapshots, health reporting, deterministic
-test doubles, and the bundled L6, O6, L20Lite, L25, L30, O20, and O30i hardware
-backends.
+The complete Chinese API reference is under
+[docs/zh/src/reference](./docs/zh/src/reference/README.md).
 
-The wheel has no ROS, arm, kinematics, Pydantic, SciPy, or aggregate SDK
-dependency. It uses `linkerbot-transport` for CAN/CAN FD communication and can
-be installed directly for hand-only applications:
+## Contract
+
+- Constructing a `HandDevice` or transport performs no device I/O, starts no
+  thread, and causes no motion.
+- `open()`, `close()`, `start_polling()`, and `stop_polling()` are explicit and
+  idempotent.
+- Every `set_*()` method is non-blocking and returns a `CommandHandle`.
+  Continuous targets use latest-wins scheduling.
+- Plain `set_*()` and `get_*()` methods use exact protocol values without
+  implicit physical-unit conversion.
+- `set_percent_angles()` accepts `0..100`. Flexion axes consistently use
+  `0=flexed/closed` and `100=extended/open`.
+- Query-backed `get_*()` methods perform a fresh on-demand transaction.
+  Getters declared as `COMMAND_CACHE` return explicitly identified command
+  cache state. `get_snapshot()` and `get_health()` always read memory only.
+- The SDK is the sole owner of periodic device queries. Applications and ROS
+  submit a `PollingPlan` instead of creating another query timer.
+- The core package does not depend on NumPy, SciPy, ROS, the Arm SDK, or the
+  former aggregate SDK.
+
+## Installation
+
+Install from the Linkerbot Gitea Python package index:
 
 ```bash
-pip install linkerbot-hand==0.2.0
+python -m pip install \
+  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
+  --extra-index-url https://pypi.org/simple \
+  linkerbot-hand
 ```
 
-### NumPy compatibility
+For source development:
 
-The SDK uses NumPy for tactile matrices but does not depend on SciPy. Supported
-ranges are selected by Python version:
+```bash
+python -m pip install -e .
+```
 
-- Python 3.10-3.12: `numpy>=1.21.6,<2`.
-- Python 3.13 and newer: `numpy>=2.1,<3`.
+Python 3.10 or newer is required. The only runtime dependency is
+`linkerbot-transport` with its CAN and CAN FD backends.
 
-ROS 2 Jazzy uses Python 3.12 and therefore resolves NumPy 1.26.x, which remains
-compatible with Ubuntu's SciPy 1.11.4 (`numpy<1.28`). Release 0.1.1 incorrectly
-required NumPy 2.2.6 or newer and should not be used in a Jazzy
-`--system-site-packages` environment.
+## Quick Start
 
-The canonical unified API is `linkerbot_hand`. Model drivers remain available
-under `linkerbot.hand`, but this release unifies their value semantics: default
-control and telemetry use protocol-native values. User LUT behavior and the old
-raw-angle aliases are not retained.
+Configure classic SocketCAN at 1 Mbit/s before opening L6, O6, L20Lite, or L25:
 
-## Lifecycle
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can0 up
+```
 
-Construction performs no device I/O and starts no polling or motion. A backend
-is created only by `open()`, and polling starts only after an explicit
-`start_polling()` call.
+Then use the single public device class:
 
 ```python
-from linkerbot_hand import (
-    CommandPolicy,
-    HandDevice,
-    HandSide,
-    PollingPlan,
-    SessionConfig,
-    get_model_capabilities,
-)
-from linkerbot_hand.testing import FakeBackendFactory
+from linkerbot_hand import HandDevice, PollingPlan
+from linkerbot_transport.can import CANTransport
 
-capabilities = get_model_capabilities("L6", side=HandSide.RIGHT)
-backend_factory = FakeBackendFactory(capabilities)
 hand = HandDevice(
-    capabilities,
-    backend_factory,
-    config=SessionConfig(command_rate_hz=100, auto_reconnect=False),
+    model="o6",
+    side="right",
+    transport=CANTransport("can0"),
 )
 
 hand.open()
 try:
-    hand.start_polling(PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1))
-    handle = hand.submit_percentage_angles(
-        [100, 100, 100, 100, 100, 100],
-        policy=CommandPolicy.LATEST,
+    capabilities = hand.get_capabilities()
+    print(capabilities.identity)
+    print(capabilities.joint_names)
+
+    hand.start_polling(
+        PollingPlan(
+            angles_hz=60,
+            force_hz=30,
+            temperature_hz=1,
+            faults_hz=5,
+        )
     )
-    snapshot = hand.get_snapshot()  # Cached data only; never device I/O.
-    health = hand.get_health()  # Cached counters only.
+
+    handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
+    print(handle.command_id, handle.stage, handle.ack_support)
+
+    angles = hand.get_angles(timeout=0.2)
+    print(angles.raw)
+    print(angles.percent)
+
+    snapshot = hand.get_snapshot()
+    health = hand.get_health()
+    print(snapshot.angles)
+    print(health.connection_state)
 finally:
     hand.stop_polling()
     hand.close()
 ```
 
-`open()`, `close()`, `start_polling()` with the same plan, and
-`stop_polling()` are idempotent. Closing waits for the worker for the bounded
-`SessionConfig.join_timeout_s` interval.
+`set_percent_angles()` causes motion. For an initial hardware check, use a
+small target near the current pose after verifying the model, side, joint
+order, and percentage endpoints.
 
-## Commands
-
-`submit_angles()`, `submit_speeds()`, and `submit_torques()` accept values in
-the ranges and protocol units declared by capabilities. Explicit normalized
-control is available through `submit_percentage_angles()` and, only for models
-that declare it, `submit_percentage_speeds()`. These methods validate and
-enqueue work without waiting for device I/O.
-Continuous motion commands share one latest-wins slot. Discrete operations
-(`clear_faults()`, `enable()`, `disable()`, and `calibrate()`) use a separate,
-bounded FIFO when the model advertises support.
-
-Every `CommandHandle` records these stages:
-
-- `ACCEPTED`: validated and admitted to the scheduler.
-- `DISPATCHED`: the backend reports a successful transport send.
-- `ACKNOWLEDGED`: the device protocol explicitly confirms the command.
-- `FAILED`: validation has already passed, but dispatch or communication fails.
-- `SUPERSEDED`: a newer continuous target replaces this target before dispatch.
-
-Check `handle.ack_support`. For a command whose protocol has no device ACK,
-`DISPATCHED` is terminal and is never relabeled as `ACKNOWLEDGED`.
-
-## Cached State And Capabilities
-
-`get_snapshot()` only copies SDK cache state. Each `SensorSample` includes its
-decoded protocol values, unit, wire encoding, collection timestamp, sequence,
-validity, staleness, and connection generation. `get_health()` reports connection state, successful
-send/receive times, errors, reconnects, superseded and pending command counts,
-and sensor ages.
-
-`get_capabilities()` is the runtime source of truth for model, firmware, side,
-joint order and ranges, sensors, recommended polling rates, transport, optional
-operations, command-specific ACK support, and explicit percentage mappings.
-The default submit and snapshot paths are protocol-native and never apply
-percentage, RPM, or milliamp conversion. Percentage angles use
-`100=open, 0=closed` for flexion axes; directional endpoints come from
-capabilities in the unified `submit_percentage_angles()` API. Model-manager
-`set_percentage_angles()` helpers retain their explicit local mappings: the
-four classic models map `0..100` to `0..255`, O20 and L30 map each joint's
-minimum to maximum, and O30i uses its measured inverse-byte mapping. Those
-manager percentages can differ from unified capability direction on some axes;
-protocol values are portable across both entry points. Physical-angle
-conversion raises `UnsupportedOperationError` unless a calibrated physical
-range is explicitly provided.
-
-## Recovery And Testing
-
-`recover()` replaces and re-verifies the backend, clears pre-recovery commands,
-and samples current state before publishing a new connection generation. It
-does not replay old targets, move the hand, or clear faults. Automatic reconnect
-is opt-in through `SessionConfig(auto_reconnect=True)`.
-
-`linkerbot_hand.testing` provides `FakeBackend`, `FakeBackendFactory`,
-`FakeBackendState`, and `ManualClock` for deterministic disconnect, timeout,
-polling, queue, and recovery tests without hardware.
-
-Custom `HandBackend.dispatch()` implementations must call `claim_dispatch()`
-immediately before their first transport send. A rejected claim returns without
-I/O. After a successful claim, call `mark_dispatched()` only once an actual
-transport send succeeds; enqueueing into another software queue is not a send.
-
-## Existing Hardware Drivers
-
-The bundled hardware drivers remain available from their historic
-`linkerbot.hand` paths. Construct the unified interface through the compatibility
-adapter:
+L30 has no left/right variant, so its constructor must omit `side`:
 
 ```python
-from linkerbot.hand import create_hand_device
+from linkerbot_hand import HandDevice
+from linkerbot_transport.canfd import SocketCANFDTransport
 
-hand = create_hand_device("L6", side="right", interface_name="can0")
+l30 = HandDevice(
+    model="l30",
+    transport=SocketCANFDTransport(
+        "can0",
+        bitrate=1_000_000,
+        data_bitrate=5_000_000,
+    ),
+)
 ```
 
-The legacy `linkerbot.hand` import path also re-exports `HandDevice`,
-`HandSession`, `PollingPlan`, and `CommandPolicy` during migration.
+O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30i uses 1 Mbit/s
+for both nominal and data rates.
 
-Model-specific applications can keep the same import paths:
+## Value Semantics
 
 ```python
-from linkerbot.hand import L6, L30
+# Here `hand` is the opened six-axis O6 device from the quick start.
+raw_handle = hand.set_angles([255, 128, 255, 255, 255, 255])
+percent_handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
+
+angles = hand.get_angles(timeout=0.2)
+print(angles.raw)          # Exact device protocol values
+print(angles.percent)      # Fixed SDK capability mapping
+print(angles.physical_rad) # None where no physical calibration exists
 ```
 
-Their default `set_angles()`, `set_speeds()`, and `set_torques()` methods and
-sensor data now use protocol-native values. Percentage control is explicitly
-named `set_percentage_*`. LUT configuration, `set_raw_angles()`, and
-`set_hardware_raw_angles()` have been removed without a compatibility layer.
+Configured speed, measured speed, current limit, measured current,
+dimensionless effort limit, and true torque are separate channels. Check
+`capabilities.command(...)` and `capabilities.telemetry_channel(...)` before
+using an optional operation. Unsupported methods raise
+`UnsupportedOperationError`.
 
-The independent wheel does not own the shared `linkerbot` package root, so
-aggregate-only imports such as `from linkerbot import L6` should use the
-equivalent `linkerbot.hand` import above.
+## Command Delivery
 
-## API Reference
+A `CommandHandle` distinguishes:
 
-See the [`linkerbot_hand` API reference
-(Chinese)](docs/zh/src/reference/hand-device.md) for complete signatures,
-return types, lifecycle semantics, command stages, telemetry, and stable errors.
+- `ACCEPTED`: validation passed and the command entered a bounded scheduler.
+- `DISPATCHED`: the transport successfully sent every frame.
+- `ACKNOWLEDGED`: the device protocol returned an explicit matching ACK.
+- `FAILED`: encoding, sending, protocol processing, or communication failed.
+- `SUPERSEDED`: a newer target replaced the command before transport claim.
+
+For devices without protocol ACK support, `DISPATCHED` is the successful
+terminal stage. It never means that mechanical motion has completed.
+
+## Verification
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
+ruff check src/linkerbot_hand tests/hand
+ruff format --check src/linkerbot_hand tests/hand
+ty check src/linkerbot_hand tests/hand/api_v1
+python -m build
+```
+
+The repository contains only the Hand SDK. Arm control, kinematics, and
+Pinocchio belong to the separate Arm SDK. ROS 2 messages, Lifecycle, QoS, and
+topic mapping belong to `linkerbot-hand-ros`.

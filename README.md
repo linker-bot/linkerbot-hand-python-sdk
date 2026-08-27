@@ -1,192 +1,188 @@
 # linkerbot-hand
 
-简体中文 | [English](README.en.md)
+`linkerbot-hand` 是 Linkerbot 全系列灵巧手的独立 Python SDK。L6、O6、
+L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号差异由
+`get_capabilities()` 返回，不再公开型号类、manager、`HandSession` 或
+`linkerbot.hand` 兼容入口。
 
-`linkerbot-hand` 是 Linkerbot 灵巧手的独立 Python SDK，统一提供设备生命周期、
-能力描述、非阻塞命令调度、缓存快照、健康状态、安全恢复和可注入测试后端，并内置
-L6、O6、L20Lite、L25、L30、O20 和 O30i 驱动。
+英文说明见 [README.en.md](./README.en.md)，完整中文 reference 见
+[docs/zh/src/reference](./docs/zh/src/reference/README.md)。
 
-本包不依赖 ROS、机械臂、运动学、Pydantic、SciPy 或旧聚合 SDK。CAN/CAN FD
-通信由轻量的 `linkerbot-transport` 提供。先为 pip 配置公司 Gitea Python 包源及
-访问凭据，再安装正式版本：
+## 设计边界
+
+- 构造 `HandDevice` 和 transport 时零设备 I/O、零线程、零运动。
+- `open()`、`close()`、`start_polling()` 和 `stop_polling()` 显式且幂等。
+- `set_*()` 非阻塞，返回 `CommandHandle`；连续目标使用 latest-wins。
+- 普通 `set_*()` / `get_*()` 使用设备协议原值，不做隐式物理量换算。
+- `set_percent_angles()` 使用 `0..100`；屈伸轴统一为
+  `0=弯曲/闭合，100=伸直/张开`。
+- 查询型 `get_*()` 主动执行一次新事务；声明为 `COMMAND_CACHE` 的 getter 只返回
+  明确标注来源的命令缓存。`get_snapshot()` 和 `get_health()` 始终只读内存。
+- SDK 是设备周期查询的唯一所有者，ROS 或应用只提交 `PollingPlan`。
+- 核心包不依赖 NumPy、SciPy、ROS、机械臂或旧聚合 SDK。
+
+## 安装
+
+从 Linkerbot Gitea PyPI 安装：
 
 ```bash
-python -m pip install linkerbot-hand==0.2.1
+python -m pip install \
+  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
+  --extra-index-url https://pypi.org/simple \
+  linkerbot-hand
 ```
 
-包源地址为
-`https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple`。请通过环境变量、
-pip 的认证配置或系统凭据管理器提供用户名和访问令牌，不要把令牌写入代码或提交到
-仓库。
+从源码开发安装：
 
-### NumPy 兼容范围
+```bash
+python -m pip install -e .
+```
 
-SDK 的触觉矩阵使用 NumPy，但不依赖 SciPy。依赖范围按 Python 版本声明：
+运行依赖只有 `linkerbot-transport` 及其 CAN/CAN FD backend。Python 要求
+`>=3.10`。
 
-- Python 3.10-3.12：`numpy>=1.21.6,<2`。
-- Python 3.13 及以上：`numpy>=2.1,<3`。
+## SocketCAN 准备
 
-ROS 2 Jazzy 使用 Python 3.12，安装时会选择 NumPy 1.26.x，与 Ubuntu 系统提供的
-SciPy 1.11.4（要求 `numpy<1.28`）兼容。不要在 Jazzy 的
-`--system-site-packages` 环境中继续使用 `linkerbot-hand==0.1.1`，该版本错误地要求
-`numpy>=2.2.6`。
+经典 CAN 型号 L6、O6、L20Lite、L25 使用 1 Mbit/s：
 
-规范的统一接口入口是 `linkerbot_hand`。同一个 wheel 也提供各型号的
-`linkerbot.hand` 驱动，但本版本统一了数值语义：默认控制与反馈都使用协议值，
-不再兼容用户 LUT 或旧 raw-angle 别名。
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000
+sudo ip link set can0 up
+```
 
-## 快速开始
+L30 和 O20 使用 1 Mbit/s 仲裁速率、5 Mbit/s 数据速率：
 
-构造 `HandDevice` 不会连接设备、启动轮询或产生运动。只有显式调用 `open()` 后
-才创建设备后端，只有调用 `start_polling()` 后才产生周期性状态查询。
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
+sudo ip link set can0 up
+```
+
+O30i 使用 1 Mbit/s 仲裁速率和数据速率：
+
+```bash
+sudo ip link set can0 down
+sudo ip link set can0 type can bitrate 1000000 dbitrate 1000000 fd on
+sudo ip link set can0 up
+```
+
+详细配置见 [经典 CAN](./docs/zh/src/reference/can.md) 和
+[CAN FD](./docs/zh/src/reference/canfd.md)。
+
+## 唯一调用方式
 
 ```python
-from linkerbot.hand import create_hand_device
-from linkerbot_hand import CommandPolicy, PollingPlan
+from linkerbot_hand import HandDevice, PollingPlan
+from linkerbot_transport.can import CANTransport
 
-hand = create_hand_device("L6", side="right", interface_name="can0")
+transport = CANTransport("can0")
+hand = HandDevice(
+    model="o6",
+    side="right",
+    transport=transport,
+)
+
 hand.open()
 try:
-    hand.start_polling(PollingPlan(angles_hz=60, force_hz=30, temperature_hz=1))
-    handle = hand.submit_percentage_angles(
-        [100, 100, 100, 100, 100, 100],
-        policy=CommandPolicy.LATEST,
+    capabilities = hand.get_capabilities()
+    print(capabilities.identity)
+    print(capabilities.joint_names)
+
+    hand.start_polling(
+        PollingPlan(
+            angles_hz=60,
+            force_hz=30,
+            temperature_hz=1,
+            faults_hz=5,
+        )
     )
+
+    handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
+    print(handle.command_id, handle.stage, handle.ack_support)
+
+    fresh = hand.get_angles(timeout=0.2)
+    print(fresh.raw)
+    print(fresh.percent)
+
     snapshot = hand.get_snapshot()
     health = hand.get_health()
+    print(snapshot.angles)
+    print(health.connection_state)
 finally:
     hand.stop_polling()
     hand.close()
 ```
 
-`open()`、`close()`、使用相同配置的 `start_polling()` 以及 `stop_polling()` 都是
-幂等操作。关闭设备时最多等待 `SessionConfig.join_timeout_s`，不会依赖
-`__del__` 回收线程或连接。
+`set_percent_angles()` 会产生运动。实机首次验证时应使用当前姿态附近的小幅目标，并先确认
+型号、左右手、关节顺序和百分比端点。
 
-## 统一接口
-
-所有型号通过相同的 `HandDevice` / `HandSession` 接口使用：
-
-- 生命周期：`open()`、`close()`、`start_polling()`、`stop_polling()`。
-- 协议值命令：`submit_angles()`、`submit_speeds()`、`submit_torques()`。
-- 显式百分比命令：`submit_percentage_angles()`；仅在能力明确支持时使用
-  `submit_percentage_speeds()`。
-- 状态：`get_snapshot()`、`get_health()`、`get_capabilities()`。
-- 恢复：`recover()` 或通过 `SessionConfig(auto_reconnect=True)` 启用自动重连。
-
-型号差异由 `get_capabilities()` 返回，包括型号、固件、左右手、关节顺序、数值
-范围、传感器、推荐轮询频率、transport、ACK 和清错/使能/标定能力。上层应用
-不需要维护另一份容易漂移的型号表。
-
-## 角度坐标
-
-`submit_angles()` 和型号 manager 的 `set_angles()` 直接发送能力声明范围内的协议值；
-角度快照的 `SensorSample.values` 也直接返回协议解码值。`submit_speeds()`、
-`set_speeds()` 及速度反馈遵循相同原则，不自动换算为百分比或 RPM。
-
-统一接口 `submit_percentage_angles()` 使用 capability 声明的逐轴端点：
-
-- `0`：弯曲或闭合。
-- `100`：伸直或张开。
-
-型号 manager 的 `set_percentage_angles()` 是显式的本地换算入口。L6、O6、L20Lite、
-L25 按 `0..100 -> 0..255` 线性换算；O20、L30 按每轴最小值到最大值换算；O30i
-按实测反向字节换算。后三者在部分轴上与统一 capability 方向不同，百分比数组不能跨
-入口直接复用；协议值接口没有这个差异。
-
-L6、O6、L20Lite 和 L25 还明确支持 `submit_percentage_speeds()` /
-`set_percentage_speeds()`；O20 的协议速度范围虽然也是 `0..100`，但没有声明为
-百分比，因此该接口会拒绝 O20。
-
-每个 `SensorSample` 通过 `unit` 和 `encoding` 标注 `values` 的实际单位与线上标量编码，
-并通过 `physical_unit`、`scale`、`offset` 标注已确认的物理解释。仅当 `scale` 和
-`offset` 都不是 `None` 时，才可使用 `physical = raw * scale + offset`；只有
-`physical_unit` 表示物理维度已知但比例尚未确认。`value_kind` 与 `matrix_shape` 用于区分
-普通数值、位掩码、枚举和触觉矩阵。需要 RPM、mA 或物理角度时，应在数据边界显式换算；
-SDK 不在命令和遥测主路径隐式换算。
-
-只有能力描述明确提供标定物理范围时，SDK 才支持物理角度转换；否则会抛出
-`UnsupportedOperationError`，不会把未知原始值伪装成弧度。完整定义见
-[角度坐标 Reference](docs/zh/src/reference/angle-coordinates.md)。
-
-## 非阻塞命令
-
-`submit_*()` 只负责校验并将命令交给调度器，不在调用线程等待设备 I/O。连续运动
-命令共用容量为 1 的 latest-wins 槽位，新目标会覆盖尚未发送的旧目标；清错、使能
-和标定等离散操作使用独立的有界 FIFO。
-
-`CommandHandle` 至少区分以下阶段：
-
-- `ACCEPTED`：参数有效并进入调度器。
-- `DISPATCHED`：transport 已实际发送成功。
-- `ACKNOWLEDGED`：设备协议明确确认。
-- `FAILED`：发送或通信失败。
-- `SUPERSEDED`：发送前被更新目标覆盖。
-
-不支持设备 ACK 的协议以 `DISPATCHED` 作为终态，不会把入队成功描述为
-`ACKNOWLEDGED`。可通过 `handle.ack_support` 判断当前命令的 ACK 能力。
-
-## 快照与健康状态
-
-`get_snapshot()` 只复制 SDK 缓存，不发送 CAN 请求或等待设备。每个
-`SensorSample` 都包含协议解码值、原始单位、编码、物理元数据、值类型、矩阵尺寸、
-采集时间、序号、有效性、过期状态和连接代次。`get_health()` 返回连接状态、成功收发
-时间、连续错误、最近错误、重连次数、连接代次、命令覆盖数、待发送数和各类状态年龄。
-
-SDK 统一调度角度、力、温度、电流、速度和故障轮询；上层只提交
-`PollingPlan`，不应再建立第二套周期查询任务。
-
-## 安全恢复与测试
-
-`recover()` 会替换并重新验证后端，清除恢复前尚未发送的命令，并在发布新连接
-代次前读取当前状态。恢复过程不会重放旧目标、自动张开/握拳或自动清除故障。
-
-`linkerbot_hand.testing` 提供 `FakeBackend`、`FakeBackendFactory`、
-`FakeBackendState` 和 `ManualClock`，可以在无实物环境下确定性测试断线、超时、
-轮询、命令覆盖和恢复：
+L30 不区分左右手，构造时不得传 `side`：
 
 ```python
-from linkerbot_hand import HandDevice, HandSide, get_model_capabilities
-from linkerbot_hand.testing import FakeBackendFactory
+from linkerbot_hand import HandDevice
+from linkerbot_transport.canfd import SocketCANFDTransport
 
-capabilities = get_model_capabilities("L6", side=HandSide.RIGHT)
-hand = HandDevice(capabilities, FakeBackendFactory(capabilities))
+l30 = HandDevice(
+    model="l30",
+    transport=SocketCANFDTransport(
+        "can0",
+        bitrate=1_000_000,
+        data_bitrate=5_000_000,
+    ),
+)
 ```
 
-自定义 `HandBackend.dispatch()` 必须在第一次 transport 发送前调用
-`claim_dispatch()`；只有实际发送成功后才能调用一次 `mark_dispatched()`。
-
-## 型号专用接口
-
-按型号调用的应用可以继续从相同路径导入：
+## 值语义
 
 ```python
-from linkerbot.hand import L6, L30
+# 以下 `hand` 指上文已经 open 的六轴 O6 设备。
+raw_handle = hand.set_angles([255, 128, 255, 255, 255, 255])
+percent_handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
+
+angles = hand.get_angles(timeout=0.2)
+print(angles.raw)          # 设备协议原值
+print(angles.percent)      # SDK 固定 capability 映射
+print(angles.physical_rad) # 无可靠物理标定的轴为 None
 ```
 
-这些 manager 的 `set_angles()`、`set_speeds()`、`set_torques()` 和对应反馈也都使用
-协议值；百分比方法带有明确的 `set_percentage_*` 名称。旧 LUT 配置、
-`set_raw_angles()` 和 `set_hardware_raw_angles()` 已删除，不提供兼容层。
+速度配置、实测速度、电流上限、实测电流、无量纲 effort limit 和真实扭矩是不同
+通道。调用前应检查 `capabilities.command(...)` 和
+`capabilities.telemetry_channel(...)`；不支持的统一方法会抛出
+`UnsupportedOperationError`。
 
-`linkerbot.hand` 也重导出 `HandDevice`、`HandSession`、`PollingPlan` 和
-`CommandPolicy`。独立 wheel 不拥有共享的 `linkerbot` 包根，原来的
-`from linkerbot import L6` 应改为 `from linkerbot.hand import L6`。
+## 命令阶段
+
+`CommandHandle` 至少区分：
+
+- `ACCEPTED`：已通过校验并进入有界调度器。
+- `DISPATCHED`：transport 已成功发送该命令的全部帧。
+- `ACKNOWLEDGED`：设备协议返回了可匹配的明确 ACK。
+- `FAILED`：编码、发送、协议或连接失败。
+- `SUPERSEDED`：发送前被同命令族的新目标覆盖。
+
+不支持设备 ACK 的型号以 `DISPATCHED` 作为成功终态。该阶段不表示机械到位。
+
+## 测试
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
+ruff check src/linkerbot_hand tests/hand
+ruff format --check src/linkerbot_hand tests/hand
+ty check src/linkerbot_hand tests/hand/api_v1
+python -m build
+```
+
+实机测试需要先确认型号、固件、供电、终端电阻和总线配置。L6 Hand 1.0 profile 要求
+固件不低于 2.4.0；旧固件会明确抛出 `UnsupportedFirmwareError`，不会带着未验证
+profile 开始运动。
 
 ## 文档
 
-- [统一设备 API Reference](docs/zh/src/reference/hand-device.md)
-- [设备能力矩阵](docs/zh/src/reference/hand-capabilities.md)
-- [协议值与显式换算](docs/zh/src/reference/angle-coordinates.md)
-- [接口兼容边界](docs/zh/src/reference/hand-compatibility.md)
-- [迁移指南](docs/zh/src/reference/hand-migration.md)
-- [CAN 接入](docs/zh/src/reference/can.md)
-- [CAN FD 接入](docs/zh/src/reference/canfd.md)
+- [统一 HandDevice API](./docs/zh/src/reference/hand-device.md)
+- [型号能力与查询方式](./docs/zh/src/reference/hand-capabilities.md)
+- [协议原值、percent 与角度方向](./docs/zh/src/reference/angle-coordinates.md)
+- [破坏性迁移说明](./docs/zh/src/reference/hand-migration.md)
 
-## 支持范围
-
-- Python 3.10 及以上版本。
-- Linux SocketCAN / CAN FD，以及各型号能力描述支持的厂商后端。
-- L6、O6、L20Lite、L25、L30、O20 和 O30i。
-
-具体型号功能以运行时 `get_capabilities()` 和
-[设备能力矩阵](docs/zh/src/reference/hand-capabilities.md) 为准。
+本仓库只包含 Hand SDK。机械臂、运动学和 Pinocchio 属于独立 Arm SDK；ROS 2 消息、
+Lifecycle、QoS 和 topic 映射属于 `linkerbot-hand-ros`。
