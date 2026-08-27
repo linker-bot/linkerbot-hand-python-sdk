@@ -147,6 +147,80 @@ def test_l6_identity_verifies_versions_and_profile() -> None:
     assert result.fingerprint == "LHL6-04-077-L-B-1-A"
 
 
+@pytest.mark.parametrize("markers", ((0, 1, 2), (0, 6, 12)))
+def test_l6_identity_accepts_three_contiguous_full_factory_frames(
+    markers: tuple[int, ...],
+) -> None:
+    transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
+
+    result = _consume_identity(
+        transaction,
+        _identity_frames(
+            HandSide.LEFT,
+            b"LHL6 -04-077-L-B-1",
+            l6=True,
+            markers=markers,
+        ),
+    )
+
+    assert result.device_info.product_code == "LHL6 -04-077-L-B-1"
+    assert result.device_info.serial_number == "077"
+
+
+def test_l6_legacy_three_frame_identity_reports_unsupported_firmware() -> None:
+    transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
+    frames = _identity_frames(
+        HandSide.LEFT,
+        b"LHL6 -03-077-L-B-1",
+        l6=True,
+        markers=(0, 6, 12),
+        firmware=(2, 3, 3),
+    )
+
+    with pytest.raises(UnsupportedFirmwareError, match="2.4.0"):
+        for frame in frames:
+            transaction.consume(frame)
+
+
+def test_l6_identity_does_not_accept_a_short_code_with_a_missing_frame() -> None:
+    collector = ClassicIdentityCollector(
+        classic_route(HandSide.LEFT),
+        l6_pcb_format=True,
+    )
+    frames = (
+        _message(HandSide.LEFT, b"\xc0\x00LHL6 -"),
+        _message(HandSide.LEFT, b"\xc0\x0c-L-B-1"),
+        _message(HandSide.LEFT, b"\xc1\x01\x04\x00\x01"),
+        _message(HandSide.LEFT, b"\xc2\x02\x04\x00"),
+        _message(HandSide.LEFT, b"\xc4\x01\x00\x02"),
+    )
+
+    for frame in frames:
+        assert collector.offer(frame)
+
+    assert not collector.complete
+    with pytest.raises(ProtocolError, match="incomplete"):
+        collector.product_code()
+
+
+def test_o6_identity_does_not_accept_three_unterminated_full_frames() -> None:
+    collector = ClassicIdentityCollector(
+        classic_route(HandSide.RIGHT),
+        l6_pcb_format=False,
+    )
+    for frame in _identity_frames(
+        HandSide.RIGHT,
+        b"ABCDEFGHIJKLMNOPQR",
+        l6=False,
+        markers=(0, 1, 2),
+    ):
+        assert collector.offer(frame)
+
+    assert not collector.complete
+    with pytest.raises(ProtocolError, match="incomplete"):
+        collector.product_code()
+
+
 def test_l6_identity_rejects_unsupported_firmware() -> None:
     transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
     frames = _identity_frames(

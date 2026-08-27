@@ -161,8 +161,19 @@ class _SerialFragments:
         expected = _SERIAL_OFFSETS[: self.terminal_offset // _SERIAL_FRAGMENT_SIZE + 1]
         return offsets == expected
 
-    def result(self) -> bytes:
-        if not self.complete:
+    @property
+    def legacy_short_complete(self) -> bool:
+        """Return whether three contiguous full frames form an old L6 code."""
+
+        offsets = tuple(
+            offset for offset in _SERIAL_OFFSETS if offset in self.fragments
+        )
+        return offsets == _SERIAL_OFFSETS[:3]
+
+    def result(self, *, allow_legacy_short: bool = False) -> bytes:
+        if not self.complete and not (
+            allow_legacy_short and self.legacy_short_complete
+        ):
             raise ProtocolError("serial response is incomplete")
         data = b"".join(
             self.fragments[offset]
@@ -202,13 +213,16 @@ class ClassicIdentityCollector:
     def complete(self) -> bool:
         """Return whether product code and all supported versions are complete."""
 
-        return self._serial.complete and set(self._versions) == {0xC1, 0xC2, 0xC4}
+        serial_complete = self._serial.complete or (
+            self._l6_pcb_format and self._serial.legacy_short_complete
+        )
+        return serial_complete and set(self._versions) == {0xC1, 0xC2, 0xC4}
 
     @property
     def product_code_bytes(self) -> bytes:
         """Return the exact assembled factory product code bytes."""
 
-        return self._serial.result()
+        return self._serial.result(allow_legacy_short=self._l6_pcb_format)
 
     def product_code(self) -> str:
         """Decode the complete factory product code as strict ASCII."""
