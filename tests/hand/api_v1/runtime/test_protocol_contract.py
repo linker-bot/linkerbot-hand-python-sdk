@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import pytest
+
+from linkerbot_hand.api.enums import DataOrigin
+from linkerbot_hand.api.errors import ValidationError
+from linkerbot_hand.capabilities.types import TelemetrySemantic
+from linkerbot_hand.protocols import (
+    ProtocolTransaction,
+    ResponseProgress,
+    SamplePayload,
+)
+
+
+def test_response_transaction_keeps_codec_logic_out_of_runtime() -> None:
+    seen: list[object] = []
+
+    def consume(message: object) -> ResponseProgress:
+        seen.append(message)
+        if message != b"response":
+            return ResponseProgress(matched=False)
+        payload = SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(1, 2, 3),
+        )
+        return ResponseProgress(matched=True, complete=True, result=payload)
+
+    transaction = ProtocolTransaction(
+        key="read-angles",
+        correlation_key=0x01,
+        request_messages=(b"request",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=consume,
+    )
+
+    assert transaction.expects_response
+    assert not transaction.consume(b"other").matched
+    progress = transaction.consume(b"response")
+    assert progress.complete
+    assert isinstance(progress.result, SamplePayload)
+    assert seen == [b"other", b"response"]
+
+
+def test_dispatch_only_transaction_can_publish_command_cache() -> None:
+    payload = SamplePayload(
+        semantic=TelemetrySemantic.CONFIGURED_SPEEDS,
+        raw=(80,) * 6,
+        origin=DataOrigin.COMMAND_CACHE,
+    )
+    transaction = ProtocolTransaction(
+        key="set-speed",
+        correlation_key=0x05,
+        request_messages=(b"speed",),
+        response_timeout_s=0,
+        estimated_duration_s=0.001,
+        dispatch_publications=(payload,),
+    )
+
+    assert not transaction.expects_response
+    assert transaction.dispatch_publications == (payload,)
+    assert not transaction.consume(b"echo").matched
+
+
+def test_protocol_contract_rejects_empty_or_incoherent_results() -> None:
+    with pytest.raises(ValidationError, match="cannot be empty"):
+        SamplePayload(semantic=TelemetrySemantic.ANGLES)
+    with pytest.raises(ValidationError, match="unmatched"):
+        ResponseProgress(matched=False, complete=True)
+    with pytest.raises(ValidationError, match="positive timeout"):
+        ProtocolTransaction(
+            key="identity",
+            correlation_key="identity",
+            request_messages=(b"request",),
+            response_timeout_s=0,
+            estimated_duration_s=0.01,
+            response_consumer=lambda _message: ResponseProgress(matched=False),
+        )

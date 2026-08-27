@@ -1,0 +1,244 @@
+"""Pure contracts between model codecs and the generic device runtime."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Callable, Hashable
+from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
+
+from ..api.device_info import DeviceInfo
+from ..api.enums import DataOrigin
+from ..api.errors import ValidationError
+from ..api.readings import RawNumber, TactileMatrix
+from ..capabilities.types import (
+    CommandSemantic,
+    DeviceCapabilities,
+    TelemetrySemantic,
+)
+
+
+def _require_hashable(value: object, name: str) -> None:
+    try:
+        hash(value)
+    except TypeError as error:
+        raise ValidationError(f"{name} must be hashable") from error
+
+
+def _finite_non_negative(value: object, name: str) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValidationError(f"{name} must be finite and non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class SamplePayload:
+    """Decoded protocol data before runtime-owned sample metadata is added."""
+
+    semantic: TelemetrySemantic
+    raw: tuple[RawNumber, ...] = ()
+    tactile: tuple[TactileMatrix, ...] = ()
+    origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
+    within_declared_range: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        if not isinstance(self.raw, tuple) or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            for value in self.raw
+        ):
+            raise ValidationError("raw must contain finite protocol numbers")
+        if not isinstance(self.tactile, tuple) or any(
+            not isinstance(value, TactileMatrix) for value in self.tactile
+        ):
+            raise ValidationError("tactile must contain TactileMatrix values")
+        if not isinstance(self.origin, DataOrigin) or self.origin is DataOrigin.NONE:
+            raise ValidationError("a payload must have a concrete data origin")
+        if not isinstance(self.within_declared_range, bool):
+            raise ValidationError("within_declared_range must be bool")
+        if self.semantic is not TelemetrySemantic.FORCE and self.tactile:
+            raise ValidationError("tactile matrices are only valid for force payloads")
+        if not self.raw and not self.tactile:
+            raise ValidationError("a sample payload cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityResult:
+    """Verified identity/profile result produced by an identity transaction."""
+
+    capabilities: DeviceCapabilities
+    device_info: DeviceInfo
+    fingerprint: Hashable
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.capabilities, DeviceCapabilities):
+            raise ValidationError("capabilities must be DeviceCapabilities")
+        if not self.capabilities.identity.verified:
+            raise ValidationError("identity capabilities must be verified")
+        if not isinstance(self.device_info, DeviceInfo):
+            raise ValidationError("device_info must be DeviceInfo")
+        _require_hashable(self.fingerprint, "fingerprint")
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseProgress:
+    """Result of offering one routed message to a protocol transaction."""
+
+    matched: bool
+    complete: bool = False
+    result: IdentityResult | SamplePayload | None = None
+    publications: tuple[SamplePayload, ...] = ()
+    acknowledged: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("matched", "complete", "acknowledged"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValidationError(f"{name} must be bool")
+        if not isinstance(self.publications, tuple) or any(
+            not isinstance(value, SamplePayload) for value in self.publications
+        ):
+            raise ValidationError("publications must contain SamplePayload values")
+        if not self.matched and (
+            self.complete
+            or self.result is not None
+            or self.publications
+            or self.acknowledged
+        ):
+            raise ValidationError(
+                "an unmatched response cannot change transaction state"
+            )
+        if not self.complete and (self.result is not None or self.acknowledged):
+            raise ValidationError("result and acknowledgement require completion")
+
+
+ResponseConsumer = Callable[[object], ResponseProgress]
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolTransaction:
+    """One serializable request/response transaction built by a model codec."""
+
+    key: Hashable
+    correlation_key: Hashable
+    request_messages: tuple[object, ...]
+    response_timeout_s: float
+    estimated_duration_s: float
+    response_consumer: ResponseConsumer | None = None
+    dispatch_publications: tuple[SamplePayload, ...] = ()
+    request_interval_s: float = 0.0
+    late_response_guard_s: float = 0.0
+
+    def __post_init__(self) -> None:
+        _require_hashable(self.key, "transaction key")
+        _require_hashable(self.correlation_key, "correlation key")
+        if not isinstance(self.request_messages, tuple) or not self.request_messages:
+            raise ValidationError("request_messages must be a non-empty tuple")
+        for name in (
+            "response_timeout_s",
+            "estimated_duration_s",
+            "request_interval_s",
+            "late_response_guard_s",
+        ):
+            _finite_non_negative(getattr(self, name), name)
+        if self.response_consumer is not None and not callable(self.response_consumer):
+            raise ValidationError("response_consumer must be callable or None")
+        if self.response_consumer is not None and self.response_timeout_s <= 0:
+            raise ValidationError("response transactions need a positive timeout")
+        if not isinstance(self.dispatch_publications, tuple) or any(
+            not isinstance(value, SamplePayload) for value in self.dispatch_publications
+        ):
+            raise ValidationError(
+                "dispatch_publications must contain SamplePayload values"
+            )
+
+    @property
+    def expects_response(self) -> bool:
+        """Return whether completion requires a matching protocol response."""
+
+        return self.response_consumer is not None
+
+    def consume(self, message: object) -> ResponseProgress:
+        """Offer a routed message without giving the runtime codec knowledge."""
+
+        if self.response_consumer is None:
+            return ResponseProgress(matched=False)
+        progress = self.response_consumer(message)
+        if not isinstance(progress, ResponseProgress):
+            raise ValidationError("response_consumer must return ResponseProgress")
+        return progress
+
+
+@runtime_checkable
+class ProtocolBackend(Protocol):
+    """Model-specific transaction factory injected into ``DeviceRuntime``."""
+
+    @property
+    def endpoint_id(self) -> Hashable:
+        """Return the transport-arbitration endpoint identity."""
+        ...
+
+    @property
+    def route_key(self) -> Hashable:
+        """Return the exact receive route owned by this hand endpoint."""
+        ...
+
+    def identity_transaction(
+        self, capabilities: DeviceCapabilities
+    ) -> ProtocolTransaction:
+        """Build the identity and firmware-profile transaction."""
+        ...
+
+    def baseline_semantics(
+        self, capabilities: DeviceCapabilities
+    ) -> tuple[TelemetrySemantic, ...]:
+        """Return non-motion state reads required before a generation is ready."""
+        ...
+
+    def command_transaction(
+        self,
+        semantic: CommandSemantic,
+        values: tuple[RawNumber, ...],
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Encode one already validated public command."""
+        ...
+
+    def read_transaction(
+        self,
+        semantic: TelemetrySemantic,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build one active state read transaction."""
+        ...
+
+    def operation_transaction(
+        self,
+        operation: str,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build one bounded discrete operation transaction."""
+        ...
+
+    def decode_report(
+        self,
+        message: object,
+        capabilities: DeviceCapabilities,
+    ) -> tuple[SamplePayload, ...]:
+        """Decode an unsolicited report, returning an empty tuple if unmatched."""
+        ...
+
+
+__all__ = [
+    "IdentityResult",
+    "ProtocolBackend",
+    "ProtocolTransaction",
+    "ResponseProgress",
+    "SamplePayload",
+]
