@@ -954,6 +954,7 @@ MODEL_CONTRACTS = {
         "sensors": {
             SensorType.ANGLES: 30,
             SensorType.SPEEDS: 30,
+            SensorType.TORQUES: 10,
             SensorType.FORCE: 30,
             SensorType.TEMPERATURE: 1,
             SensorType.CURRENT: 10,

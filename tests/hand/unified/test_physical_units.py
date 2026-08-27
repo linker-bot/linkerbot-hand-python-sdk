@@ -285,6 +285,15 @@ _EXPECTED_CAN_FD_SENSOR_METADATA = {
             "numeric",
             None,
         ),
+        SensorType.TORQUES: (
+            "count",
+            "u16_le",
+            None,
+            None,
+            None,
+            "numeric",
+            None,
+        ),
         SensorType.FORCE: (
             "count",
             "u8",
