@@ -4,7 +4,9 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+import linkerbot_hand
 import linkerbot_hand.api as hand_api
+import linkerbot_hand.capabilities as hand_capabilities
 from linkerbot_hand.api.commands import (
     AckSupport,
     CommandFamily,
@@ -43,6 +45,34 @@ def valid_meta(*, origin: DataOrigin = DataOrigin.DEVICE_RESPONSE) -> SampleMeta
 def test_public_contract_exports_resolve() -> None:
     assert hand_api.__all__
     assert all(getattr(hand_api, name) is not None for name in hand_api.__all__)
+
+
+def test_top_level_exports_exactly_the_api_and_capability_contracts() -> None:
+    expected = set(hand_api.__all__) | set(hand_capabilities.__all__)
+
+    assert set(linkerbot_hand.__all__) == expected
+    assert all(getattr(linkerbot_hand, name) is not None for name in expected)
+    assert linkerbot_hand.HandDevice is hand_api.HandDevice
+
+
+@pytest.mark.parametrize(
+    "removed_name",
+    (
+        "HandSession",
+        "LegacyHandBackend",
+        "L6",
+        "O6",
+        "L20lite",
+        "L25",
+        "O20",
+        "L30",
+        "O30i",
+        "create_hand_device",
+    ),
+)
+def test_removed_facades_are_absent_from_the_top_level(removed_name: str) -> None:
+    assert removed_name not in linkerbot_hand.__all__
+    assert not hasattr(linkerbot_hand, removed_name)
 
 
 def test_polling_plan_uses_zero_to_disable_a_channel() -> None:

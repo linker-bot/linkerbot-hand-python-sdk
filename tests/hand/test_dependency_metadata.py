@@ -45,3 +45,21 @@ def test_source_distribution_excludes_internal_tests() -> None:
     manifest = Path("MANIFEST.in").read_text(encoding="utf-8").splitlines()
 
     assert "prune tests" in manifest
+
+
+def test_removed_implementation_namespaces_have_no_python_sources() -> None:
+    removed_roots = (
+        Path("src/linkerbot/hand"),
+        Path("src/linkerbot_hand/backends"),
+        Path("src/linkerbot_hand/commands"),
+        Path("src/linkerbot_hand/contracts"),
+    )
+
+    remaining = tuple(
+        source
+        for root in removed_roots
+        for source in root.rglob("*.py")
+        if source.is_file()
+    )
+
+    assert remaining == ()
