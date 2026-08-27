@@ -9,6 +9,7 @@ from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.protocols.l6 import L6ProtocolBackend
 from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
 from linkerbot_hand.protocols.l25 import L25ProtocolBackend
+from linkerbot_hand.protocols.l30 import L30ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 from linkerbot_hand.protocols.o20 import O20ProtocolBackend
 from linkerbot_hand.protocols.registry import create_protocol_backend
@@ -47,10 +48,7 @@ def test_registry_selects_model_and_side_without_io(
 
 @pytest.mark.parametrize(
     ("model", "side"),
-    (
-        ("l30", None),
-        ("o30i", HandSide.RIGHT),
-    ),
+    (("o30i", HandSide.RIGHT),),
 )
 def test_registry_rejects_unmigrated_models_with_stable_error(
     model: str,
@@ -73,6 +71,18 @@ def test_registry_selects_o20_can_fd_routes_without_io() -> None:
     assert isinstance(backend, O20ProtocolBackend)
     assert backend.endpoint_id == ("o20", 1)
     assert len(backend.route_keys) == 18
+    assert len(set(backend.route_keys)) == len(backend.route_keys)
+    assert all(route.is_extended_id for route in backend.route_keys)
+
+
+def test_registry_selects_side_neutral_l30_can_fd_routes_without_io() -> None:
+    capabilities = get_declared_capabilities("l30")
+
+    backend = create_protocol_backend(capabilities)
+
+    assert isinstance(backend, L30ProtocolBackend)
+    assert backend.endpoint_id == ("l30", 1, 0)
+    assert len(backend.route_keys) == 16
     assert len(set(backend.route_keys)) == len(backend.route_keys)
     assert all(route.is_extended_id for route in backend.route_keys)
 

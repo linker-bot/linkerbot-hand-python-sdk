@@ -1,6 +1,12 @@
 """Declared side-independent L30 capability profile."""
 
-from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
+from ...api.enums import (
+    Confidence,
+    HandSide,
+    JointMotionType,
+    ReadMode,
+    TransportKind,
+)
 from ..ranges import NumericRange
 from ..types import (
     CommandSemantic,
@@ -120,7 +126,14 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         identity=identity(
             "L30",
             side,
-            supported_fields=("firmware_version", "product_code"),
+            supported_fields=(
+                "serial_number",
+                "pcb_version",
+                "firmware_version",
+                "mechanical_version",
+                "product_code",
+                "sensor_variant",
+            ),
         ),
         joints=joints,
         commands=(
@@ -152,6 +165,22 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.004,
             ),
             telemetry(
+                TelemetrySemantic.CONFIGURED_SPEEDS,
+                names,
+                "u16_be",
+                shape=(17,),
+                raw_range=NumericRange(1, 250, integer_only=True, step=1),
+                raw_unit="count",
+                raw_scale_note="0.732 rpm/count is documented but awaits hardware confirmation",
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=0,
+                stale_after_s=1,
+                estimated_transaction_s=0,
+                read_mode=ReadMode.COMMAND_CACHE,
+                device_measured=False,
+                device_queried=False,
+            ),
+            telemetry(
                 TelemetrySemantic.MEASURED_SPEEDS,
                 names,
                 "i16_be",
@@ -170,8 +199,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "i16_be",
                 shape=(17,),
                 raw_range=_I16_RANGE,
-                raw_unit="mA",
-                unit_confidence=Confidence.MEASURED,
+                raw_unit="count",
+                raw_scale_note="6.5 mA/count is documented but not converted by the SDK",
+                unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=10,
                 stale_after_s=0.3,
                 estimated_transaction_s=0.004,
@@ -184,10 +214,12 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_range=NumericRange(60, 800, integer_only=True, step=1),
                 raw_unit="mA",
                 unit_confidence=Confidence.MEASURED,
-                recommended_hz=10,
-                stale_after_s=0.3,
-                estimated_transaction_s=0.004,
+                recommended_hz=0,
+                stale_after_s=1,
+                estimated_transaction_s=0,
+                read_mode=ReadMode.COMMAND_CACHE,
                 device_measured=False,
+                device_queried=False,
             ),
             telemetry(
                 TelemetrySemantic.FORCE,

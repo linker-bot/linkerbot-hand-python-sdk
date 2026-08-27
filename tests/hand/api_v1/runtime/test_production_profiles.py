@@ -1,4 +1,4 @@
-"""End-to-end runtime tests using production L6/O6 profiles and CAN frames."""
+"""End-to-end runtime tests using production profiles and CAN messages."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from .classic_can_fake import (
     make_script,
     wait_until,
 )
+from .l30_canfd_fake import L30DeviceScript, ScriptedL30Transport
 from .o20_canfd_fake import O20DeviceScript, ScriptedO20Transport
 
 
@@ -48,6 +49,13 @@ def _make_o20_hand(
     script = O20DeviceScript(side)
     transport = ScriptedO20Transport(script)
     hand = HandDevice(model="O20", side=side.value, transport=transport)
+    return hand, transport
+
+
+def _make_l30_hand() -> tuple[HandDevice, ScriptedL30Transport]:
+    script = L30DeviceScript()
+    transport = ScriptedL30Transport(script)
+    hand = HandDevice(model="L30", transport=transport)
     return hand, transport
 
 
@@ -330,6 +338,132 @@ def test_o20_recovery_rejects_a_replacement_serial_number() -> None:
         transport.current_dispatcher.disconnect()
         wait_until(lambda: not hand.get_health().connected)
         transport.script.serial_number = "SN-O20-REPLACED"
+
+        with pytest.raises(IdentityMismatchError, match="fingerprint changed"):
+            hand.recover(timeout=1)
+
+        assert not hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_l30_profile_exposes_side_neutral_raw_control_and_telemetry() -> None:
+    hand, transport = _make_l30_hand()
+    assert transport.dispatchers == []
+
+    hand.open()
+    try:
+        capabilities = hand.get_capabilities()
+        snapshot = hand.get_snapshot()
+        assert capabilities.identity.verified
+        assert capabilities.side is HandSide.NOT_APPLICABLE
+        assert capabilities.identity.firmware == "V1.0.6"
+        assert snapshot.device_info is not None
+        assert snapshot.device_info.product_code == "LHT30-06-001-L-B-3-A"
+        assert snapshot.angles is not None
+        assert snapshot.angles.raw == tuple(range(100, 117))
+        assert snapshot.faults is not None and snapshot.faults.meta.valid
+        assert snapshot.configured_speeds is not None
+        assert not snapshot.configured_speeds.meta.valid
+        assert snapshot.current_limits is not None
+        assert not snapshot.current_limits.meta.valid
+
+        angles = hand.set_angles((0,) * 17)
+        assert angles.wait(timeout=1) is CommandStage.DISPATCHED
+        percent = hand.set_percent_angles((100,) * 17)
+        assert percent.wait(timeout=1) is CommandStage.DISPATCHED
+        assert hand.get_angles(timeout=0.2).percent == (100.0,) * 17
+
+        speed_reads = transport.script.read_counts.copy()
+        speeds = hand.set_speeds((60,) * 17)
+        assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
+        configured = hand.get_configured_speeds(timeout=0.2)
+        assert configured.raw == (60,) * 17
+        assert configured.meta.origin is DataOrigin.COMMAND_CACHE
+        assert transport.script.read_counts == speed_reads
+
+        limits = hand.set_current_limits((200,) * 17)
+        assert limits.wait(timeout=1) is CommandStage.DISPATCHED
+        current_limits = hand.get_current_limits(timeout=0.2)
+        assert current_limits.raw == (200,) * 17
+        assert current_limits.meta.origin is DataOrigin.COMMAND_CACHE
+
+        assert hand.get_speeds(timeout=0.2).raw == tuple(range(30, 47))
+        assert hand.get_currents(timeout=0.2).raw == tuple(range(200, 217))
+        assert hand.get_temperatures(timeout=0.2).raw == tuple(range(35, 52))
+
+        force = hand.get_force(timeout=0.5)
+        assert len(force.tactile) == 5
+        assert all(matrix.online for matrix in force.tactile)
+        assert force.tactile[0].raw[0] == tuple(range(6))
+        assert all(
+            transport.script.read_counts[(0x2, finger)] == 1 for finger in range(1, 6)
+        )
+    finally:
+        hand.close()
+
+
+def test_l30_acknowledged_operations_preserve_calibration_stage_order() -> None:
+    hand, transport = _make_l30_hand()
+    hand.open()
+    try:
+        enable = hand.enable()
+        assert enable.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        disable = hand.disable()
+        assert disable.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        calibrate = hand.calibrate()
+        assert calibrate.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+
+        routes = [
+            (
+                (message.arbitration_id >> 21) & 0xF,
+                (message.arbitration_id >> 13) & 0xFF,
+            )
+            for message in transport.script.command_messages
+        ]
+        assert routes[-3:] == [(0x1, 0x08), (0x3, 0x01), (0x3, 0x05)]
+    finally:
+        hand.close()
+
+
+def test_l30_polling_is_atomic_and_stops_without_trailing_queries() -> None:
+    hand, transport = _make_l30_hand()
+    hand.open()
+    try:
+        initial = hand.get_snapshot().angles
+        assert initial is not None
+        hand.start_polling(PollingPlan(angles_hz=50, force_hz=20))
+
+        def polling_ready() -> bool:
+            snapshot = hand.get_snapshot()
+            angles = snapshot.angles
+            force = snapshot.force
+            return (
+                angles is not None
+                and angles.meta.sequence > initial.meta.sequence
+                and force is not None
+                and force.meta.valid
+            )
+
+        wait_until(polling_ready, timeout_s=1)
+        hand.stop_polling()
+        assert all(
+            transport.script.read_counts[(0x2, finger)] >= 1 for finger in range(1, 6)
+        )
+        counts_after_stop = transport.script.read_counts.copy()
+        time.sleep(0.05)
+        assert transport.script.read_counts == counts_after_stop
+    finally:
+        hand.close()
+
+
+def test_l30_recovery_rejects_a_replacement_device_identity() -> None:
+    hand, transport = _make_l30_hand()
+    hand.open()
+    try:
+        transport.current_dispatcher.disconnect()
+        wait_until(lambda: not hand.get_health().connected)
+        transport.script.serial_number = 2
 
         with pytest.raises(IdentityMismatchError, match="fingerprint changed"):
             hand.recover(timeout=1)

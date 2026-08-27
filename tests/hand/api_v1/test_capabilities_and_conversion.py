@@ -90,6 +90,7 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     l6 = get_declared_capabilities("l6", side="left")
     o6 = get_declared_capabilities("o6", side="right")
     o20 = get_declared_capabilities("o20", side="left")
+    l30 = get_declared_capabilities("l30")
 
     l6_speed = l6.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
     assert l6_speed is not None
@@ -98,6 +99,11 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     assert l6.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert o6.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert o20.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is not None
+    l30_configured = l30.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
+    assert l30_configured is not None
+    assert not l30_configured.device_queried
+    assert l30_configured.read_mode.value == "command_cache"
+    assert l30.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is not None
 
 
 def test_limit_semantics_do_not_claim_true_torque() -> None:
@@ -111,6 +117,14 @@ def test_limit_semantics_do_not_claim_true_torque() -> None:
     assert l30_limit is not None
     assert l30_limit.raw_unit == "mA"
     assert l30.command(CommandSemantic.TORQUES) is None
+    l30_limit_state = l30.telemetry_channel(TelemetrySemantic.CURRENT_LIMITS)
+    assert l30_limit_state is not None
+    assert not l30_limit_state.device_queried
+    assert l30_limit_state.read_mode.value == "command_cache"
+    l30_current = l30.telemetry_channel(TelemetrySemantic.CURRENTS)
+    assert l30_current is not None
+    assert l30_current.raw_unit == "count"
+    assert "6.5 mA/count" in (l30_current.raw_scale_note or "")
 
 
 def test_o30i_stall_contract_maps_only_installed_channels() -> None:

@@ -11,6 +11,7 @@ from .base import ProtocolBackend
 from .l6 import L6ProtocolBackend
 from .l20lite import L20LiteProtocolBackend
 from .l25 import L25ProtocolBackend
+from .l30 import L30ProtocolBackend
 from .o6 import O6ProtocolBackend
 from .o20 import O20ProtocolBackend
 
@@ -22,6 +23,7 @@ _BACKEND_FACTORIES: dict[str, ProtocolBackendFactory] = {
     "L20Lite": L20LiteProtocolBackend,
     "L25": L25ProtocolBackend,
     "O20": O20ProtocolBackend,
+    "L30": L30ProtocolBackend,
 }
 
 _TRANSPORT_KINDS = {
@@ -30,6 +32,7 @@ _TRANSPORT_KINDS = {
     "L20Lite": TransportKind.CAN,
     "L25": TransportKind.CAN,
     "O20": TransportKind.CAN_FD,
+    "L30": TransportKind.CAN_FD,
 }
 
 
@@ -63,9 +66,14 @@ def create_protocol_backend(capabilities: DeviceCapabilities) -> ProtocolBackend
             f"{capabilities.model} protocol backend requires "
             f"{expected_transport.value} capabilities"
         )
-    if capabilities.side not in {HandSide.LEFT, HandSide.RIGHT}:
+    valid_sides = (
+        {HandSide.NOT_APPLICABLE}
+        if capabilities.model == "L30"
+        else {HandSide.LEFT, HandSide.RIGHT}
+    )
+    if capabilities.side not in valid_sides:
         raise ValidationError(
-            f"{capabilities.model} protocol backend requires a left or right side"
+            f"{capabilities.model} protocol backend has an invalid side"
         )
     return factory(capabilities.side)
 
