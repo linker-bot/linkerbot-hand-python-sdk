@@ -7,6 +7,7 @@ from .base import (
     ResponseProgress,
     SamplePayload,
 )
+from .registry import create_protocol_backend
 
 __all__ = [
     "IdentityResult",
@@ -14,4 +15,5 @@ __all__ = [
     "ProtocolTransaction",
     "ResponseProgress",
     "SamplePayload",
+    "create_protocol_backend",
 ]

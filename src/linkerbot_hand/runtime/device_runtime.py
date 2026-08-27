@@ -25,6 +25,7 @@ from ..capabilities.types import (
     TelemetrySemantic,
 )
 from ..protocols.base import ProtocolBackend
+from ..protocols.registry import create_protocol_backend
 from ._clock import resolve_clock
 from ._device_actor import DeviceActor
 from ._errors import as_hand_error
@@ -57,7 +58,7 @@ class DeviceRuntime:
         if not isinstance(config, DeviceConfig):
             raise ValidationError("config must be DeviceConfig")
         self._clock = resolve_clock(clock)
-        self._backend = _validate_backend(protocol_backend)
+        self._backend = _resolve_backend(protocol_backend, capabilities)
         self._config = config
         self._state = RuntimeState(capabilities)
         self._wake = threading.Event()
@@ -421,11 +422,12 @@ class DeviceRuntime:
             self._opened = False
 
 
-def _validate_backend(backend: object | None) -> ProtocolBackend:
+def _resolve_backend(
+    backend: object | None,
+    capabilities: DeviceCapabilities,
+) -> ProtocolBackend:
     if backend is None:
-        raise LifecycleError(
-            "a model protocol backend is required until protocol profiles are installed"
-        )
+        backend = create_protocol_backend(capabilities)
     for name in (
         "identity_transaction",
         "baseline_semantics",
