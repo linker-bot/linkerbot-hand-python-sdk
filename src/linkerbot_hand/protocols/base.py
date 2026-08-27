@@ -134,6 +134,7 @@ class ProtocolTransaction:
     dispatch_publications: tuple[SamplePayload, ...] = ()
     request_interval_s: float = 0.0
     late_response_guard_s: float = 0.0
+    next_transaction: ProtocolTransaction | None = None
 
     def __post_init__(self) -> None:
         _require_hashable(self.key, "transaction key")
@@ -157,12 +158,30 @@ class ProtocolTransaction:
             raise ValidationError(
                 "dispatch_publications must contain SamplePayload values"
             )
+        if self.next_transaction is not None:
+            if not isinstance(self.next_transaction, ProtocolTransaction):
+                raise ValidationError(
+                    "next_transaction must be ProtocolTransaction or None"
+                )
+            if self.response_consumer is None:
+                raise ValidationError(
+                    "a staged transaction must await a response before its next stage"
+                )
 
     @property
     def expects_response(self) -> bool:
         """Return whether completion requires a matching protocol response."""
 
         return self.response_consumer is not None
+
+    @property
+    def terminal_expects_response(self) -> bool:
+        """Return whether the final response-gated stage expects a reply."""
+
+        transaction = self
+        while transaction.next_transaction is not None:
+            transaction = transaction.next_transaction
+        return transaction.expects_response
 
     def consume(self, message: object) -> ResponseProgress:
         """Offer a routed message without giving the runtime codec knowledge."""

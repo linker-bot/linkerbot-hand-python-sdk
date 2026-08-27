@@ -434,7 +434,7 @@ class DeviceActor:
             )
         )
         expects_ack = command.handle.ack_support is AckSupport.SUPPORTED
-        if transaction.expects_response != expects_ack:
+        if transaction.terminal_expects_response != expects_ack:
             raise ProtocolError("transaction ACK behavior disagrees with capability")
         return transaction
 
@@ -707,6 +707,9 @@ def _connection_failure(error: HandError) -> bool:
 def _sent_frames(error: BaseException, fallback: int) -> int:
     current: BaseException | None = error
     while current is not None:
+        transaction_sent_frames = getattr(current, "transaction_sent_frames", None)
+        if isinstance(transaction_sent_frames, int):
+            return transaction_sent_frames
         if isinstance(current, BatchDispatchError):
             return current.sent_frames
         current = getattr(current, "cause", None)

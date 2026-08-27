@@ -39,6 +39,16 @@ class TransactionOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class _StageOutcome:
+    """Internal result of one dispatched stage in a transaction chain."""
+
+    result: IdentityResult | SamplePayload | None
+    acknowledged: bool
+    publications: tuple[tuple[SamplePayload, object], ...]
+    sent_frames: int
+
+
+@dataclass(frozen=True, slots=True)
 class PendingTransaction:
     """A protocol request accepted by transport but not yet completed."""
 
@@ -48,6 +58,7 @@ class PendingTransaction:
     publish_generation: int | None
     started_at_s: float
     deadline_at_s: float | None
+    priority: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +166,7 @@ class TransactionRunner:
             publish_generation=publish_generation,
             started_at_s=started,
             deadline_at_s=deadline_at_s,
+            priority=priority,
         )
 
     def replace_pending(
@@ -188,6 +200,7 @@ class TransactionRunner:
             publish_generation=publish_generation,
             started_at_s=started,
             deadline_at_s=deadline_at_s,
+            priority=priority,
         )
 
     def complete(
@@ -196,69 +209,146 @@ class TransactionRunner:
         *,
         on_dispatched: Callable[[float, int], None] | None = None,
     ) -> TransactionOutcome:
-        """Finish one accepted transaction and publish its canonical samples."""
+        """Finish every response-gated stage and publish canonical samples."""
+
+        started_at_s = pending.started_at_s
+        sent_frames = 0
+        publications: tuple[tuple[SamplePayload, object], ...] = ()
+        result: IdentityResult | SamplePayload | None = None
+        acknowledged = False
+        current = pending
+
+        while True:
+            transaction = current.transaction
+            final_stage = transaction.next_transaction is None
+
+            def mark_final_dispatched(
+                timestamp: float,
+                stage_sent_frames: int,
+                prior_sent_frames: int = sent_frames,
+            ) -> None:
+                if on_dispatched is not None:
+                    on_dispatched(
+                        timestamp,
+                        prior_sent_frames + stage_sent_frames,
+                    )
+
+            try:
+                outcome = self._complete_stage(
+                    current,
+                    on_dispatched=(mark_final_dispatched if final_stage else None),
+                )
+            except BaseException as error:
+                _record_sent_frames(error, sent_frames)
+                raise
+
+            sent_frames += outcome.sent_frames
+            publications += outcome.publications
+            if outcome.result is not None:
+                result = outcome.result
+            acknowledged = outcome.acknowledged
+            next_transaction = transaction.next_transaction
+            if next_transaction is None:
+                completed_at = self._clock.monotonic()
+                self._metrics.transaction_completed(
+                    timestamp=completed_at,
+                    duration_s=max(0.0, completed_at - started_at_s),
+                )
+                return TransactionOutcome(
+                    result,
+                    acknowledged,
+                    publications,
+                    sent_frames,
+                )
+
+            try:
+                current = self.begin(
+                    next_transaction,
+                    capabilities=current.capabilities,
+                    publish_generation=current.publish_generation,
+                    latest_family=None,
+                    priority=current.priority,
+                    deadline_at_s=current.deadline_at_s,
+                )
+            except BaseException as error:
+                _record_sent_frames(error, sent_frames)
+                raise
+
+    def _complete_stage(
+        self,
+        pending: PendingTransaction,
+        *,
+        on_dispatched: Callable[[float, int], None] | None,
+    ) -> _StageOutcome:
+        """Finish one stage without exposing a whole-command dispatch early."""
 
         transaction = pending.transaction
         receipt = pending.receipt
-        buffered = self._wait_for_receipt(pending)
-        result = receipt.result()
-        if result.outcome is SendOutcome.SUPERSEDED:
-            raise TransactionSuperseded
-        if result.outcome is not SendOutcome.DISPATCHED:
-            raise ProtocolError(f"send ended as {result.outcome.value}")
-        dispatched_at = result.completed_at_s
-        sent_frames = len(transaction.request_messages)
-        self._metrics.sent(timestamp=dispatched_at, frames=sent_frames)
-        if on_dispatched is not None:
-            on_dispatched(dispatched_at, sent_frames)
+        sent_frames = 0
+        try:
+            buffered = self._wait_for_receipt(pending)
+            result = receipt.result()
+            if result.outcome is SendOutcome.SUPERSEDED:
+                raise TransactionSuperseded
+            if result.outcome is not SendOutcome.DISPATCHED:
+                raise ProtocolError(f"send ended as {result.outcome.value}")
+            dispatched_at = result.completed_at_s
+            sent_frames = len(transaction.request_messages)
+            self._metrics.sent(timestamp=dispatched_at, frames=sent_frames)
+            if on_dispatched is not None:
+                on_dispatched(dispatched_at, sent_frames)
 
-        publications = self._publish(
-            transaction.dispatch_publications,
-            generation=pending.publish_generation,
-        )
-        if not transaction.expects_response:
-            return TransactionOutcome(None, False, publications, sent_frames)
-        if buffered.error is not None:
-            raise buffered.error
-        for payloads in buffered.publication_batches:
-            publications += self._publish(
-                _deduplicate_payloads(payloads),
+            publications = self._publish(
+                transaction.dispatch_publications,
                 generation=pending.publish_generation,
             )
-
-        response_deadline = dispatched_at + transaction.response_timeout_s
-        try:
-            progress = buffered.progress
-            if progress is None or not progress.complete:
-                progress, response_publications = self._wait_for_response(
-                    transaction,
-                    capabilities=pending.capabilities,
+            if not transaction.expects_response:
+                return _StageOutcome(
+                    None,
+                    False,
+                    publications,
+                    sent_frames,
+                )
+            if buffered.error is not None:
+                raise buffered.error
+            for payloads in buffered.publication_batches:
+                publications += self._publish(
+                    _deduplicate_payloads(payloads),
                     generation=pending.publish_generation,
-                    deadline_s=response_deadline,
                 )
-                publications += response_publications
-        except TimeoutError:
-            if transaction.late_response_guard_s > 0:
-                self._quarantined[transaction.correlation_key] = (
-                    _QuarantinedTransaction(
-                        transaction=transaction,
-                        deadline_at_s=(
-                            self._clock.monotonic() + transaction.late_response_guard_s
-                        ),
+
+            response_deadline = dispatched_at + transaction.response_timeout_s
+            try:
+                progress = buffered.progress
+                if progress is None or not progress.complete:
+                    progress, response_publications = self._wait_for_response(
+                        transaction,
+                        capabilities=pending.capabilities,
+                        generation=pending.publish_generation,
+                        deadline_s=response_deadline,
                     )
-                )
+                    publications += response_publications
+            except TimeoutError:
+                if transaction.late_response_guard_s > 0:
+                    self._quarantined[transaction.correlation_key] = (
+                        _QuarantinedTransaction(
+                            transaction=transaction,
+                            deadline_at_s=(
+                                self._clock.monotonic()
+                                + transaction.late_response_guard_s
+                            ),
+                        )
+                    )
+                raise
+            return _StageOutcome(
+                progress.result,
+                progress.acknowledged,
+                publications,
+                sent_frames,
+            )
+        except BaseException as error:
+            _record_sent_frames(error, sent_frames)
             raise
-        completed_at = self._clock.monotonic()
-        self._metrics.transaction_completed(
-            timestamp=completed_at,
-            duration_s=max(0.0, completed_at - pending.started_at_s),
-        )
-        return TransactionOutcome(
-            progress.result,
-            progress.acknowledged,
-            publications,
-            sent_frames,
-        )
 
     def process_unsolicited(
         self,
@@ -475,6 +565,20 @@ def _deduplicate_payloads(
         if payload not in result:
             result.append(payload)
     return tuple(result)
+
+
+def _record_sent_frames(error: BaseException, prior_frames: int) -> None:
+    """Attach a cumulative count without obscuring the original error type."""
+
+    current_frames = getattr(error, "transaction_sent_frames", None)
+    if current_frames is None:
+        current_frames = getattr(error, "sent_frames", 0)
+    try:
+        error.transaction_sent_frames = (  # ty: ignore[unresolved-attribute]
+            prior_frames + current_frames
+        )
+    except (AttributeError, TypeError):
+        pass
 
 
 __all__ = [

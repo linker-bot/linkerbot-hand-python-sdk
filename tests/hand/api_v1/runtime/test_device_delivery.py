@@ -19,9 +19,45 @@ from linkerbot_hand.api import (
 from linkerbot_hand.api.enums import DataOrigin
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
+from linkerbot_hand.protocols import ProtocolTransaction, ResponseProgress
 
 from .factories import hold_next_idle_deadline_check, make_hand, make_shared_hands
 from .fakes import WireMessage, wait_until
+
+
+def _staged_operation_transaction(
+    endpoint_id: str,
+    stages: tuple[str, ...],
+    *,
+    response_timeout_s: float = 0.1,
+) -> ProtocolTransaction:
+    next_transaction = None
+    for stage in reversed(stages):
+
+        def consume(message: object, expected: str = stage) -> ResponseProgress:
+            if (
+                not isinstance(message, WireMessage)
+                or message.kind != "staged_ack"
+                or message.semantic != expected
+            ):
+                return ResponseProgress(matched=False)
+            return ResponseProgress(
+                matched=True,
+                complete=True,
+                acknowledged=True,
+            )
+
+        next_transaction = ProtocolTransaction(
+            key=("staged_operation", stage),
+            correlation_key=("staged_operation", stage),
+            request_messages=(WireMessage(endpoint_id, "staged_operation", stage),),
+            response_timeout_s=response_timeout_s,
+            estimated_duration_s=response_timeout_s,
+            response_consumer=consume,
+            next_transaction=next_transaction,
+        )
+    assert next_transaction is not None
+    return next_transaction
 
 
 def test_acknowledged_command_reports_every_real_delivery_stage() -> None:
@@ -48,6 +84,149 @@ def test_acknowledged_command_reports_every_real_delivery_stage() -> None:
         )
         with state.lock:
             assert state.command_log == [(CommandSemantic.ANGLES, (10,) * 6)]
+    finally:
+        hand.close()
+
+
+def test_staged_operation_dispatches_only_after_the_final_stage_send() -> None:
+    hand, state, transport = make_hand(capabilities=get_declared_capabilities("l30"))
+    backend = transport.backends["fake-hand"]
+    backend.operation_transaction = (  # ty: ignore[invalid-assignment]
+        lambda operation, _capabilities: _staged_operation_transaction(
+            backend.endpoint_id,
+            ("disable", "unlock", operation),
+        )
+    )
+    original_responses_for = backend.responses_for
+
+    def responses_for(message: WireMessage) -> tuple[WireMessage, ...]:
+        if message.kind != "staged_operation":
+            return original_responses_for(message)
+        with state.lock:
+            state.operation_log.append(message.semantic or "")
+        return (
+            WireMessage(
+                backend.route_key,
+                "staged_ack",
+                message.semantic,
+            ),
+        )
+
+    backend.responses_for = responses_for  # ty: ignore[invalid-assignment]
+    hand.open()
+    final_send_started = threading.Event()
+    allow_final_send = threading.Event()
+    original_send = transport.send
+
+    def send(message: WireMessage):
+        if message.kind == "staged_operation" and message.semantic == "calibrate":
+            final_send_started.set()
+            if not allow_final_send.wait(timeout=1):
+                raise RuntimeError("test did not release the final stage")
+        return original_send(message)
+
+    transport.send = send  # ty: ignore[invalid-assignment]
+    try:
+        handle = hand.calibrate()
+
+        assert final_send_started.wait(timeout=1)
+        assert handle.stage is CommandStage.ACCEPTED
+        with state.lock:
+            assert state.operation_log == ["disable", "unlock"]
+
+        allow_final_send.set()
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert handle.sent_frames == 3
+        assert tuple(item.stage for item in handle.history) == (
+            CommandStage.ACCEPTED,
+            CommandStage.DISPATCHED,
+            CommandStage.ACKNOWLEDGED,
+        )
+        with state.lock:
+            assert state.operation_log == ["disable", "unlock", "calibrate"]
+    finally:
+        allow_final_send.set()
+        transport.send = original_send  # ty: ignore[invalid-assignment]
+        hand.close()
+
+
+def test_staged_operation_timeout_stops_before_the_next_stage() -> None:
+    hand, state, transport = make_hand(capabilities=get_declared_capabilities("l30"))
+    backend = transport.backends["fake-hand"]
+    backend.operation_transaction = (  # ty: ignore[invalid-assignment]
+        lambda operation, _capabilities: _staged_operation_transaction(
+            backend.endpoint_id,
+            ("disable", "unlock", operation),
+            response_timeout_s=0.01,
+        )
+    )
+    original_responses_for = backend.responses_for
+
+    def responses_for(message: WireMessage) -> tuple[WireMessage, ...]:
+        if message.kind != "staged_operation":
+            return original_responses_for(message)
+        with state.lock:
+            state.operation_log.append(message.semantic or "")
+        return ()
+
+    backend.responses_for = responses_for  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        handle = hand.calibrate()
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.sent_frames == 1
+        assert handle.error is not None
+        assert handle.error.code is ErrorCode.TIMEOUT
+        with state.lock:
+            assert state.operation_log == ["disable"]
+    finally:
+        hand.close()
+
+
+def test_staged_operation_final_ack_timeout_keeps_cumulative_delivery() -> None:
+    hand, state, transport = make_hand(capabilities=get_declared_capabilities("l30"))
+    backend = transport.backends["fake-hand"]
+    backend.operation_transaction = (  # ty: ignore[invalid-assignment]
+        lambda operation, _capabilities: _staged_operation_transaction(
+            backend.endpoint_id,
+            ("disable", "unlock", operation),
+            response_timeout_s=0.01,
+        )
+    )
+    original_responses_for = backend.responses_for
+
+    def responses_for(message: WireMessage) -> tuple[WireMessage, ...]:
+        if message.kind != "staged_operation":
+            return original_responses_for(message)
+        with state.lock:
+            state.operation_log.append(message.semantic or "")
+        if message.semantic == "calibrate":
+            return ()
+        return (
+            WireMessage(
+                backend.route_key,
+                "staged_ack",
+                message.semantic,
+            ),
+        )
+
+    backend.responses_for = responses_for  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        handle = hand.calibrate()
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.sent_frames == 3
+        assert handle.error is not None
+        assert handle.error.code is ErrorCode.TIMEOUT
+        assert tuple(item.stage for item in handle.history) == (
+            CommandStage.ACCEPTED,
+            CommandStage.DISPATCHED,
+            CommandStage.FAILED,
+        )
+        with state.lock:
+            assert state.operation_log == ["disable", "unlock", "calibrate"]
     finally:
         hand.close()
 

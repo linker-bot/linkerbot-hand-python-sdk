@@ -76,3 +76,39 @@ def test_protocol_contract_rejects_empty_or_incoherent_results() -> None:
             estimated_duration_s=0.01,
             response_consumer=lambda _message: ResponseProgress(matched=False),
         )
+
+
+def test_staged_transaction_requires_a_response_gate() -> None:
+    final = ProtocolTransaction(
+        key="final",
+        correlation_key="final",
+        request_messages=(b"final",),
+        response_timeout_s=0,
+        estimated_duration_s=0.01,
+    )
+
+    with pytest.raises(ValidationError, match="must await a response"):
+        ProtocolTransaction(
+            key="first",
+            correlation_key="first",
+            request_messages=(b"first",),
+            response_timeout_s=0,
+            estimated_duration_s=0.01,
+            next_transaction=final,
+        )
+
+    first = ProtocolTransaction(
+        key="first",
+        correlation_key="first",
+        request_messages=(b"first",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=lambda _message: ResponseProgress(
+            matched=True,
+            complete=True,
+        ),
+        next_transaction=final,
+    )
+
+    assert first.next_transaction is final
+    assert not first.terminal_expects_response
