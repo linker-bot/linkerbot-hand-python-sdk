@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from ...api.enums import HandSide
-from ...capabilities.types import CommandSemantic, TelemetrySemantic
+from ...capabilities.types import (
+    CommandSemantic,
+    DeviceCapabilities,
+    TelemetrySemantic,
+)
+from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
 from ..common.six_axis import ClassicSixAxisBackend
 from .codec import (
@@ -14,6 +19,7 @@ from .codec import (
     TELEMETRY_OPCODES,
 )
 from .identity import l6_identity_transaction
+from .tactile import l6_tactile_transaction
 
 
 class L6ProtocolBackend(ClassicSixAxisBackend):
@@ -32,6 +38,17 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
             },
             config_telemetry=CONFIG_TELEMETRY,
         )
+
+    def read_transaction(
+        self,
+        semantic: TelemetrySemantic,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build fixed-width state or one complete five-finger tactile read."""
+
+        if semantic is TelemetrySemantic.FORCE:
+            return l6_tactile_transaction(capabilities)
+        return super().read_transaction(semantic, capabilities)
 
 
 __all__ = ["L6ProtocolBackend"]

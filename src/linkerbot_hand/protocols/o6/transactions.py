@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from ...api.enums import HandSide
+from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
+from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
 from ..common.six_axis import ClassicSixAxisBackend
 from .codec import (
@@ -12,6 +14,7 @@ from .codec import (
     TELEMETRY_OPCODES,
 )
 from .identity import o6_identity_transaction
+from .tactile import o6_tactile_transaction
 
 
 class O6ProtocolBackend(ClassicSixAxisBackend):
@@ -26,6 +29,17 @@ class O6ProtocolBackend(ClassicSixAxisBackend):
             baseline=BASELINE_SEMANTICS,
             config_telemetry=CONFIG_TELEMETRY,
         )
+
+    def read_transaction(
+        self,
+        semantic: TelemetrySemantic,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build fixed-width state or an O6 04-B complete tactile read."""
+
+        if semantic is TelemetrySemantic.FORCE:
+            return o6_tactile_transaction(capabilities)
+        return super().read_transaction(semantic, capabilities)
 
 
 __all__ = ["O6ProtocolBackend"]
