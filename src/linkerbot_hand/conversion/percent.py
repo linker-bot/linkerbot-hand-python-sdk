@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable
 
-from ..api.enums import Quantization
 from ..api.errors import UnsupportedOperationError, ValidationError
 from ..api.readings import RawNumber
 from ..capabilities.ranges import is_finite_number
 from ..capabilities.types import DeviceCapabilities
+from ..capabilities.values import CommandSemantic
+from .values import percent_to_raw_values, validate_command_values
 
 
 def percent_to_raw_angles(
@@ -30,27 +30,20 @@ def percent_to_raw_angles(
         UnsupportedOperationError: If any joint lacks a percent mapping.
     """
 
-    normalized = _coerce_values(values, len(capabilities.joints), "percent angles")
-    result: list[RawNumber] = []
-    for joint, value in zip(capabilities.joints, normalized, strict=True):
-        if not 0 <= value <= 100:
-            raise ValidationError(
-                f"percent angle for {joint.name} must be 0 through 100"
-            )
-        mapping = joint.percent_mapping
-        if mapping is None:
-            raise UnsupportedOperationError(
-                f"joint {joint.name} has no percent angle mapping",
-                operation="set_percent_angles",
-                model=capabilities.model,
-            )
-        raw = mapping.raw_at_zero + value / 100 * (
-            mapping.raw_at_hundred - mapping.raw_at_zero
+    command = capabilities.command(CommandSemantic.ANGLES)
+    if command is None:
+        raise UnsupportedOperationError(
+            "angles are not writable",
+            operation="set_percent_angles",
+            model=capabilities.model,
         )
-        if joint.raw_angle_range.integer_only:
-            raw = _quantize(raw, mapping.quantization)
-        result.append(raw)
-    return tuple(result)
+    return percent_to_raw_values(
+        values,
+        command,
+        operation="set_percent_angles",
+        model=capabilities.model,
+        label="percent angles",
+    )
 
 
 def validate_raw_angles(
@@ -59,13 +52,14 @@ def validate_raw_angles(
 ) -> tuple[RawNumber, ...]:
     """Validate exact protocol angle values without conversion or clamping."""
 
-    raw = _coerce_values(values, len(capabilities.joints), "raw angles")
-    for joint, value in zip(capabilities.joints, raw, strict=True):
-        if not joint.raw_angle_range.contains(value):
-            raise ValidationError(
-                f"raw angle for {joint.name} is outside the declared range"
-            )
-    return raw
+    command = capabilities.command(CommandSemantic.ANGLES)
+    if command is None:
+        raise UnsupportedOperationError(
+            "angles are not writable",
+            operation="set_angles",
+            model=capabilities.model,
+        )
+    return validate_command_values(values, command, label="raw angles")
 
 
 def raw_angles_to_percent(
@@ -143,16 +137,6 @@ def _coerce_values(
         if not is_finite_number(value):
             raise ValidationError(f"{label} values must be finite numbers")
     return result
-
-
-def _quantize(value: float, rule: Quantization) -> int:
-    if rule is Quantization.NEAREST_TIES_AWAY_FROM_ZERO:
-        return math.floor(value + 0.5) if value >= 0 else math.ceil(value - 0.5)
-    if rule is Quantization.FLOOR:
-        return math.floor(value)
-    if rule is Quantization.CEIL:
-        return math.ceil(value)
-    raise ValidationError(f"unsupported quantization rule {rule!r}")
 
 
 __all__ = [

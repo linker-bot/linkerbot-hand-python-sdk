@@ -32,9 +32,11 @@ class CommandFamily(str, Enum):
 
     ANGLE_TARGET = "angle_target"
     SPEED_SETTING = "speed_setting"
+    ACCELERATION_SETTING = "acceleration_setting"
     CURRENT_LIMIT = "current_limit"
     EFFORT_LIMIT = "effort_limit"
     TORQUE_TARGET = "torque_target"
+    MOTION_TIME_SETTING = "motion_time_setting"
     STALL_CONFIGURATION = "stall_configuration"
     DISCRETE_OPERATION = "discrete_operation"
 
@@ -195,7 +197,16 @@ class CommandHandle:
             raise ValidationError("transition timestamp must be finite numeric")
         if type(sent_frames) is not int or sent_frames < 0:
             raise ValidationError("sent_frames must be a non-negative int")
+        if stage is CommandStage.DISPATCHED and sent_frames == 0:
+            raise ValidationError(
+                "a dispatched command must have sent at least one frame"
+            )
         with self._lock:
+            if self._completed.is_set():
+                raise LifecycleError(
+                    f"command {self.command_id} already completed as "
+                    f"{self._stage.value}"
+                )
             allowed = {
                 CommandStage.ACCEPTED: {
                     CommandStage.DISPATCHED,
@@ -210,6 +221,15 @@ class CommandHandle:
             if stage not in allowed.get(self._stage, set()):
                 raise LifecycleError(
                     f"illegal command transition {self._stage.value} -> {stage.value}"
+                )
+            if timestamp < self._history[-1].timestamp:
+                raise LifecycleError("command transition timestamp moved backwards")
+            if (
+                self._stage is CommandStage.DISPATCHED
+                and sent_frames != self._sent_frames
+            ):
+                raise LifecycleError(
+                    "post-dispatch transition changed the sent frame count"
                 )
             if stage is CommandStage.ACKNOWLEDGED and (
                 self.ack_support is AckSupport.UNSUPPORTED

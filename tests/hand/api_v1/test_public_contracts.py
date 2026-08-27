@@ -18,6 +18,7 @@ from linkerbot_hand.api.errors import (
     ErrorCode,
     ErrorInfo,
     IdentityMismatchError,
+    LifecycleError,
     PollingPlanError,
     ValidationError,
 )
@@ -192,6 +193,41 @@ def test_dispatched_is_terminal_when_ack_is_unsupported() -> None:
 
     assert handle.done
     assert handle.wait(timeout=0.01) is CommandStage.DISPATCHED
+    with pytest.raises(LifecycleError, match="already completed"):
+        handle._mark_failed(RuntimeError("late failure"), timestamp=1.2, sent_frames=1)
+    assert handle.stage is CommandStage.DISPATCHED
+
+
+def test_dispatched_requires_actual_frames_and_monotonic_time() -> None:
+    handle = CommandHandle(
+        command_id=9,
+        family=CommandFamily.ANGLE_TARGET,
+        ack_support=AckSupport.SUPPORTED,
+        accepted_at=2.0,
+    )
+
+    with pytest.raises(ValidationError, match="at least one frame"):
+        handle._mark_dispatched(timestamp=2.1, sent_frames=0)
+    with pytest.raises(LifecycleError, match="backwards"):
+        handle._mark_dispatched(timestamp=1.9, sent_frames=1)
+
+    assert handle.stage is CommandStage.ACCEPTED
+
+
+def test_post_dispatch_failure_preserves_sent_frame_count() -> None:
+    handle = CommandHandle(
+        command_id=10,
+        family=CommandFamily.ANGLE_TARGET,
+        ack_support=AckSupport.SUPPORTED,
+        accepted_at=3.0,
+    )
+    handle._mark_dispatched(timestamp=3.1, sent_frames=2)
+
+    with pytest.raises(LifecycleError, match="frame count"):
+        handle._mark_failed(RuntimeError("timeout"), timestamp=3.2, sent_frames=0)
+
+    assert handle.stage is CommandStage.DISPATCHED
+    assert handle.sent_frames == 2
 
 
 def test_health_contract_is_immutable_and_zero_state_is_explicit() -> None:

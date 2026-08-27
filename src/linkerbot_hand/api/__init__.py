@@ -8,6 +8,7 @@ from .commands import (
     CommandTransition,
 )
 from .config import DeviceConfig, PollingPlan
+from .device import HandDevice
 from .device_info import DeviceInfo, VersionField, VersionRaw
 from .enums import (
     Confidence,
@@ -98,6 +99,7 @@ __all__ = [
     "ErrorInfo",
     "FaultSample",
     "ForceSample",
+    "HandDevice",
     "HandError",
     "HandSide",
     "HandSnapshot",
