@@ -239,6 +239,12 @@ if angles is not None and angles.meta.valid and not angles.meta.stale:
 `DataAge.sequence` 则在任何新样本发布时增加，因此设备 report/echo 可以增加 sequence，
 但不会增加 polling 读取完成数。`DataAge.origin` 给出该通道最新缓存样本的来源。
 
+`health.transport.tx_frames`、`rx_frames`、`tx_bytes` 和 `rx_bytes` 是整条物理通道跨连接
+代次累计的流量，不是单个 HandDevice 的流量。同一 CAN/CAN FD 通道上的多个设备会看到
+相同计数。字节数按 DLC 对应的数据区长度统计，不含仲裁、CRC、位填充和帧间隔，因此不能
+直接当作总线利用率。单设备行为应结合该设备的 command family、读取完成数和数据通道指标
+判断。
+
 ## 安全恢复
 
 `DeviceConfig(auto_reconnect=True)` 启用自动重连；也可显式调用 `recover(timeout)`。
