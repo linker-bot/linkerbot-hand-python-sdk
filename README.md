@@ -182,9 +182,10 @@ ty check src/linkerbot_hand tests/hand/api_v1
 python -m build
 ```
 
-实机测试需要先确认型号、固件、供电、终端电阻和总线配置。L6 不设置最低固件连接门槛；
-旧固件缺少可选查询时，SDK 只禁用对应通道并抛出 `UnsupportedFirmwareError`，不会断开
-其他可用功能。详见 [L6 固件支持证据](./docs/zh/src/reference/models/l6-firmware-support.md)。
+实机测试需要先确认型号、固件、供电、终端电阻和总线配置。L6/O6 不设置最低固件连接
+门槛；旧固件缺少可选查询时，SDK 只禁用对应通道并抛出
+`UnsupportedFirmwareError`，不会断开其他可用功能。详见
+[逐型号接口与固件证据](./docs/zh/src/reference/models/README.md)。
 
 ## 文档
 

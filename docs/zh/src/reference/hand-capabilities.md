@@ -52,7 +52,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | 型号 | side | transport | 关节数 | 可写命令 | 可读/缓存状态 | 可选操作 |
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
-| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults | 无 |
+| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
 | L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | 无 |
 | L25 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
@@ -111,7 +111,8 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
 三种限制不能混用：
 
 - L6/O6 使用 `current_limits`，协议原值为 count；L6 的文档比例为
-  `raw × 1400 / 255 mA`，比例只记录在 capability metadata 中。
+  `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
+  `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
 - L30 使用 `current_limits`，协议值本身以 mA 表示。
 - L20Lite/L25/O20/O30i 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
 - 当前七型号没有 profile 声明真实 `torques` 通道，因此
@@ -138,7 +139,9 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
 `open()`、`get_device_info()` 和 `recover()` 共用同一身份验证边界。验证内容包括设备可
 提供的型号、左右手、固件、硬件/机械版本、传感器变体、序列号和产品编码。
 
-例如 O6 `04-B` profile 使用五指 `10x4` 触觉。L6 不设置最低固件连接门槛；旧固件可连接，
-可选查询首次超时或结构不符时只禁用该通道并抛出 `UnsupportedFirmwareError`，其他能力保持
-运行。身份变化仍抛出 `IdentityMismatchError`。L6 逐接口和版本证据见
-[L6 型号文档](./models/l6.md) 与 [L6 固件支持证据](./models/l6-firmware-support.md)。
+例如 O6 `04-B` profile 使用五指 `10x4` 触觉。L6/O6 都不设置最低固件连接门槛；旧固件可
+连接，可选查询首次超时或结构不符时只禁用该通道并抛出
+`UnsupportedFirmwareError`，其他能力保持运行。身份变化仍抛出
+`IdentityMismatchError`。逐接口和版本证据见 [L6 型号文档](./models/l6.md)、
+[L6 固件支持证据](./models/l6-firmware-support.md)、[O6 型号文档](./models/o6.md) 与
+[O6 固件支持证据](./models/o6-firmware-support.md)。
