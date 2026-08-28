@@ -63,8 +63,8 @@ verified = hand.get_capabilities()
 assert verified.identity.verified
 ```
 
-未知固件、型号不匹配、左右手不匹配或恢复时设备指纹变化都会以稳定异常失败，不能带着
-未验证 profile 开始控制。
+型号不匹配、左右手不匹配或恢复时设备指纹变化都会以稳定异常失败。型号可选查询不由
+版本号预先阻止；已发送查询若证明当前固件不支持，只降级该通道并保留连接。
 
 ## 非阻塞命令
 
@@ -85,7 +85,8 @@ assert verified.identity.verified
 | `set_stall_detection_times(values)` | 堵转判定时间对象的协议值 |
 | `set_stall_thresholds(values)` | 堵转阈值对象的协议值 |
 | `set_stall_hold_currents(values)` | 堵转后维持电流对象的协议值 |
-| `clear_faults()` / `enable()` / `disable()` / `calibrate()` | 独立离散操作 |
+| `set_limit_compensations(values)` | 逐关节限位补偿协议值 |
+| `clear_faults()` / `enable()` / `disable()` / `calibrate()` / `save_parameters()` | 独立离散操作 |
 
 长度、有限数、整数约束和协议范围都来自 capability。SDK 不自动 clamp；校验失败直接抛
 `ValidationError`，不会创建 handle。
@@ -123,7 +124,8 @@ terminal = handle.wait(timeout=0.2)
 
 以下 getter 接受正的秒制 `timeout`。由设备查询支持的 getter 返回调用开始之后的新样本；
 若等价事务已在途，调用者会加入同一事务而不是再发查询。声明为 `COMMAND_CACHE` 的
-getter 返回已发送命令形成的缓存样本，不产生设备查询：
+getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设备对写命令的最近响应；
+二者都不产生主动查询：
 
 | 方法 | 返回类型 |
 | --- | --- |
@@ -144,9 +146,11 @@ getter 返回已发送命令形成的缓存样本，不产生设备查询：
 | `get_stall_detection_times(timeout)` | `StallDetectionTimeSample` |
 | `get_stall_thresholds(timeout)` | `StallThresholdSample` |
 | `get_stall_hold_currents(timeout)` | `StallHoldCurrentSample` |
+| `get_limit_compensations(timeout)` | `LimitCompensationSample` |
 
-某些“配置读取”由 capability 声明为 `COMMAND_CACHE`，例如 L6 配置速度。这种通道返回明确
-标记为 `COMMAND_CACHE` 的已发送目标缓存，不会伪装成设备测量值。
+某些配置状态由 capability 声明为 `COMMAND_CACHE`，另一些是
+`COMMAND_RESPONSE`。例如 L6 配置速度来自设备 `0x05` 写响应，标记为
+`DEVICE_CONFIG_RESPONSE`；它既不是本地主机目标，也不会伪装成设备实测速度。
 
 ROS command、publisher 和 diagnostics callback 不应调用主动 getter。ROS 应让 SDK
 轮询，并从 snapshot 发布。

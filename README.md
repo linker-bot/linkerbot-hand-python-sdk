@@ -16,8 +16,9 @@ L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号�
 - 普通 `set_*()` / `get_*()` 使用设备协议原值，不做隐式物理量换算。
 - `set_percent_angles()` 使用 `0..100`；屈伸轴统一为
   `0=弯曲/闭合，100=伸直/张开`。
-- 查询型 `get_*()` 主动执行一次新事务；声明为 `COMMAND_CACHE` 的 getter 只返回
-  明确标注来源的命令缓存。`get_snapshot()` 和 `get_health()` 始终只读内存。
+- 查询型 `get_*()` 主动执行一次新事务；声明为 `COMMAND_CACHE` 或
+  `COMMAND_RESPONSE` 的 getter 只返回明确标注来源的主机缓存或设备写响应。
+  `get_snapshot()` 和 `get_health()` 始终只读内存。
 - SDK 是设备周期查询的唯一所有者，ROS 或应用只提交 `PollingPlan`。
 - 核心包不依赖 NumPy、SciPy、ROS、机械臂或旧聚合 SDK。
 
@@ -181,9 +182,9 @@ ty check src/linkerbot_hand tests/hand/api_v1
 python -m build
 ```
 
-实机测试需要先确认型号、固件、供电、终端电阻和总线配置。L6 Hand 1.0 profile 要求
-固件不低于 2.4.0；旧固件会明确抛出 `UnsupportedFirmwareError`，不会带着未验证
-profile 开始运动。
+实机测试需要先确认型号、固件、供电、终端电阻和总线配置。L6 不设置最低固件连接门槛；
+旧固件缺少可选查询时，SDK 只禁用对应通道并抛出 `UnsupportedFirmwareError`，不会断开
+其他可用功能。详见 [L6 固件支持证据](./docs/zh/src/reference/models/l6-firmware-support.md)。
 
 ## 文档
 
@@ -191,6 +192,7 @@ profile 开始运动。
 - [型号能力与查询方式](./docs/zh/src/reference/hand-capabilities.md)
 - [协议原值、percent 与角度方向](./docs/zh/src/reference/angle-coordinates.md)
 - [破坏性迁移说明](./docs/zh/src/reference/hand-migration.md)
+- [逐型号接口、单位与协议说明](./docs/zh/src/reference/models/README.md)
 
 本仓库只包含 Hand SDK。机械臂、运动学和 Pinocchio 属于独立 Arm SDK；ROS 2 消息、
 Lifecycle、QoS 和 topic 映射属于 `linkerbot-hand-ros`。

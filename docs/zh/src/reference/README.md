@@ -12,6 +12,7 @@
 3. [角度与值语义](./angle-coordinates.md)：协议原值、`percent`、方向和物理角度边界。
 4. [经典 CAN](./can.md) / [CAN FD](./canfd.md)：Linux 总线配置和 transport 构造。
 5. [迁移说明](./hand-migration.md)：从已删除的旧型号类和双接口迁移。
+6. [型号协议能力](./models/README.md)：逐型号维护接口、opcode、单位、解释、固件证据和限制。
 
 程序必须以 `hand.get_capabilities()` 返回的当前 profile 为准。文档矩阵用于阅读和评审，
 不能复制到 ROS 或应用中形成另一份 `MODEL_SPECS`。
