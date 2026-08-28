@@ -15,7 +15,7 @@ from linkerbot_hand.api.commands import (
 )
 from linkerbot_hand.api.config import DeviceConfig, PollingPlan
 from linkerbot_hand.api.device_info import DeviceInfo, VersionField
-from linkerbot_hand.api.enums import DataOrigin, HandSide
+from linkerbot_hand.api.enums import AngleFeedbackPolicy, DataOrigin, HandSide
 from linkerbot_hand.api.errors import (
     ErrorCode,
     ErrorInfo,
@@ -27,6 +27,8 @@ from linkerbot_hand.api.errors import (
 from linkerbot_hand.api.health import ConnectionState, HealthStatus, LifecycleState
 from linkerbot_hand.api.readings import AngleSample, CurrentSample, SampleMeta
 from linkerbot_hand.api.snapshot import HandSnapshot, JointState
+from linkerbot_hand.capabilities.registry import get_declared_capabilities
+from linkerbot_hand.capabilities.types import CommandSemantic
 
 
 def valid_meta(*, origin: DataOrigin = DataOrigin.DEVICE_RESPONSE) -> SampleMeta:
@@ -85,6 +87,38 @@ def test_polling_plan_uses_zero_to_disable_a_channel() -> None:
 def test_polling_plan_rejects_invalid_rates(value: object) -> None:
     with pytest.raises(ValidationError):
         PollingPlan(angles_hz=value)  # ty: ignore[invalid-argument-type]
+
+
+def test_polling_plan_has_one_typed_angle_feedback_policy() -> None:
+    plan = PollingPlan(angles_hz=100)
+
+    assert plan.angle_feedback is AngleFeedbackPolicy.ADAPTIVE
+    assert plan.enabled_rates() == (("angles", 100.0),)
+    with pytest.raises(ValidationError, match="AngleFeedbackPolicy"):
+        PollingPlan(angle_feedback="adaptive")  # ty: ignore[invalid-argument-type]
+
+
+def test_angle_command_declares_only_verified_current_state_responses() -> None:
+    response_profiles = {
+        ("l6", "left"),
+        ("o6", "right"),
+        ("l20lite", "left"),
+        ("l25", "right"),
+    }
+    dispatch_or_ack_profiles = {
+        ("o20", "right"),
+        ("l30", None),
+        ("o30i", "right"),
+    }
+
+    for model, side in response_profiles:
+        capabilities = get_declared_capabilities(model, side=side)
+        angles = capabilities.command(CommandSemantic.ANGLES)
+        assert angles is not None and angles.returns_current_state
+    for model, side in dispatch_or_ack_profiles:
+        capabilities = get_declared_capabilities(model, side=side)
+        angles = capabilities.command(CommandSemantic.ANGLES)
+        assert angles is not None and not angles.returns_current_state
 
 
 def test_device_config_rejects_unbounded_or_invalid_limits() -> None:

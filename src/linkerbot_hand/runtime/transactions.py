@@ -279,6 +279,19 @@ class TransactionCoordinator:
             del self._entries[key]
             return True
 
+    def cancel_pending_poll(self, key: Hashable) -> bool:
+        """Cancel only unclaimed poll demand while preserving active readers."""
+
+        _validate_key(key)
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None or not entry.requested_by_poll or entry.in_flight:
+                return False
+            entry.requested_by_poll = False
+            if not entry.waiters:
+                del self._entries[key]
+            return True
+
     def cancel(self, waiter: TransactionWaiter) -> None:
         """Remove one timed-out caller without cancelling shared in-flight work."""
 

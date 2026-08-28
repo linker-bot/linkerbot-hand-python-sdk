@@ -176,6 +176,9 @@ def make_initial_health(capabilities: DeviceCapabilities) -> HealthStatus:
             missed_deadlines=0,
             timeouts=0,
             completed_reads=0,
+            command_feedback_samples=0,
+            feedback_samples=0,
+            feedback_policy=None,
             data_age=DataAge(
                 channel=telemetry.semantic.value,
                 age_s=None,

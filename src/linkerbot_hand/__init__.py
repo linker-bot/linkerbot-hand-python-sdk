@@ -2,6 +2,7 @@
 
 from .api import (
     AckSupport,
+    AngleFeedbackPolicy,
     AngleSample,
     ChannelMetrics,
     ClosedError,
@@ -87,6 +88,7 @@ from .capabilities import (
 __all__ = [
     "SUPPORTED_MODELS",
     "AckSupport",
+    "AngleFeedbackPolicy",
     "AngleSample",
     "ChannelMetrics",
     "ClosedError",

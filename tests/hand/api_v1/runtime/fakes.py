@@ -45,6 +45,7 @@ class FakeProtocolState:
     )
     operation_log: list[str] = field(default_factory=list)
     drop_reads: set[TelemetrySemantic] = field(default_factory=set)
+    drop_angle_command_feedback: bool = False
     late_response_guard_s: float = 0.001
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -151,7 +152,33 @@ class FakeProtocolBackend:
             )
         response_consumer = None
         response_timeout_s = 0.0
-        if capability.ack_support is AckSupport.SUPPORTED:
+        response_acknowledges_command = False
+        if semantic is CommandSemantic.ANGLES and capability.returns_current_state:
+
+            def consume(message: object) -> ResponseProgress:
+                if (
+                    not isinstance(message, WireMessage)
+                    or message.kind != "command_feedback"
+                    or message.semantic != semantic.value
+                ):
+                    return ResponseProgress(matched=False)
+                return ResponseProgress(
+                    matched=True,
+                    complete=True,
+                    result=SamplePayload(
+                        semantic=TelemetrySemantic.ANGLES,
+                        raw=message.values,
+                        origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+                    ),
+                    acknowledged=(capability.ack_support is AckSupport.SUPPORTED),
+                )
+
+            response_consumer = consume
+            response_timeout_s = 0.1
+            response_acknowledges_command = (
+                capability.ack_support is AckSupport.SUPPORTED
+            )
+        elif capability.ack_support is AckSupport.SUPPORTED:
 
             def consume(message: object) -> ResponseProgress:
                 if (
@@ -168,6 +195,7 @@ class FakeProtocolBackend:
 
             response_consumer = consume
             response_timeout_s = 0.1
+            response_acknowledges_command = True
         return ProtocolTransaction(
             key=("command", semantic),
             correlation_key=("command", semantic),
@@ -177,6 +205,7 @@ class FakeProtocolBackend:
             response_timeout_s=response_timeout_s,
             estimated_duration_s=0.001,
             response_consumer=response_consumer,
+            response_acknowledges_command=response_acknowledges_command,
             dispatch_publications=publications,
         )
 
@@ -263,6 +292,21 @@ class FakeProtocolBackend:
                 self.state.command_log.append((semantic, message.values))
                 capability = self.state.capabilities.command(semantic)
                 assert capability is not None
+                if (
+                    semantic is CommandSemantic.ANGLES
+                    and capability.returns_current_state
+                ):
+                    self.state.readings[TelemetrySemantic.ANGLES] = message.values
+                    if self.state.drop_angle_command_feedback:
+                        return ()
+                    return (
+                        WireMessage(
+                            self._response_route_key,
+                            "command_feedback",
+                            semantic.value,
+                            message.values,
+                        ),
+                    )
                 if capability.ack_support is AckSupport.SUPPORTED:
                     return (
                         WireMessage(

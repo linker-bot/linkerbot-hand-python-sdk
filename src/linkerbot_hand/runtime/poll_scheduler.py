@@ -7,9 +7,14 @@ import threading
 from dataclasses import dataclass
 
 from ..api.config import PollingPlan
+from ..api.enums import AngleFeedbackPolicy
 from ..api.errors import PollingPlanError, ValidationError
 from ..api.health import ChannelMetrics, DataAge
-from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
+from ..capabilities.types import (
+    CommandSemantic,
+    DeviceCapabilities,
+    TelemetrySemantic,
+)
 from ._clock import RuntimeClock
 
 POLL_CHANNELS = {
@@ -33,7 +38,9 @@ class _PollState:
     period_s: float
     next_deadline_s: float
     started_at_s: float
-    completed: int = 0
+    completed_reads: int = 0
+    command_feedback_samples: int = 0
+    feedback_samples: int = 0
     missed_deadlines: int = 0
     timeouts: int = 0
 
@@ -73,15 +80,20 @@ class PollScheduler:
             if plan == self._plan:
                 return False
             self._plan = plan
-            self._states = {
-                POLL_CHANNELS[channel]: _PollState(
+            states: dict[TelemetrySemantic, _PollState] = {}
+            for channel, rate in plan.enabled_rates():
+                semantic = POLL_CHANNELS[channel]
+                period_s = 1.0 / rate
+                waits_for_first_period = semantic is TelemetrySemantic.ANGLES and (
+                    plan.angle_feedback is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+                )
+                states[semantic] = _PollState(
                     requested_hz=rate,
-                    period_s=1.0 / rate,
-                    next_deadline_s=now,
+                    period_s=period_s,
+                    next_deadline_s=now + period_s if waits_for_first_period else now,
                     started_at_s=now,
                 )
-                for channel, rate in plan.enabled_rates()
-            }
+            self._states = states
             return True
 
     def stop(self) -> bool:
@@ -115,8 +127,15 @@ class PollScheduler:
             periods = (
                 math.floor(max(0.0, now - state.next_deadline_s) / state.period_s) + 1
             )
-            state.missed_deadlines += max(0, periods - 1)
             state.next_deadline_s += periods * state.period_s
+            if (
+                semantic is TelemetrySemantic.ANGLES
+                and self._angle_feedback_policy_locked()
+                is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+            ):
+                state.missed_deadlines += periods
+                return None
+            state.missed_deadlines += max(0, periods - 1)
             return semantic
 
     def mark_completed(
@@ -135,12 +154,55 @@ class PollScheduler:
             state = self._states.get(semantic)
             if state is None:
                 return
-            state.completed += 1
-            if not requested_by_poll:
+            state.completed_reads += 1
+            fulfills_feedback = not (
+                semantic is TelemetrySemantic.ANGLES
+                and self._angle_feedback_policy_locked()
+                is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+            )
+            if fulfills_feedback:
+                state.feedback_samples += 1
+            if fulfills_feedback and not requested_by_poll:
                 state.next_deadline_s = max(
                     state.next_deadline_s,
                     now + state.period_s,
                 )
+
+    def mark_angle_command_feedback(self, *, now: float) -> bool:
+        """Record verified current-state feedback from an angle command.
+
+        Returns:
+            ``True`` when the sample fulfills the active feedback policy.
+        """
+
+        _validate_time(now)
+        with self._lock:
+            state = self._states.get(TelemetrySemantic.ANGLES)
+            if state is None:
+                return False
+            if not self._angle_commands_return_current_state_locked():
+                raise RuntimeError(
+                    "angle command feedback was recorded for a capability "
+                    "without verified current-state responses"
+                )
+            state.command_feedback_samples += 1
+            policy = self._angle_feedback_policy_locked()
+            if policy is AngleFeedbackPolicy.QUERY_ONLY:
+                return False
+            state.feedback_samples += 1
+            state.next_deadline_s = max(
+                state.next_deadline_s,
+                now + state.period_s,
+            )
+            return True
+
+    def mark_command_feedback_timeout(self) -> None:
+        """Count one missing response from a verified angle command."""
+
+        with self._lock:
+            state = self._states.get(TelemetrySemantic.ANGLES)
+            if state is not None and self._angle_commands_return_current_state_locked():
+                state.timeouts += 1
 
     def mark_timeout(self, semantic: TelemetrySemantic) -> None:
         """Count one failed due transaction without creating a retry backlog."""
@@ -194,9 +256,21 @@ class PollScheduler:
                 return None
             return min(state.next_deadline_s for state in self._states.values())
 
+    def is_due(self, semantic: TelemetrySemantic, *, now: float) -> bool:
+        """Return whether one enabled channel has reached its next deadline."""
+
+        if not isinstance(semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        _validate_time(now)
+        with self._lock:
+            state = self._states.get(semantic)
+            return (
+                state is not None and state.next_deadline_s <= now + _DEADLINE_EPSILON_S
+            )
+
     @property
     def active(self) -> bool:
-        """Return whether at least one periodic query is enabled."""
+        """Return whether at least one periodic feedback channel is enabled."""
 
         with self._lock:
             return bool(self._states)
@@ -207,6 +281,18 @@ class PollScheduler:
 
         with self._lock:
             return self._plan
+
+    @property
+    def angle_command_can_fulfill_feedback(self) -> bool:
+        """Return whether an angle command can satisfy the current plan."""
+
+        with self._lock:
+            return (
+                TelemetrySemantic.ANGLES in self._states
+                and self._angle_commands_return_current_state_locked()
+                and self._angle_feedback_policy_locked()
+                is not AngleFeedbackPolicy.QUERY_ONLY
+            )
 
     def metrics(
         self,
@@ -232,7 +318,9 @@ class PollScheduler:
         state = self._states.get(semantic)
         elapsed = 0.0 if state is None else max(0.0, now - state.started_at_s)
         achieved = (
-            0.0 if state is None or elapsed <= 0 else float(state.completed) / elapsed
+            0.0
+            if state is None or elapsed <= 0
+            else float(state.feedback_samples) / elapsed
         )
         return ChannelMetrics(
             channel=semantic.value,
@@ -240,9 +328,27 @@ class PollScheduler:
             achieved_hz=achieved,
             missed_deadlines=0 if state is None else state.missed_deadlines,
             timeouts=0 if state is None else state.timeouts,
-            completed_reads=0 if state is None else state.completed,
+            completed_reads=0 if state is None else state.completed_reads,
+            command_feedback_samples=(
+                0 if state is None else state.command_feedback_samples
+            ),
+            feedback_samples=0 if state is None else state.feedback_samples,
+            feedback_policy=(
+                self._angle_feedback_policy_locked()
+                if state is not None and semantic is TelemetrySemantic.ANGLES
+                else None
+            ),
             data_age=data_ages[semantic],
         )
+
+    def _angle_feedback_policy_locked(self) -> AngleFeedbackPolicy:
+        if self._plan is None:
+            return AngleFeedbackPolicy.ADAPTIVE
+        return self._plan.angle_feedback
+
+    def _angle_commands_return_current_state_locked(self) -> bool:
+        command = self._capabilities.command(CommandSemantic.ANGLES)
+        return command is not None and command.returns_current_state
 
     def _validate_channels(self, plan: PollingPlan) -> None:
         for channel, _rate in plan.enabled_rates():
@@ -251,6 +357,18 @@ class PollScheduler:
             if telemetry is None or not telemetry.device_queried:
                 raise PollingPlanError(
                     f"{self._capabilities.model} cannot poll {channel}",
+                    operation="start_polling",
+                    model=self._capabilities.model,
+                )
+        if (
+            plan.angles_hz > 0
+            and plan.angle_feedback is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+        ):
+            angles = self._capabilities.command(CommandSemantic.ANGLES)
+            if angles is None or not angles.returns_current_state:
+                raise PollingPlanError(
+                    f"{self._capabilities.model} angle commands do not return "
+                    "verified current-state feedback",
                     operation="start_polling",
                     model=self._capabilities.model,
                 )

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .commands import CommandFamily
-from .enums import DataOrigin
+from .enums import AngleFeedbackPolicy, DataOrigin
 from .errors import ErrorInfo
 
 
@@ -67,6 +67,9 @@ class ChannelMetrics:
     missed_deadlines: int
     timeouts: int
     completed_reads: int
+    command_feedback_samples: int
+    feedback_samples: int
+    feedback_policy: AngleFeedbackPolicy | None
     data_age: DataAge
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields
 
+from .enums import AngleFeedbackPolicy
 from .errors import ValidationError
 
 
@@ -20,7 +21,12 @@ def _positive_number(name: str, value: object) -> None:
 
 @dataclass(frozen=True, slots=True)
 class PollingPlan:
-    """Requested polling rates; zero disables a channel completely."""
+    """Requested feedback rates; zero disables a channel completely.
+
+    ``angle_feedback`` controls whether the angle rate is fulfilled by active
+    queries, verified angle-command feedback, or an adaptive combination. It
+    never causes the SDK to repeat a motion target on the user's behalf.
+    """
 
     angles_hz: float = 0.0
     speeds_hz: float = 0.0
@@ -30,9 +36,12 @@ class PollingPlan:
     faults_hz: float = 0.0
     torques_hz: float = 0.0
     voltage_hz: float = 0.0
+    angle_feedback: AngleFeedbackPolicy = AngleFeedbackPolicy.ADAPTIVE
 
     def __post_init__(self) -> None:
         for item in fields(self):
+            if not item.name.endswith("_hz"):
+                continue
             value = getattr(self, item.name)
             if (
                 isinstance(value, bool)
@@ -41,6 +50,8 @@ class PollingPlan:
                 or value < 0
             ):
                 raise ValidationError(f"{item.name} must be finite and non-negative")
+        if not isinstance(self.angle_feedback, AngleFeedbackPolicy):
+            raise ValidationError("angle_feedback must be AngleFeedbackPolicy")
 
     def enabled_rates(self) -> tuple[tuple[str, float], ...]:
         """Return enabled channels in stable scheduler order."""
@@ -48,7 +59,7 @@ class PollingPlan:
         return tuple(
             (item.name.removesuffix("_hz"), float(getattr(self, item.name)))
             for item in fields(self)
-            if getattr(self, item.name) > 0
+            if item.name.endswith("_hz") and getattr(self, item.name) > 0
         )
 
 

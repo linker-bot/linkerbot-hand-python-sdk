@@ -348,6 +348,16 @@ class CommandIngress:
         with self._lock:
             return len(self._latest) + len(self._fifo)
 
+    def has_pending(self, family: CommandFamily) -> bool:
+        """Return whether one scheduling family has unclaimed work."""
+
+        if not isinstance(family, CommandFamily):
+            raise ValidationError("family must be CommandFamily")
+        with self._lock:
+            if family in self._latest:
+                return True
+            return any(command.family is family for command in self._fifo)
+
     @property
     def discrete_depth(self) -> int:
         """Return current configuration/discrete FIFO depth."""

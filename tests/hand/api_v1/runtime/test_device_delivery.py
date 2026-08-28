@@ -10,8 +10,10 @@ import pytest
 
 from linkerbot_hand.api import (
     AckSupport,
+    AngleFeedbackPolicy,
     AngleSample,
     CommandStage,
+    DeviceConfig,
     ErrorCode,
     PollingPlan,
     TimeoutError,
@@ -54,6 +56,7 @@ def _staged_operation_transaction(
             response_timeout_s=response_timeout_s,
             estimated_duration_s=response_timeout_s,
             response_consumer=consume,
+            response_acknowledges_command=True,
             next_transaction=next_transaction,
         )
     assert next_transaction is not None
@@ -353,6 +356,261 @@ def test_active_read_satisfies_equivalent_poll_without_second_query() -> None:
             assert state.query_log == [TelemetrySemantic.ANGLES]
     finally:
         transport.read_gate.set()
+        hand.close()
+
+
+def test_adaptive_angle_feedback_avoids_queries_at_the_requested_rate() -> None:
+    hand, state, _transport = make_hand(
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    hand.open()
+    try:
+        with state.lock:
+            state.query_log.clear()
+        hand.start_polling(PollingPlan(angles_hz=20))
+
+        deadline = time.monotonic() + 0.25
+        submitted = 0
+        while time.monotonic() < deadline:
+            submitted += 1
+            hand.set_angles((submitted % 255,) * 6)
+            time.sleep(0.025)
+
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).command_feedback_samples
+                >= submitted
+            ),
+        )
+        with state.lock:
+            assert state.query_log == []
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert metrics.completed_reads == 0
+        assert metrics.command_feedback_samples >= submitted
+        assert metrics.feedback_samples >= submitted
+        assert metrics.feedback_policy is AngleFeedbackPolicy.ADAPTIVE
+    finally:
+        hand.close()
+
+
+def test_adaptive_feedback_uses_queries_only_for_command_gaps() -> None:
+    hand, state, _transport = make_hand(
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    hand.open()
+    try:
+        with state.lock:
+            state.query_log.clear()
+        hand.start_polling(PollingPlan(angles_hz=40))
+
+        submitted = 0
+        deadline = time.monotonic() + 0.3
+        while time.monotonic() < deadline:
+            submitted += 1
+            hand.set_angles((submitted,) * 6)
+            time.sleep(0.1)
+
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).command_feedback_samples
+                >= submitted
+            ),
+        )
+        time.sleep(0.05)
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).completed_reads
+                == state.query_log.count(TelemetrySemantic.ANGLES)
+            ),
+        )
+        with state.lock:
+            query_count = state.query_log.count(TelemetrySemantic.ANGLES)
+        assert query_count > 0
+        assert query_count < 20
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert metrics.completed_reads == query_count
+        assert metrics.command_feedback_samples >= submitted
+        assert metrics.feedback_samples == (
+            metrics.completed_reads + metrics.command_feedback_samples
+        )
+    finally:
+        hand.close()
+
+
+def test_adaptive_no_feedback_profile_keeps_querying_during_commands() -> None:
+    hand, state, _transport = make_hand(
+        capabilities=get_declared_capabilities("o20", side="left"),
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    hand.open()
+    try:
+        with state.lock:
+            state.query_log.clear()
+        hand.start_polling(PollingPlan(angles_hz=40))
+
+        deadline = time.monotonic() + 0.2
+        while time.monotonic() < deadline:
+            hand.set_angles((0,) * 16)
+            time.sleep(0.01)
+
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).completed_reads
+                >= 4
+            ),
+        )
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        with state.lock:
+            query_count = state.query_log.count(TelemetrySemantic.ANGLES)
+        assert query_count >= 4
+        assert metrics.completed_reads == query_count
+        assert metrics.command_feedback_samples == 0
+        assert metrics.feedback_samples == metrics.completed_reads
+    finally:
+        hand.close()
+
+
+def test_missing_feedback_keeps_dispatch_truth_and_counts_timeout() -> None:
+    hand, state, _transport = make_hand()
+    hand.open()
+    try:
+        hand.start_polling(
+            PollingPlan(
+                angles_hz=20,
+                angle_feedback=AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY,
+            )
+        )
+        state.drop_angle_command_feedback = True
+
+        handle = hand.set_angles((10,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+        assert handle.sent_frames == 1
+        assert handle.error is None
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).timeouts
+                == 1
+            )
+        )
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert metrics.command_feedback_samples == 0
+        assert metrics.feedback_samples == 0
+        assert metrics.timeouts == 1
+    finally:
+        hand.close()
+
+
+def test_query_only_does_not_let_command_feedback_suppress_queries() -> None:
+    hand, state, _transport = make_hand(
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    hand.open()
+    try:
+        with state.lock:
+            state.query_log.clear()
+        hand.start_polling(
+            PollingPlan(
+                angles_hz=20,
+                angle_feedback=AngleFeedbackPolicy.QUERY_ONLY,
+            )
+        )
+        for value in range(5):
+            hand.set_angles((value,) * 6).wait(timeout=1)
+            time.sleep(0.02)
+        wait_until(
+            lambda: (
+                next(
+                    item
+                    for item in hand.get_health().channels
+                    if item.channel == "angles"
+                ).completed_reads
+                >= 2
+            ),
+        )
+
+        with state.lock:
+            before_explicit = state.query_log.count(TelemetrySemantic.ANGLES)
+        result = hand.get_angles(timeout=0.2)
+        assert result.meta.origin is DataOrigin.DEVICE_RESPONSE
+        with state.lock:
+            after_explicit = state.query_log.count(TelemetrySemantic.ANGLES)
+        assert after_explicit == before_explicit + 1
+
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert metrics.command_feedback_samples >= 5
+        assert metrics.feedback_samples == metrics.completed_reads
+    finally:
+        hand.close()
+
+
+def test_command_feedback_only_never_creates_periodic_angle_queries() -> None:
+    hand, state, _transport = make_hand(
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    hand.open()
+    try:
+        with state.lock:
+            state.query_log.clear()
+        hand.start_polling(
+            PollingPlan(
+                angles_hz=50,
+                angle_feedback=AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY,
+            )
+        )
+        time.sleep(0.08)
+        hand.set_angles((42,) * 6).wait(timeout=1)
+        time.sleep(0.04)
+
+        with state.lock:
+            assert state.query_log == []
+        snapshot = hand.get_snapshot()
+        assert snapshot.angles is not None
+        assert snapshot.angles.raw == (42,) * 6
+        assert snapshot.angles.meta.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
+        metrics = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert metrics.completed_reads == 0
+        assert metrics.command_feedback_samples == 1
+        assert metrics.feedback_samples == 1
+        assert metrics.missed_deadlines > 0
+
+        explicit = hand.get_angles(timeout=0.2)
+        assert explicit.meta.origin is DataOrigin.DEVICE_RESPONSE
+        with state.lock:
+            assert state.query_log == [TelemetrySemantic.ANGLES]
+    finally:
         hand.close()
 
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
+
 from linkerbot_hand.api.config import PollingPlan
-from linkerbot_hand.api.enums import DataOrigin
+from linkerbot_hand.api.enums import AngleFeedbackPolicy, DataOrigin
+from linkerbot_hand.api.errors import PollingPlanError
 from linkerbot_hand.api.health import DataAge
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
-from linkerbot_hand.capabilities.types import TelemetrySemantic
+from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
 from linkerbot_hand.runtime._clock import SystemClock
 from linkerbot_hand.runtime.poll_scheduler import PollScheduler
 
@@ -96,6 +101,109 @@ def test_active_read_satisfies_the_next_poll_without_creating_backlog() -> None:
         for item in scheduler.metrics(now=0.15, data_ages=data_ages_for_l6())
     }
     assert metrics["angles"].completed_reads == 2
+
+
+def test_adaptive_angle_command_feedback_does_not_count_as_a_read() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    scheduler.replace(PollingPlan(angles_hz=10), now=0.0)
+
+    assert scheduler.mark_angle_command_feedback(now=0.0)
+    assert scheduler.take_due(now=0.099) is None
+    assert scheduler.take_due(now=0.1) is TelemetrySemantic.ANGLES
+
+    metrics = next(
+        item
+        for item in scheduler.metrics(now=0.1, data_ages=data_ages_for_l6())
+        if item.channel == "angles"
+    )
+    assert metrics.completed_reads == 0
+    assert metrics.command_feedback_samples == 1
+    assert metrics.feedback_samples == 1
+    assert metrics.feedback_policy is AngleFeedbackPolicy.ADAPTIVE
+
+
+def test_query_only_caches_command_feedback_without_suppressing_queries() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    scheduler.replace(
+        PollingPlan(
+            angles_hz=10,
+            angle_feedback=AngleFeedbackPolicy.QUERY_ONLY,
+        ),
+        now=0.0,
+    )
+
+    assert not scheduler.mark_angle_command_feedback(now=0.0)
+    assert scheduler.take_due(now=0.0) is TelemetrySemantic.ANGLES
+
+    metrics = next(
+        item
+        for item in scheduler.metrics(now=0.01, data_ages=data_ages_for_l6())
+        if item.channel == "angles"
+    )
+    assert metrics.command_feedback_samples == 1
+    assert metrics.feedback_samples == 0
+    assert metrics.feedback_policy is AngleFeedbackPolicy.QUERY_ONLY
+
+
+def test_feedback_only_records_missed_deadlines_without_queries() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    scheduler.replace(
+        PollingPlan(
+            angles_hz=10,
+            angle_feedback=AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY,
+        ),
+        now=0.0,
+    )
+
+    assert scheduler.take_due(now=0.0) is None
+    assert scheduler.take_due(now=0.1) is None
+    assert scheduler.mark_angle_command_feedback(now=0.15)
+    assert scheduler.take_due(now=0.249) is None
+
+    metrics = next(
+        item
+        for item in scheduler.metrics(now=0.25, data_ages=data_ages_for_l6())
+        if item.channel == "angles"
+    )
+    assert metrics.missed_deadlines == 1
+    assert metrics.completed_reads == 0
+    assert metrics.command_feedback_samples == 1
+    assert metrics.feedback_samples == 1
+    assert metrics.feedback_policy is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+
+
+def test_feedback_only_rejects_profile_without_current_state_responses() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    angles = capabilities.command(CommandSemantic.ANGLES)
+    assert angles is not None
+    no_feedback = replace(
+        capabilities,
+        commands=tuple(
+            replace(command, returns_current_state=False)
+            if command.semantic is CommandSemantic.ANGLES
+            else command
+            for command in capabilities.commands
+        ),
+    )
+    scheduler = PollScheduler(no_feedback)
+
+    with pytest.raises(PollingPlanError, match="current-state feedback"):
+        scheduler.replace(
+            PollingPlan(
+                angles_hz=10,
+                angle_feedback=AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY,
+            ),
+            now=0.0,
+        )
+
+
+def test_adaptive_no_feedback_profile_never_uses_commands_as_feedback() -> None:
+    capabilities = get_declared_capabilities("o20", side="left")
+    scheduler = PollScheduler(capabilities)
+    scheduler.replace(PollingPlan(angles_hz=10), now=0.0)
+
+    assert not scheduler.angle_command_can_fulfill_feedback
+    assert scheduler.take_due(now=0.0) is TelemetrySemantic.ANGLES
 
 
 def test_equal_plan_is_noop_and_replacement_restarts_deadlines() -> None:

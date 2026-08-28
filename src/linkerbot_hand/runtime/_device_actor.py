@@ -5,8 +5,9 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from ..api.commands import AckSupport, CommandStage
+from ..api.commands import AckSupport, CommandFamily, CommandStage
 from ..api.config import DeviceConfig, PollingPlan
+from ..api.enums import DataOrigin
 from ..api.errors import (
     DeviceNotReadyError,
     HandError,
@@ -247,6 +248,26 @@ class DeviceActor:
                 continue
 
             now = self._clock.monotonic()
+            angle_command_ready = (
+                now >= self._next_command_at
+                and self._commands.has_pending(CommandFamily.ANGLE_TARGET)
+                and self._polling.angle_command_can_fulfill_feedback
+            )
+            canceled_angle_poll = angle_command_ready and (
+                self._transactions.cancel_pending_poll(TelemetrySemantic.ANGLES)
+            )
+            angle_command_fulfills_due_sample = angle_command_ready and (
+                canceled_angle_poll
+                or self._polling.is_due(TelemetrySemantic.ANGLES, now=now)
+            )
+            if angle_command_fulfills_due_sample:
+                command = self._commands.take_latest(CommandFamily.ANGLE_TARGET)
+                if command is not None:
+                    self._prefer_transaction = True
+                    self._prefer_inbound = True
+                    self._next_command_at = now + 1.0 / self._config.command_rate_hz
+                    self._execute_command(runner, command)
+                    continue
             due = self._polling.take_due(now=now)
             if due is not None:
                 self._transactions.request_poll(due)
@@ -330,6 +351,7 @@ class DeviceActor:
                 pending,
                 on_dispatched=mark_dispatched,
             )
+            self._record_command_feedback(outcome.publications)
             if expects_ack:
                 if not outcome.acknowledged:
                     raise ProtocolError("device response did not acknowledge command")
@@ -340,6 +362,10 @@ class DeviceActor:
             self._commands.record_stage(active.handle, CommandStage.SUPERSEDED)
         except Exception as error:  # noqa: BLE001 - command handle owns failure
             classified = self._classify(error, "command")
+            if active.family is CommandFamily.ANGLE_TARGET and isinstance(
+                classified, TimeoutError
+            ):
+                self._polling.mark_command_feedback_timeout()
             handle = active.handle
             if not handle.done:
                 sent_frames = _sent_frames(error, handle.sent_frames)
@@ -353,6 +379,22 @@ class DeviceActor:
                 self._disconnect(classified)
             else:
                 self._metrics.record_error(classified)
+
+    def _record_command_feedback(
+        self,
+        publications: tuple[tuple[object, object], ...],
+    ) -> None:
+        """Let verified angle-command feedback fulfill the periodic plan."""
+
+        has_angle_feedback = any(
+            getattr(payload, "semantic", None) is TelemetrySemantic.ANGLES
+            and getattr(payload, "origin", None) is DataOrigin.DEVICE_COMMAND_FEEDBACK
+            for payload, _sample in publications
+        )
+        if not has_angle_feedback:
+            return
+        if self._polling.mark_angle_command_feedback(now=self._clock.monotonic()):
+            self._transactions.cancel_pending_poll(TelemetrySemantic.ANGLES)
 
     def _replace_unclaimed_target(
         self,
@@ -434,7 +476,7 @@ class DeviceActor:
             )
         )
         expects_ack = command.handle.ack_support is AckSupport.SUPPORTED
-        if transaction.terminal_expects_response != expects_ack:
+        if transaction.terminal_acknowledges_command != expects_ack:
             raise ProtocolError("transaction ACK behavior disagrees with capability")
         return transaction
 

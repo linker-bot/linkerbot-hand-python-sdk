@@ -11,6 +11,7 @@ from .config import DeviceConfig, PollingPlan
 from .device import HandDevice
 from .device_info import DeviceInfo, VersionField, VersionRaw
 from .enums import (
+    AngleFeedbackPolicy,
     Confidence,
     DataOrigin,
     HandSide,
@@ -74,6 +75,7 @@ from .stall import (
 
 __all__ = [
     "AckSupport",
+    "AngleFeedbackPolicy",
     "AngleSample",
     "ChannelMetrics",
     "ClosedError",
