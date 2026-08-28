@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ...api.device_info import DeviceInfo
-from ...api.errors import ProtocolError, UnsupportedFirmwareError
+from ...api.errors import ProtocolError
 from ...api.readings import SampleMeta
 from ...capabilities.types import DeviceCapabilities
 from ..base import IdentityResult, ProtocolTransaction, ResponseProgress
@@ -15,8 +15,6 @@ from ..common.classic_can import (
     classic_route,
     parse_factory_identity,
 )
-
-_MINIMUM_FIRMWARE = (2, 4, 0)
 
 
 def l6_identity_transaction(
@@ -70,16 +68,8 @@ def _identity_result(
     pcb = collector.version(0xC1)
     firmware = collector.version(0xC2)
     mechanical = collector.version(0xC4)
-    major = firmware.major
-    minor = firmware.minor
-    patch = firmware.patch
-    if major is None or minor is None or patch is None:
+    if firmware.major is None or firmware.minor is None or firmware.patch is None:
         raise ProtocolError("L6 firmware response is not semantic version data")
-    if (major, minor, patch) < _MINIMUM_FIRMWARE:
-        raise UnsupportedFirmwareError(
-            "L6 Hand SDK 1.0 requires firmware 2.4.0 or newer",
-            model=declared.model,
-        )
     identity = replace(
         declared.identity,
         verified=True,

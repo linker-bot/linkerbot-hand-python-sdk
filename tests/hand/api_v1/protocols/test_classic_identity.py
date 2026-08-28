@@ -9,7 +9,6 @@ from linkerbot_hand.api import HandSide
 from linkerbot_hand.api.errors import (
     IdentityMismatchError,
     ProtocolError,
-    UnsupportedFirmwareError,
 )
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import TelemetrySemantic
@@ -167,7 +166,7 @@ def test_l6_identity_accepts_three_contiguous_full_factory_frames(
     assert result.device_info.serial_number == "077"
 
 
-def test_l6_legacy_three_frame_identity_reports_unsupported_firmware() -> None:
+def test_l6_legacy_three_frame_identity_accepts_older_firmware() -> None:
     transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
     frames = _identity_frames(
         HandSide.LEFT,
@@ -177,9 +176,10 @@ def test_l6_legacy_three_frame_identity_reports_unsupported_firmware() -> None:
         firmware=(2, 3, 3),
     )
 
-    with pytest.raises(UnsupportedFirmwareError, match="2.4.0"):
-        for frame in frames:
-            transaction.consume(frame)
+    result = _consume_identity(transaction, frames)
+
+    assert result.capabilities.identity.firmware == "2.3.3"
+    assert result.device_info.product_code == "LHL6 -03-077-L-B-1"
 
 
 def test_l6_identity_does_not_accept_a_short_code_with_a_missing_frame() -> None:
@@ -221,7 +221,7 @@ def test_o6_identity_does_not_accept_three_unterminated_full_frames() -> None:
         collector.product_code()
 
 
-def test_l6_identity_rejects_unsupported_firmware() -> None:
+def test_l6_identity_accepts_older_firmware_without_version_gating() -> None:
     transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
     frames = _identity_frames(
         HandSide.LEFT,
@@ -230,9 +230,10 @@ def test_l6_identity_rejects_unsupported_firmware() -> None:
         firmware=(2, 3, 3),
     )
 
-    with pytest.raises(UnsupportedFirmwareError, match="2.4.0"):
-        for frame in frames:
-            transaction.consume(frame)
+    result = _consume_identity(transaction, frames)
+
+    assert result.capabilities.identity.verified
+    assert result.capabilities.identity.firmware == "2.3.3"
 
 
 def test_o6_04_b_selects_complete_tactile_profile() -> None:
