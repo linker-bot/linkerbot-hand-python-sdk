@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from linkerbot_hand.api.config import PollingPlan
+from linkerbot_hand.api.enums import DataOrigin
 from linkerbot_hand.api.errors import PollingPlanError
 from linkerbot_hand.api.health import DataAge
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
@@ -21,6 +22,7 @@ def data_ages_for_l6() -> dict[TelemetrySemantic, DataAge]:
             stale=True,
             sequence=0,
             connection_generation=0,
+            origin=DataOrigin.NONE,
         )
         for telemetry in capabilities.telemetry
     }
@@ -92,18 +94,53 @@ def test_active_read_satisfies_the_next_poll_without_creating_backlog() -> None:
     assert scheduler.take_due(now=0.1) is None
     assert scheduler.take_due(now=0.15) is TelemetrySemantic.ANGLES
 
+    metrics = {
+        item.channel: item
+        for item in scheduler.metrics(now=0.15, data_ages=data_ages_for_l6())
+    }
+    assert metrics["angles"].completed_reads == 2
+
 
 def test_equal_plan_is_noop_and_replacement_restarts_deadlines() -> None:
     scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
     plan = PollingPlan(angles_hz=20)
 
     assert scheduler.replace(plan, now=1.0)
+    scheduler.mark_completed(
+        TelemetrySemantic.ANGLES,
+        now=1.01,
+        requested_by_poll=True,
+    )
     assert not scheduler.replace(plan, now=99.0)
     assert scheduler.next_deadline() == 1.0
+    assert (
+        next(
+            item
+            for item in scheduler.metrics(now=99.0, data_ages=data_ages_for_l6())
+            if item.channel == "angles"
+        ).completed_reads
+        == 1
+    )
 
     assert scheduler.replace(PollingPlan(angles_hz=10), now=2.0)
     assert scheduler.next_deadline() == 2.0
+    assert (
+        next(
+            item
+            for item in scheduler.metrics(now=2.0, data_ages=data_ages_for_l6())
+            if item.channel == "angles"
+        ).completed_reads
+        == 0
+    )
     assert scheduler.stop()
+    assert (
+        next(
+            item
+            for item in scheduler.metrics(now=3.0, data_ages=data_ages_for_l6())
+            if item.channel == "angles"
+        ).completed_reads
+        == 0
+    )
     assert not scheduler.stop()
 
 

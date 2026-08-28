@@ -293,6 +293,7 @@ class SnapshotStore:
                 stale=sample.meta.stale,
                 sequence=sample.meta.sequence,
                 connection_generation=sample.meta.connection_generation,
+                origin=sample.meta.origin,
             )
         return result
 

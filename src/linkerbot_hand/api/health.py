@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .commands import CommandFamily
+from .enums import DataOrigin
 from .errors import ErrorInfo
 
 
@@ -40,6 +41,7 @@ class DataAge:
     stale: bool
     sequence: int
     connection_generation: int
+    origin: DataOrigin
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,13 +59,14 @@ class CommandFamilyMetrics:
 
 @dataclass(frozen=True, slots=True)
 class ChannelMetrics:
-    """Requested and achieved polling behavior for one state channel."""
+    """Polling-plan progress and cached age for one state channel."""
 
     channel: str
     requested_hz: float
     achieved_hz: float
     missed_deadlines: int
     timeouts: int
+    completed_reads: int
     data_age: DataAge
 
 

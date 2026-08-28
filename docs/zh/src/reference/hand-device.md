@@ -226,12 +226,18 @@ if angles is not None and angles.meta.valid and not angles.meta.stale:
 - 连续错误数和结构化最近错误；
 - 各命令族 pending/accepted/dispatched/acknowledged/failed/superseded；
 - 离散 FIFO 深度；
-- 各状态 requested/achieved Hz、missed deadline、timeout 和数据年龄；
+- 各状态 requested/achieved Hz、当前 plan 的 `completed_reads`、missed deadline、timeout、
+  数据年龄和最新缓存来源；
 - transaction P50/P95/P99；
 - transport TX/RX 帧与字节、丢帧、route miss、bus error 和队列深度。
 
 调用 `get_health()` 不会为了“刷新健康”发送故障查询。新故障数据只能来自显式
 `get_faults()` 或 `PollingPlan.faults_hz`。
+
+`ChannelMetrics.completed_reads` 每完成一个逻辑读取事务增加一次；多帧触觉完整事务只增加
+一次。相同 plan 重复启动不会清零，替换 plan 或 `stop_polling()` 后归零。缓存
+`DataAge.sequence` 则在任何新样本发布时增加，因此设备 report/echo 可以增加 sequence，
+但不会增加 polling 读取完成数。`DataAge.origin` 给出该通道最新缓存样本的来源。
 
 ## 安全恢复
 

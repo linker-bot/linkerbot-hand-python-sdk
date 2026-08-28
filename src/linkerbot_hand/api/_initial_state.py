@@ -10,6 +10,7 @@ from ..capabilities.types import (
     TelemetrySemantic,
 )
 from .commands import CommandFamily
+from .enums import DataOrigin
 from .errors import LifecycleError
 from .health import (
     ChannelMetrics,
@@ -174,6 +175,7 @@ def make_initial_health(capabilities: DeviceCapabilities) -> HealthStatus:
             achieved_hz=0.0,
             missed_deadlines=0,
             timeouts=0,
+            completed_reads=0,
             data_age=DataAge(
                 channel=telemetry.semantic.value,
                 age_s=None,
@@ -181,6 +183,7 @@ def make_initial_health(capabilities: DeviceCapabilities) -> HealthStatus:
                 stale=True,
                 sequence=0,
                 connection_generation=0,
+                origin=DataOrigin.NONE,
             ),
         )
         for telemetry in capabilities.telemetry

@@ -126,7 +126,7 @@ class PollScheduler:
         now: float,
         requested_by_poll: bool,
     ) -> None:
-        """Count a sample without adding response time to periodic deadlines."""
+        """Count one complete read without adding latency to poll deadlines."""
 
         _validate_time(now)
         if not isinstance(requested_by_poll, bool):
@@ -240,6 +240,7 @@ class PollScheduler:
             achieved_hz=achieved,
             missed_deadlines=0 if state is None else state.missed_deadlines,
             timeouts=0 if state is None else state.timeouts,
+            completed_reads=0 if state is None else state.completed,
             data_age=data_ages[semantic],
         )
 

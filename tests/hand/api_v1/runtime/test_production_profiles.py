@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import can
 import pytest
 
 from linkerbot_hand.api import (
@@ -157,6 +158,75 @@ def test_o6_configuration_reads_are_device_responses_not_measurements() -> None:
             assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
             assert transport.script.read_counts[opcode] >= 1
     finally:
+        hand.close()
+
+
+def test_o6_report_updates_cache_without_incrementing_completed_reads() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    hand.open()
+    try:
+        hand.start_polling(PollingPlan(angles_hz=0.1))
+
+        def first_read_completed() -> bool:
+            angles = next(
+                item for item in hand.get_health().channels if item.channel == "angles"
+            )
+            return angles.completed_reads == 1
+
+        wait_until(first_read_completed)
+        before = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        transport.emit(
+            can.Message(
+                arbitration_id=transport.script.arbitration_id,
+                data=b"\x01\x0b\x15\x1f\x29\x33\x3d",
+                is_extended_id=False,
+            )
+        )
+
+        def report_published() -> bool:
+            angles = hand.get_snapshot().angles
+            return (
+                angles is not None and angles.meta.sequence > before.data_age.sequence
+            )
+
+        wait_until(report_published)
+
+        after = next(
+            item for item in hand.get_health().channels if item.channel == "angles"
+        )
+        assert after.completed_reads == 1
+        assert after.data_age.sequence == before.data_age.sequence + 1
+        assert after.data_age.origin is DataOrigin.DEVICE_REPORT
+    finally:
+        hand.stop_polling()
+        hand.close()
+
+
+def test_o6_complete_tactile_transaction_counts_as_one_read() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    hand.open()
+    try:
+        hand.start_polling(PollingPlan(force_hz=0.1))
+
+        def first_read_completed() -> bool:
+            force = next(
+                item for item in hand.get_health().channels if item.channel == "force"
+            )
+            return force.completed_reads == 1
+
+        wait_until(first_read_completed)
+        force = next(
+            item for item in hand.get_health().channels if item.channel == "force"
+        )
+
+        assert force.completed_reads == 1
+        assert force.data_age.sequence == 1
+        assert force.data_age.origin is DataOrigin.DEVICE_RESPONSE
+        assert transport.script.read_counts[0xA4] == 5
+    finally:
+        hand.stop_polling()
         hand.close()
 
 
