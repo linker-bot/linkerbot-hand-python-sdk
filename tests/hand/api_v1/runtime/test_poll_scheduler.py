@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import pytest
-
 from linkerbot_hand.api.config import PollingPlan
 from linkerbot_hand.api.enums import DataOrigin
-from linkerbot_hand.api.errors import PollingPlanError
 from linkerbot_hand.api.health import DataAge
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import TelemetrySemantic
@@ -144,11 +141,16 @@ def test_equal_plan_is_noop_and_replacement_restarts_deadlines() -> None:
     assert not scheduler.stop()
 
 
-def test_static_transaction_budget_is_rejected_instead_of_silent_throttling() -> None:
-    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+def test_high_requested_rates_are_admitted_without_static_throttling() -> None:
+    for model, side in (("l6", "left"), ("o6", "right")):
+        scheduler = PollScheduler(get_declared_capabilities(model, side=side))
 
-    with pytest.raises(PollingPlanError, match="utilization"):
-        scheduler.replace(PollingPlan(force_hz=30), now=0.0)
+        assert scheduler.replace(
+            PollingPlan(angles_hz=10_000, force_hz=1_000),
+            now=0.0,
+        )
+        assert scheduler.take_due(now=0.0) is TelemetrySemantic.ANGLES
+        assert scheduler.take_due(now=0.0) is TelemetrySemantic.FORCE
 
 
 def test_metrics_keep_declared_channels_even_when_polling_is_off() -> None:

@@ -172,7 +172,8 @@ hand.start_polling(
 
 频率为 0 的通道不产生查询帧。`speeds_hz` 专指设备实测速度，不会轮询配置速度。
 计划包含不支持通道时，`start_polling()` 在发送前抛出
-`UnsupportedOperationError`；静态预算明显不可实现时抛出 `PollingPlanError`。
+`UnsupportedOperationError`。SDK 不对正频率设置静态上限；应用应根据实机完成率、
+missed deadline、timeout 和总线健康状态确定可持续频率。
 
 轮询 tick 不积累历史任务。前一事务尚未完成时，新 tick 会合并或记为 missed deadline，
 不会形成无界查询队列。

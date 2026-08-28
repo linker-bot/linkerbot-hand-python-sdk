@@ -109,7 +109,7 @@ class QueueFullError(HandError):
 
 
 class PollingPlanError(HandError):
-    """Raised when a polling plan is unsupported or exceeds a static budget."""
+    """Raised when a polling plan cannot be installed for the device profile."""
 
     code = ErrorCode.POLLING_PLAN
 

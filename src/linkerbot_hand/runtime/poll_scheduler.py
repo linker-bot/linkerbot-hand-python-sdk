@@ -68,7 +68,7 @@ class PollScheduler:
         if not isinstance(plan, PollingPlan):
             raise ValidationError("plan must be PollingPlan")
         _validate_time(now)
-        self._validate_budget(plan)
+        self._validate_channels(plan)
         with self._lock:
             if plan == self._plan:
                 return False
@@ -244,9 +244,8 @@ class PollScheduler:
             data_age=data_ages[semantic],
         )
 
-    def _validate_budget(self, plan: PollingPlan) -> None:
-        utilization = 0.0
-        for channel, rate in plan.enabled_rates():
+    def _validate_channels(self, plan: PollingPlan) -> None:
+        for channel, _rate in plan.enabled_rates():
             semantic = POLL_CHANNELS[channel]
             telemetry = self._capabilities.telemetry_channel(semantic)
             if telemetry is None or not telemetry.device_queried:
@@ -255,23 +254,6 @@ class PollScheduler:
                     operation="start_polling",
                     model=self._capabilities.model,
                 )
-            if (
-                telemetry.verified_max_hz is not None
-                and rate > telemetry.verified_max_hz
-            ):
-                raise PollingPlanError(
-                    f"{channel} rate exceeds verified maximum "
-                    f"{telemetry.verified_max_hz:g} Hz",
-                    operation="start_polling",
-                    model=self._capabilities.model,
-                )
-            utilization += rate * telemetry.estimated_transaction_s
-        if utilization > 1.0 + 1e-12:
-            raise PollingPlanError(
-                f"polling plan estimated utilization is {utilization:.3f}, above 1.0",
-                operation="start_polling",
-                model=self._capabilities.model,
-            )
 
 
 def _validate_time(value: object) -> None:

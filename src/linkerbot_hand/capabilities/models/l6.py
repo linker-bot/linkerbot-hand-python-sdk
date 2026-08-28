@@ -76,7 +76,6 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 "u8",
                 recommended_hz=60,
                 estimated_transaction_s=0.005,
-                verified_max_hz=200,
             ),
             telemetry(
                 TelemetrySemantic.CONFIGURED_SPEEDS,
