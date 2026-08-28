@@ -62,7 +62,7 @@ sudo ip link set can0 up
 Then use the single public device class:
 
 ```python
-from linkerbot_hand import HandDevice, PollingPlan
+from linkerbot_hand import AngleFeedbackPolicy, HandDevice, PollingPlan
 from linkerbot_transport.can import CANTransport
 
 hand = HandDevice(
@@ -83,6 +83,7 @@ try:
             force_hz=30,
             temperature_hz=1,
             faults_hz=5,
+            angle_feedback=AngleFeedbackPolicy.ADAPTIVE,
         )
     )
 
@@ -101,6 +102,14 @@ finally:
     hand.stop_polling()
     hand.close()
 ```
+
+The default `ADAPTIVE` policy uses an angle-command response only when that
+model profile verifies it as current state, and actively queries any missing
+samples. Models without such a response fall back to active queries.
+`QUERY_ONLY` always uses periodic active reads; `COMMAND_FEEDBACK_ONLY` is valid
+only when the angle command capability declares `returns_current_state=True`.
+Explicit `get_angles()` always remains an active read, and the SDK never
+repeats the last motion target on its own.
 
 `set_percent_angles()` causes motion. For an initial hardware check, use a
 small target near the current pose after verifying the model, side, joint
@@ -133,9 +142,9 @@ raw_handle = hand.set_angles([255, 128, 255, 255, 255, 255])
 percent_handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
 
 angles = hand.get_angles(timeout=0.2)
-print(angles.raw)          # Exact device protocol values
-print(angles.percent)      # Fixed SDK capability mapping
-print(angles.physical_rad) # None where no physical calibration exists
+print(angles.raw)  # Exact device protocol values
+print(angles.percent)  # Fixed SDK capability mapping
+print(angles.physical_rad)  # None where no physical calibration exists
 ```
 
 Configured speed, measured speed, current limit, measured current,

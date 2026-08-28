@@ -4,6 +4,16 @@
 
 ## 未发布
 
+- 将“角度设置返回当前角度”建模为全系列统一事件；各协议 profile 通过
+  `returns_current_state` 明确声明并独立处理 CAN/CAN FD 标识、单帧/多帧关联和 ACK，
+  公共层不假设 O6 帧格式，也不把无应答、目标值回显或 ACK 冒充当前状态。
+- `PollingPlan.angle_feedback` 新增默认 `ADAPTIVE`、`QUERY_ONLY` 和
+  `COMMAND_FEEDBACK_ONLY` 三种角度反馈策略；自适应模式只对命令反馈采样缺口主动查询。
+- 分离“事务等待响应”和“设备协议 ACK”契约，不支持 ACK 的命令即使等待状态回显，
+  成功终态仍为 `DISPATCHED`。
+- angle health 增加命令反馈、有效反馈样本和反馈策略指标，显式 `get_angles()` 始终保持
+  主动查询语义。
+
 ## 1.0.0.dev0 - 2026-08-28
 
 - 删除 `linkerbot.hand` 七型号类、manager、`HandSession`、legacy backend 和重复

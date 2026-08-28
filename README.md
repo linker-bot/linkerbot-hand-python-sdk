@@ -73,7 +73,7 @@ sudo ip link set can0 up
 ## 唯一调用方式
 
 ```python
-from linkerbot_hand import HandDevice, PollingPlan
+from linkerbot_hand import AngleFeedbackPolicy, HandDevice, PollingPlan
 from linkerbot_transport.can import CANTransport
 
 transport = CANTransport("can0")
@@ -95,6 +95,7 @@ try:
             force_hz=30,
             temperature_hz=1,
             faults_hz=5,
+            angle_feedback=AngleFeedbackPolicy.ADAPTIVE,
         )
     )
 
@@ -113,6 +114,13 @@ finally:
     hand.stop_polling()
     hand.close()
 ```
+
+默认 `ADAPTIVE` 会在型号 profile 已验证角度设置返回当前状态时使用该样本，并在
+`angles_hz` 不足时主动补询；不返回当前角度的型号则退化为纯主动查询。
+`QUERY_ONLY` 强制周期主动查询，`COMMAND_FEEDBACK_ONLY` 只适用于 capability 明确声明
+`returns_current_state=True` 的型号。三种策略都不改变显式 `get_angles()` 的主动读取语义，
+SDK 也不会自动重复最后一个运动目标。详见
+[统一 HandDevice API](./docs/zh/src/reference/hand-device.md)。
 
 `set_percent_angles()` 会产生运动。实机首次验证时应使用当前姿态附近的小幅目标，并先确认
 型号、左右手、关节顺序和百分比端点。
@@ -141,9 +149,9 @@ raw_handle = hand.set_angles([255, 128, 255, 255, 255, 255])
 percent_handle = hand.set_percent_angles([100, 50, 100, 100, 100, 100])
 
 angles = hand.get_angles(timeout=0.2)
-print(angles.raw)          # 设备协议原值
-print(angles.percent)      # SDK 固定 capability 映射
-print(angles.physical_rad) # 无可靠物理标定的轴为 None
+print(angles.raw)  # 设备协议原值
+print(angles.percent)  # SDK 固定 capability 映射
+print(angles.physical_rad)  # 无可靠物理标定的轴为 None
 ```
 
 速度配置、实测速度、电流上限、实测电流、无量纲 effort limit 和真实扭矩是不同

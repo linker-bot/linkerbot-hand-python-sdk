@@ -35,7 +35,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | --- | --- |
 | `identity` | 型号、左右手、固件、硬件/机械版本、传感器变体、序列号、产品编码、是否验证 |
 | `joints` | 稳定 index/name 顺序、运动类型、raw 角度范围、percent 端点、可选物理角度和耦合 |
-| `commands` | 命令语义、通道、逐通道 raw 范围、编码、raw 单位/说明、percent 映射、ACK |
+| `commands` | 命令语义、通道、逐通道 raw 范围、编码、raw 单位/说明、percent 映射、ACK、是否返回当前状态 |
 | `telemetry` | 状态语义、读取模式、shape、raw 编码/范围/单位、推荐频率、过期和事务成本 |
 | `transport` | CAN/CAN FD、仲裁/数据速率和地址说明 |
 | `operations` | 身份读取、清错、使能、失能、标定和堵转配置支持情况 |
@@ -61,6 +61,10 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 
 `L30` 的 side 为 `NOT_APPLICABLE`，不是 unknown。向 L30 构造传 `left` 或 `right`
 会抛出 `ValidationError`。
+
+角度命令的 `returns_current_state` 表示写响应是否已被该型号协议验证为当前实际角度。
+L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者不代表不能读取
+角度，而是写入本身不能代替闭环状态查询。
 
 ## 关节顺序
 

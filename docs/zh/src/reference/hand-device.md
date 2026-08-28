@@ -100,7 +100,7 @@ assert verified.identity.verified
 handle = hand.set_angles(target)
 
 print(handle.command_id)
-print(handle.stage)       # ACCEPTED
+print(handle.stage)  # ACCEPTED
 print(handle.ack_support)
 print(handle.history)
 
@@ -151,10 +151,10 @@ getter 返回已发送命令形成的缓存样本，不产生设备查询：
 ROS command、publisher 和 diagnostics callback 不应调用主动 getter。ROS 应让 SDK
 轮询，并从 snapshot 发布。
 
-## 轮询
+## 角度反馈与轮询
 
 ```python
-from linkerbot_hand import PollingPlan
+from linkerbot_hand import AngleFeedbackPolicy, PollingPlan
 
 hand.start_polling(
     PollingPlan(
@@ -166,9 +166,35 @@ hand.start_polling(
         faults_hz=5,
         torques_hz=0,
         voltage_hz=0,
+        angle_feedback=AngleFeedbackPolicy.ADAPTIVE,
     )
 )
 ```
+
+角度设置返回当前角度是一类跨型号事件，不是 O6 或 L6 特例，但并非每份已确认协议都提供
+这种返回。例如 L30 批量位置写明确无应答，O20 目标位置寄存器写也不能假设会返回当前
+位置；O30i 的写响应是 ACK/对象结果，闭环实际位置仍须读取 `MI 0x01`。因此每个型号的
+command capability 必须用 `returns_current_state` 明确声明，协议 profile 负责关联和完整
+解码；公共 runtime 只消费已经验证并标记为 `DEVICE_COMMAND_FEEDBACK` 的当前角度样本，
+不假设 O6 的 `0x01 + 6 byte` 格式，也不把目标值回显或 ACK 冒充当前状态。
+
+`PollingPlan.angle_feedback` 只影响 `angles_hz` 的周期反馈来源：
+
+| 策略 | 行为 |
+| --- | --- |
+| `ADAPTIVE` | 默认。经 capability 验证的当前角度返回满足采样 deadline；没有可用返回或数量不足时只对缺口主动查询 |
+| `QUERY_ONLY` | 周期频率全部由主动查询完成；角度命令反馈仍写快照，但不抑制查询 |
+| `COMMAND_FEEDBACK_ONLY` | 仅适用于 `returns_current_state=True`；不产生周期角度查询，只用应用实际提交目标后形成的设备当前角度返回；缺失周期记为 missed |
+
+若型号没有经验证的当前状态写返回，配置 `COMMAND_FEEDBACK_ONLY` 会在发送任何帧前抛出
+`PollingPlanError`。`ADAPTIVE` 仍可跨全系列使用，此时该型号自然退化为主动查询。
+
+SDK 不要求也不接受一个虚构的“目标发送频率”，不会按频率自行重复最后运动目标。
+`DeviceConfig.command_rate_hz` 只是调度发送上限。应用仍按自己的控制循环调用
+`set_angles()` / `set_percent_angles()`；自适应调度根据实际收到的命令反馈决定是否补询。
+
+`get_angles(timeout)` 的语义不受反馈策略影响：它始终请求调用开始后的显式主动查询样本，
+不会被偶然到达的角度命令反馈完成。
 
 频率为 0 的通道不产生查询帧。`speeds_hz` 专指设备实测速度，不会轮询配置速度。
 计划包含不支持通道时，`start_polling()` 在发送前抛出
@@ -227,8 +253,8 @@ if angles is not None and angles.meta.valid and not angles.meta.stale:
 - 连续错误数和结构化最近错误；
 - 各命令族 pending/accepted/dispatched/acknowledged/failed/superseded；
 - 离散 FIFO 深度；
-- 各状态 requested/achieved Hz、当前 plan 的 `completed_reads`、missed deadline、timeout、
-  数据年龄和最新缓存来源；
+- 各状态 requested/achieved Hz、当前 plan 的 `completed_reads`、`command_feedback_samples`、
+  `feedback_samples`、反馈策略、missed deadline、timeout、数据年龄和最新缓存来源；
 - transaction P50/P95/P99；
 - transport TX/RX 帧与字节、丢帧、route miss、bus error 和队列深度。
 
@@ -237,8 +263,13 @@ if angles is not None and angles.meta.valid and not angles.meta.stale:
 
 `ChannelMetrics.completed_reads` 每完成一个逻辑读取事务增加一次；多帧触觉完整事务只增加
 一次。相同 plan 重复启动不会清零，替换 plan 或 `stop_polling()` 后归零。缓存
-`DataAge.sequence` 则在任何新样本发布时增加，因此设备 report/echo 可以增加 sequence，
-但不会增加 polling 读取完成数。`DataAge.origin` 给出该通道最新缓存样本的来源。
+`DataAge.sequence` 则在任何新样本发布时增加，因此设备 report/command feedback 可以增加
+sequence，但不会增加 polling 读取完成数。`DataAge.origin` 给出该通道最新缓存样本的来源。
+
+角度通道的 `command_feedback_samples` 统计当前 plan 内已验证的角度命令反馈；
+`feedback_samples` 统计按当前策略真正满足反馈频率的查询或命令反馈总数；`achieved_hz`
+由 `feedback_samples` 计算。因此在 `QUERY_ONLY` 下命令反馈会增加
+`command_feedback_samples` 和快照 sequence，但不会增加 `feedback_samples`。
 
 `health.transport.tx_frames`、`rx_frames`、`tx_bytes` 和 `rx_bytes` 是整条物理通道跨连接
 代次累计的流量，不是单个 HandDevice 的流量。同一 CAN/CAN FD 通道上的多个设备会看到

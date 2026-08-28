@@ -19,7 +19,7 @@
 ## 唯一导入
 
 ```python
-from linkerbot_hand import HandDevice, PollingPlan
+from linkerbot_hand import AngleFeedbackPolicy, HandDevice, PollingPlan
 ```
 
 内部模块 `linkerbot_hand.protocols` 和 `linkerbot_hand.runtime` 不属于稳定用户入口。
