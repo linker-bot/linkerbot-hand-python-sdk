@@ -120,6 +120,7 @@ def _ack_transaction(
         response_timeout_s=0.1,
         estimated_duration_s=0.004,
         response_consumer=consume,
+        response_acknowledges_command=True,
         late_response_guard_s=0.01,
         next_transaction=next_transaction,
     )

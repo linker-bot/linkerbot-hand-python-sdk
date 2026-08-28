@@ -56,7 +56,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         ),
         joints=joints,
         commands=(
-            angle_command(joints, "u8"),
+            angle_command(joints, "u8", returns_current_state=True),
             command(
                 CommandSemantic.SPEEDS,
                 _JOINT_NAMES,

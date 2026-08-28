@@ -98,6 +98,15 @@ class ClassicCANDeviceScript:
                 self.readings[data[0]] = (0,) * 6
             else:
                 self.readings[data[0]] = tuple(data[1:])
+            angle_opcodes = (
+                {0x01}
+                if self.model in {"L6", "O6"}
+                else {0x01, 0x04}
+                if self.model == "L20Lite"
+                else set(range(0x41, 0x46))
+            )
+            if data[0] in angle_opcodes:
+                return (self._frame(bytes((data[0], *self.readings[data[0]]))),)
             return ()
         if len(data) == 7 and data[0] == 0x83:
             self.command_payloads.append(data)

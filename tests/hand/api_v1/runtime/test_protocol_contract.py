@@ -112,3 +112,51 @@ def test_staged_transaction_requires_a_response_gate() -> None:
 
     assert first.next_transaction is final
     assert not first.terminal_expects_response
+    assert not first.terminal_acknowledges_command
+
+
+def test_response_wait_and_command_ack_are_independent_contracts() -> None:
+    echo = ProtocolTransaction(
+        key="angle-echo",
+        correlation_key="angle-echo",
+        request_messages=(b"command",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=lambda _message: ResponseProgress(
+            matched=True,
+            complete=True,
+            result=SamplePayload(
+                semantic=TelemetrySemantic.ANGLES,
+                raw=(1, 2, 3),
+                origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+            ),
+        ),
+    )
+    ack = ProtocolTransaction(
+        key="ack",
+        correlation_key="ack",
+        request_messages=(b"command",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=lambda _message: ResponseProgress(
+            matched=True,
+            complete=True,
+            acknowledged=True,
+        ),
+        response_acknowledges_command=True,
+    )
+
+    assert echo.expects_response
+    assert not echo.terminal_acknowledges_command
+    assert ack.expects_response
+    assert ack.terminal_acknowledges_command
+
+    with pytest.raises(ValidationError, match="must await a response"):
+        ProtocolTransaction(
+            key="invalid-ack",
+            correlation_key="invalid-ack",
+            request_messages=(b"command",),
+            response_timeout_s=0,
+            estimated_duration_s=0.01,
+            response_acknowledges_command=True,
+        )

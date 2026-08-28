@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from ...api.errors import ProtocolError, UnsupportedOperationError
 from ...api.readings import RawNumber
-from ...capabilities.types import CommandSemantic, DeviceCapabilities
+from ...capabilities.types import (
+    CommandSemantic,
+    DeviceCapabilities,
+)
 from ..base import ProtocolTransaction, ResponseProgress
 from .codec import (
     MI_ACCELERATION,
@@ -72,6 +75,7 @@ def command_transaction(
         response_timeout_s=0.1,
         estimated_duration_s=0.003,
         response_consumer=consume,
+        response_acknowledges_command=True,
         late_response_guard_s=0.01,
     )
 

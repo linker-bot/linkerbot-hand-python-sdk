@@ -6,7 +6,11 @@ from dataclasses import replace
 
 import pytest
 
-from linkerbot_hand.api import HandSide, IdentityMismatchError, ProtocolError
+from linkerbot_hand.api import (
+    HandSide,
+    IdentityMismatchError,
+    ProtocolError,
+)
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
 from linkerbot_hand.protocols import IdentityResult, SamplePayload
@@ -134,6 +138,14 @@ def test_o20_commands_use_17_slots_and_never_claim_device_ack() -> None:
     )
     assert effort_message.data[:2] == b"\xe8\x03"
     assert effort_message.data[-2:] == b"\x00\x00"
+
+    angles = backend.command_transaction(
+        CommandSemantic.ANGLES,
+        tuple(range(JOINT_COUNT)),
+        capabilities,
+    )
+    assert not angles.expects_response
+    assert not angles.terminal_acknowledges_command
 
 
 def test_o20_complete_tactile_transaction_accepts_out_of_order_and_padding() -> None:

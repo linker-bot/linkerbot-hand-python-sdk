@@ -170,7 +170,9 @@ def test_l30_identity_rejects_conflicting_fields(
         _consume_identity(device_info=device_info, product_code=product_code)
 
 
-def test_l30_commands_are_dispatch_only_and_publish_configuration_cache() -> None:
+def test_l30_commands_keep_angles_dispatch_only_and_publish_configuration_cache() -> (
+    None
+):
     capabilities = _capabilities()
     backend = L30ProtocolBackend(HandSide.NOT_APPLICABLE)
 
@@ -184,6 +186,7 @@ def test_l30_commands_are_dispatch_only_and_publish_configuration_cache() -> Non
     assert angle_message.data == b"\x22\x00" + bytes(JOINT_COUNT * 2)
     assert angle_message.dlc == 0x0E
     assert not angles.expects_response
+    assert not angles.terminal_acknowledges_command
     assert angles.dispatch_publications == ()
 
     for semantic, value, cached_semantic in (
@@ -345,6 +348,7 @@ def test_l30_enable_and_disable_explicitly_require_device_ack() -> None:
     for operation, subcommand in (("enable", SUB_ENABLE), ("disable", SUB_DISABLE)):
         transaction = backend.operation_transaction(operation, _capabilities())
         assert transaction.terminal_expects_response
+        assert transaction.terminal_acknowledges_command
         progress = transaction.consume(
             _response(PARENT_CONTROL, subcommand, b"\x00\x00\x00", write=True)
         )

@@ -18,8 +18,16 @@ class DataOrigin(str, Enum):
     DEVICE_RESPONSE = "device_response"
     DEVICE_REPORT = "device_report"
     DEVICE_CONFIG_RESPONSE = "device_config_response"
-    DEVICE_ECHO = "device_echo"
+    DEVICE_COMMAND_FEEDBACK = "device_command_feedback"
     COMMAND_CACHE = "command_cache"
+
+
+class AngleFeedbackPolicy(str, Enum):
+    """How periodic angle feedback combines queries and command responses."""
+
+    QUERY_ONLY = "query_only"
+    COMMAND_FEEDBACK_ONLY = "command_feedback_only"
+    ADAPTIVE = "adaptive"
 
 
 class Confidence(str, Enum):
@@ -70,6 +78,7 @@ class Quantization(str, Enum):
 
 
 __all__ = [
+    "AngleFeedbackPolicy",
     "Confidence",
     "DataOrigin",
     "HandSide",

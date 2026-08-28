@@ -179,11 +179,13 @@ def test_o30i_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
     assert len(transaction.request_messages) == 1
     assert request.data == b"\x01\x00\x19" + encode_v25(values)
     assert transaction.terminal_expects_response
+    assert transaction.terminal_acknowledges_command
 
     unrelated = transaction.consume(_response(MI_SPEED, 0, bytes(25)))
     assert not unrelated.matched
     acknowledged = transaction.consume(_response(MI_POSITION, 0, bytes(25)))
     assert acknowledged.complete and acknowledged.acknowledged
+    assert acknowledged.result is None
 
 
 def test_o30i_device_error_object_has_stable_fault_classification() -> None:

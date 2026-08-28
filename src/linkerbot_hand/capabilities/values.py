@@ -80,6 +80,7 @@ class CommandCapability:
     raw_scale_note: str | None
     unit_confidence: Confidence
     ack_support: AckSupport = AckSupport.UNSUPPORTED
+    returns_current_state: bool = False
     percent_mappings: tuple[PercentMapping | None, ...] | None = None
 
     def __post_init__(self) -> None:
@@ -103,6 +104,8 @@ class CommandCapability:
         )
         if not isinstance(self.ack_support, AckSupport):
             raise ValidationError("ack_support must be AckSupport")
+        if not isinstance(self.returns_current_state, bool):
+            raise ValidationError("returns_current_state must be bool")
         if self.percent_mappings is not None:
             if not isinstance(self.percent_mappings, tuple) or len(
                 self.percent_mappings

@@ -107,7 +107,12 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         ),
         joints=joints,
         commands=(
-            angle_command(joints, _RAW_ENCODING, ack_support=AckSupport.SUPPORTED),
+            angle_command(
+                joints,
+                _RAW_ENCODING,
+                ack_support=AckSupport.SUPPORTED,
+                returns_current_state=False,
+            ),
             command(
                 CommandSemantic.SPEEDS,
                 names,

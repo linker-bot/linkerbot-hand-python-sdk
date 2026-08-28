@@ -76,6 +76,7 @@ def angle_command(
     raw_encoding: str,
     *,
     ack_support: AckSupport = AckSupport.UNSUPPORTED,
+    returns_current_state: bool = False,
 ) -> CommandCapability:
     """Build the required exact-raw angle command capability."""
 
@@ -88,6 +89,7 @@ def angle_command(
         raw_scale_note=None,
         unit_confidence=Confidence.MEASURED,
         ack_support=ack_support,
+        returns_current_state=returns_current_state,
         percent_mappings=tuple(value.percent_mapping for value in joints),
     )
 

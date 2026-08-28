@@ -340,6 +340,10 @@ class TransactionRunner:
                         )
                     )
                 raise
+            if progress.acknowledged != transaction.response_acknowledges_command:
+                raise ProtocolError(
+                    "response acknowledgement disagrees with transaction contract"
+                )
             return _StageOutcome(
                 progress.result,
                 progress.acknowledged,

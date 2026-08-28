@@ -66,7 +66,17 @@ def test_l20lite_commands_preserve_documented_split_and_public_order() -> None:
         b"\x02\x00\x01\x02\x03\x04",
         b"\x03\x05\x06\x07\x08\x09",
     )
-    assert not angles.expects_response
+    assert angles.expects_response
+    echo = _consume_all(
+        angles,
+        tuple(
+            _message(HandSide.LEFT, payload)
+            for payload in reversed(_request_data(angles))
+        ),
+    )
+    assert echo.raw == values
+    assert echo.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
+    assert not angles.terminal_acknowledges_command
     assert angles.request_interval_s == pytest.approx(0.0005)
 
 

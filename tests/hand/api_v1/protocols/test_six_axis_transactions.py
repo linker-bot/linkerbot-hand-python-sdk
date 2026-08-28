@@ -67,7 +67,11 @@ def test_l6_commands_keep_speed_cache_and_current_limit_separate() -> None:
     assert speeds.dispatch_publications[0].origin is DataOrigin.COMMAND_CACHE
     assert _request_data(limits) == b"\x02" + bytes((90,) * 6)
     assert not limits.dispatch_publications
-    assert not angles.expects_response
+    assert angles.expects_response
+    echo = _payload(angles, _reply(HandSide.LEFT, 0x01, (6, 5, 4, 3, 2, 1)))
+    assert echo.raw == (6, 5, 4, 3, 2, 1)
+    assert echo.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
+    assert not angles.terminal_acknowledges_command
 
 
 def test_l6_reads_map_protocol_values_to_exact_semantics() -> None:

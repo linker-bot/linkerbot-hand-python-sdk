@@ -242,6 +242,10 @@ class DeviceCapabilities:
             raise ValidationError("angle command percent mappings must match joints")
         if angle_telemetry is None or angle_telemetry.channels != joint_names:
             raise ValidationError("angle telemetry channels must match joints")
+        if angle_command.returns_current_state and not angle_telemetry.device_measured:
+            raise ValidationError(
+                "current-state angle command feedback requires measured telemetry"
+            )
         if angle_telemetry.shape != (len(self.joints),):
             raise ValidationError("angle telemetry shape must match joints")
         if self.stall_protection is not None and (

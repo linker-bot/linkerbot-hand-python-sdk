@@ -87,9 +87,10 @@ class ClassicSixAxisBackend:
         values: tuple[RawNumber, ...],
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Encode one six-byte setting without claiming a device ACK."""
+        """Encode one six-byte setting and capture verified angle feedback."""
 
-        if capabilities.command(semantic) is None:
+        command = capabilities.command(semantic)
+        if command is None:
             raise UnsupportedOperationError(
                 f"{capabilities.model} does not support {semantic.value}"
             )
@@ -110,15 +111,51 @@ class ClassicSixAxisBackend:
                     origin=DataOrigin.COMMAND_CACHE,
                 ),
             )
+        response_consumer = None
+        response_timeout_s = 0.0
+        late_response_guard_s = 0.0
+        if semantic is CommandSemantic.ANGLES and command.returns_current_state:
+            telemetry = capabilities.telemetry_channel(TelemetrySemantic.ANGLES)
+            if telemetry is None:
+                raise ProtocolError("angle command has no angle telemetry")
+
+            def consume(message: object) -> ResponseProgress:
+                echoed = decode_u8_vector(
+                    message,
+                    route=self._route,
+                    opcode=opcode,
+                    count=6,
+                )
+                if echoed is None:
+                    return ResponseProgress(matched=False)
+                return ResponseProgress(
+                    matched=True,
+                    complete=True,
+                    result=SamplePayload(
+                        semantic=TelemetrySemantic.ANGLES,
+                        raw=echoed,
+                        origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+                        within_declared_range=_within_range(
+                            echoed,
+                            telemetry.raw_range,
+                        ),
+                    ),
+                )
+
+            response_consumer = consume
+            response_timeout_s = 0.05
+            late_response_guard_s = 0.005
         return ProtocolTransaction(
             key=("command", semantic),
             correlation_key=("opcode", self._route, opcode),
             request_messages=(
                 build_classic_message(self._route, bytes((opcode, *raw))),
             ),
-            response_timeout_s=0,
+            response_timeout_s=response_timeout_s,
             estimated_duration_s=0.001,
+            response_consumer=response_consumer,
             dispatch_publications=publications,
+            late_response_guard_s=late_response_guard_s,
         )
 
     def read_transaction(

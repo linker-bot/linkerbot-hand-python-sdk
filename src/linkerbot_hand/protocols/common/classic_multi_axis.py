@@ -84,7 +84,7 @@ class ClassicMultiAxisBackend:
         values: tuple[RawNumber, ...],
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Encode an exact public vector without claiming a device ACK."""
+        """Encode an exact vector and atomically assemble angle feedback."""
 
         command = capabilities.command(semantic)
         if command is None:
@@ -98,15 +98,51 @@ class ClassicMultiAxisBackend:
                 f"no protocol command for {semantic.value}"
             ) from error
         raw = _validated_u8(values, command, semantic.value)
+        response_consumer = None
+        response_timeout_s = 0.0
+        late_response_guard_s = 0.0
+        if semantic is CommandSemantic.ANGLES and command.returns_current_state:
+            telemetry = capabilities.telemetry_channel(TelemetrySemantic.ANGLES)
+            if telemetry is None:
+                raise ProtocolError("angle command has no angle telemetry")
+            assembler = ClassicObjectAssembler(route=self._route, layout=layout)
+
+            def consume(message: object) -> ResponseProgress:
+                matched, echoed = assembler.offer(message)
+                if not matched:
+                    return ResponseProgress(matched=False)
+                if echoed is None:
+                    return ResponseProgress(matched=True)
+                return ResponseProgress(
+                    matched=True,
+                    complete=True,
+                    result=SamplePayload(
+                        semantic=TelemetrySemantic.ANGLES,
+                        raw=echoed,
+                        origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+                        within_declared_range=_within_declared_range(
+                            echoed,
+                            TelemetrySemantic.ANGLES,
+                            telemetry.raw_range,
+                            capabilities,
+                        ),
+                    ),
+                )
+
+            response_consumer = consume
+            response_timeout_s = 0.1
+            late_response_guard_s = 0.005
         return ProtocolTransaction(
             key=("command", semantic),
             correlation_key=("classic_object", self._route, layout.opcodes),
             request_messages=layout.encode(raw, self._route),
-            response_timeout_s=0,
+            response_timeout_s=response_timeout_s,
             estimated_duration_s=_batch_duration(
                 len(layout.frames), self._request_interval_s
             ),
+            response_consumer=response_consumer,
             request_interval_s=self._request_interval_s,
+            late_response_guard_s=late_response_guard_s,
         )
 
     def read_transaction(

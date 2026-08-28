@@ -131,6 +131,7 @@ class ProtocolTransaction:
     response_timeout_s: float
     estimated_duration_s: float
     response_consumer: ResponseConsumer | None = None
+    response_acknowledges_command: bool = False
     dispatch_publications: tuple[SamplePayload, ...] = ()
     request_interval_s: float = 0.0
     late_response_guard_s: float = 0.0
@@ -152,6 +153,10 @@ class ProtocolTransaction:
             raise ValidationError("response_consumer must be callable or None")
         if self.response_consumer is not None and self.response_timeout_s <= 0:
             raise ValidationError("response transactions need a positive timeout")
+        if not isinstance(self.response_acknowledges_command, bool):
+            raise ValidationError("response_acknowledges_command must be bool")
+        if self.response_acknowledges_command and self.response_consumer is None:
+            raise ValidationError("an ACK transaction must await a response")
         if not isinstance(self.dispatch_publications, tuple) or any(
             not isinstance(value, SamplePayload) for value in self.dispatch_publications
         ):
@@ -182,6 +187,15 @@ class ProtocolTransaction:
         while transaction.next_transaction is not None:
             transaction = transaction.next_transaction
         return transaction.expects_response
+
+    @property
+    def terminal_acknowledges_command(self) -> bool:
+        """Return whether the final stage carries a protocol command ACK."""
+
+        transaction = self
+        while transaction.next_transaction is not None:
+            transaction = transaction.next_transaction
+        return transaction.response_acknowledges_command
 
     def consume(self, message: object) -> ResponseProgress:
         """Offer a routed message without giving the runtime codec knowledge."""
