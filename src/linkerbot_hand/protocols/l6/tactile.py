@@ -1,5 +1,7 @@
 """L6 five-finger 12 by 6 tactile transaction."""
 
+from dataclasses import replace
+
 from ...capabilities.types import DeviceCapabilities
 from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
@@ -11,7 +13,7 @@ def l6_tactile_transaction(
 ) -> ProtocolTransaction:
     """Build the complete pipelined ``B1..B5 C6`` transaction."""
 
-    return tactile_transaction(
+    transaction = tactile_transaction(
         capabilities,
         route=classic_route(capabilities.side),
         selector=0xC6,
@@ -21,6 +23,7 @@ def l6_tactile_transaction(
         response_timeout_s=0.15,
         late_response_guard_s=0.1,
     )
+    return replace(transaction, firmware_optional=True)
 
 
 __all__ = ["l6_tactile_transaction"]

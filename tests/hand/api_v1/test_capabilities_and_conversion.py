@@ -205,6 +205,24 @@ def test_l6_percent_mapping_matches_measured_raw_direction() -> None:
     assert thumb_abd.confidence is Confidence.MEASURED
 
 
+def test_runtime_disabled_telemetry_retains_metadata_but_reports_unsupported() -> None:
+    declared = get_declared_capabilities("l6", side="left")
+    degraded = replace(
+        declared,
+        firmware_unsupported_telemetry=(TelemetrySemantic.CURRENTS,),
+    )
+
+    assert degraded.telemetry_channel(TelemetrySemantic.CURRENTS) is not None
+    assert not degraded.telemetry_supported(TelemetrySemantic.CURRENTS)
+    assert degraded.telemetry_supported(TelemetrySemantic.ANGLES)
+
+    with pytest.raises(ValidationError, match="must remain declared"):
+        replace(
+            declared,
+            firmware_unsupported_telemetry=(TelemetrySemantic.VOLTAGES,),
+        )
+
+
 def test_o20_flexion_percent_direction_is_inverse_of_raw_growth() -> None:
     capabilities = get_declared_capabilities("o20", side="right")
 

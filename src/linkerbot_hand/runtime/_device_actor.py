@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass
 
@@ -15,6 +16,7 @@ from ..api.errors import (
     ProtocolError,
     TimeoutError,
     TransportError,
+    UnsupportedFirmwareError,
 )
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import ProtocolBackend, ProtocolTransaction
@@ -36,6 +38,8 @@ from .metrics import RuntimeMetrics
 from .poll_scheduler import PollScheduler
 from .snapshot_store import SnapshotStore
 from .transactions import DEVICE_INFO_KEY, TransactionClaim, TransactionCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -482,6 +486,7 @@ class DeviceActor:
 
     def _execute_read(self, runner: TransactionRunner, claim: TransactionClaim) -> None:
         poll_in_flight = False
+        transaction: ProtocolTransaction | None = None
         try:
             if claim.key == DEVICE_INFO_KEY:
                 published, sequence = self._initializer.refresh_identity(runner)
@@ -501,8 +506,9 @@ class DeviceActor:
                 ):
                     return
             capabilities = self._state.capabilities()
+            transaction = self._backend.read_transaction(semantic, capabilities)
             outcome = runner.execute(
-                self._backend.read_transaction(semantic, capabilities),
+                transaction,
                 capabilities=capabilities,
                 publish_generation=self._state.generation(),
                 latest_family=None,
@@ -529,6 +535,14 @@ class DeviceActor:
             )
         except Exception as error:  # noqa: BLE001 - transaction waiter boundary
             classified = self._classify(error, "read")
+            if (
+                isinstance(claim.key, TelemetrySemantic)
+                and transaction is not None
+                and transaction.firmware_optional
+                and isinstance(classified, (TimeoutError, ProtocolError))
+                and _sent_frames(error, 0) > 0
+            ):
+                classified = self._disable_firmware_unsupported_read(claim.key, error)
             self._transactions.fail(claim.key, classified)
             if poll_in_flight and isinstance(claim.key, TelemetrySemantic):
                 self._polling.mark_timeout(claim.key)
@@ -543,6 +557,27 @@ class DeviceActor:
         finally:
             if poll_in_flight:
                 self._polling.finish_poll()
+
+    def _disable_firmware_unsupported_read(
+        self,
+        semantic: TelemetrySemantic,
+        cause: BaseException,
+    ) -> UnsupportedFirmwareError:
+        """Disable one optional query without ending the connection generation."""
+
+        capabilities = self._state.mark_firmware_unsupported_telemetry(semantic)
+        self._polling.disable_firmware_unsupported(semantic, capabilities)
+        error = UnsupportedFirmwareError(
+            f"{capabilities.model} firmware "
+            f"{capabilities.identity.firmware or 'unknown'} does not support "
+            f"{semantic.value}",
+            operation=f"get_{semantic.value}",
+            model=capabilities.model,
+            generation=self._state.generation(),
+            cause=cause,
+        )
+        _LOGGER.warning("%s; disabling this query for the current connection", error)
+        return error
 
     def _disconnect(self, error: HandError) -> None:
         self._state.mark_not_ready()

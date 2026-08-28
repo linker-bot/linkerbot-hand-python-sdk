@@ -186,6 +186,7 @@ class DeviceCapabilities:
     stall_protection: StallProtectionCapability | None
     transport: TransportCapability
     operations: OperationCapabilities
+    firmware_unsupported_telemetry: tuple[TelemetrySemantic, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity, IdentityCapability):
@@ -228,6 +229,7 @@ class DeviceCapabilities:
             raise ValidationError("transport must be TransportCapability")
         if not isinstance(self.operations, OperationCapabilities):
             raise ValidationError("operations must be OperationCapabilities")
+        self._validate_firmware_unsupported()
         angle_command = self.command(CommandSemantic.ANGLES)
         angle_telemetry = self.telemetry_channel(TelemetrySemantic.ANGLES)
         if angle_command is None or angle_command.channels != joint_names:
@@ -292,6 +294,29 @@ class DeviceCapabilities:
             (value for value in self.telemetry if value.semantic is semantic),
             None,
         )
+
+    def telemetry_supported(self, semantic: TelemetrySemantic) -> bool:
+        """Return whether this channel is declared and not runtime-disabled."""
+
+        return (
+            self.telemetry_channel(semantic) is not None
+            and semantic not in self.firmware_unsupported_telemetry
+        )
+
+    def _validate_firmware_unsupported(self) -> None:
+        telemetry_values = self.firmware_unsupported_telemetry
+        if not isinstance(telemetry_values, tuple) or any(
+            not isinstance(value, TelemetrySemantic) for value in telemetry_values
+        ):
+            raise ValidationError(
+                "firmware_unsupported_telemetry must contain TelemetrySemantic values"
+            )
+        if len(set(telemetry_values)) != len(telemetry_values):
+            raise ValidationError("firmware_unsupported_telemetry must be unique")
+        if any(self.telemetry_channel(value) is None for value in telemetry_values):
+            raise ValidationError(
+                "firmware-unsupported telemetry must remain declared for metadata"
+            )
 
 
 __all__ = [

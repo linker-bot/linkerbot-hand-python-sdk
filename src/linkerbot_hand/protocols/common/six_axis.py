@@ -38,6 +38,7 @@ class ClassicSixAxisBackend:
         operation_payloads: Mapping[str, bytes] | None = None,
         command_cache: Mapping[CommandSemantic, TelemetrySemantic] | None = None,
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
+        firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
     ) -> None:
         self._route = route
         self._identity_transaction = identity_transaction
@@ -47,6 +48,7 @@ class ClassicSixAxisBackend:
         self._operation_payloads = dict(operation_payloads or {})
         self._command_cache = dict(command_cache or {})
         self._config_telemetry = frozenset(config_telemetry)
+        self._firmware_optional_reads = frozenset(firmware_optional_reads)
 
     @property
     def endpoint_id(self) -> CANRouteKey:
@@ -205,6 +207,7 @@ class ClassicSixAxisBackend:
             estimated_duration_s=telemetry.estimated_transaction_s,
             response_consumer=consume,
             late_response_guard_s=0.005,
+            firmware_optional=semantic in self._firmware_optional_reads,
         )
 
     def operation_transaction(

@@ -61,7 +61,7 @@ class UnsupportedOperationError(HandError):
 
 
 class UnsupportedFirmwareError(HandError):
-    """Raised when no safe protocol profile matches device firmware."""
+    """Raised when firmware lacks a requested protocol feature or profile."""
 
     code = ErrorCode.UNSUPPORTED_FIRMWARE
 

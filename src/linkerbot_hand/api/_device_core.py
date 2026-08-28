@@ -22,6 +22,7 @@ from .device_info import DeviceInfo
 from .errors import (
     ClosedError,
     LifecycleError,
+    UnsupportedFirmwareError,
     UnsupportedOperationError,
     ValidationError,
 )
@@ -250,7 +251,15 @@ class _DeviceCore:
         operation: str,
     ) -> _SampleT:
         timeout_s = _coerce_timeout(timeout)
-        if self.get_capabilities().telemetry_channel(semantic) is None:
+        capabilities = self.get_capabilities()
+        if semantic in capabilities.firmware_unsupported_telemetry:
+            raise UnsupportedFirmwareError(
+                f"{capabilities.model} firmware {capabilities.identity.firmware or 'unknown'} "
+                f"does not support {operation}",
+                operation=operation,
+                model=capabilities.model,
+            )
+        if capabilities.telemetry_channel(semantic) is None:
             self._raise_unsupported(operation)
         result = self._require_runtime(operation).read(semantic, timeout_s)
         if not isinstance(result, expected_type):
@@ -279,6 +288,14 @@ class _DeviceCore:
         for channel, _rate in plan.enabled_rates():
             semantic = _POLL_CHANNELS[channel]
             telemetry = capabilities.telemetry_channel(semantic)
+            if semantic in capabilities.firmware_unsupported_telemetry:
+                raise UnsupportedFirmwareError(
+                    f"{capabilities.model} firmware "
+                    f"{capabilities.identity.firmware or 'unknown'} does not support "
+                    f"polling {channel}",
+                    operation="start_polling",
+                    model=capabilities.model,
+                )
             if telemetry is None or not telemetry.device_queried:
                 raise UnsupportedOperationError(
                     f"{capabilities.model} cannot poll {channel}",

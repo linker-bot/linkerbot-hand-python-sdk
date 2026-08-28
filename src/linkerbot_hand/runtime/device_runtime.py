@@ -14,6 +14,7 @@ from ..api.errors import (
     DeviceNotReadyError,
     LifecycleError,
     TimeoutError,
+    UnsupportedFirmwareError,
     UnsupportedOperationError,
     ValidationError,
 )
@@ -258,7 +259,17 @@ class DeviceRuntime:
         """Return a post-call fresh sample, coalescing an equivalent transaction."""
 
         self._require_ready(f"get_{semantic.value}")
-        telemetry = self._state.capabilities().telemetry_channel(semantic)
+        capabilities = self._state.capabilities()
+        if semantic in capabilities.firmware_unsupported_telemetry:
+            raise UnsupportedFirmwareError(
+                f"{capabilities.model} firmware "
+                f"{capabilities.identity.firmware or 'unknown'} does not support "
+                f"{semantic.value}",
+                operation=f"get_{semantic.value}",
+                model=capabilities.model,
+                generation=self._state.generation(),
+            )
+        telemetry = capabilities.telemetry_channel(semantic)
         if telemetry is None:
             raise UnsupportedOperationError(
                 f"{semantic.value} telemetry is unsupported"

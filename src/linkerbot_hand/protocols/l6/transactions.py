@@ -37,6 +37,10 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
                 CommandSemantic.SPEEDS: TelemetrySemantic.CONFIGURED_SPEEDS,
             },
             config_telemetry=CONFIG_TELEMETRY,
+            firmware_optional_reads=(
+                TelemetrySemantic.TEMPERATURES,
+                TelemetrySemantic.CURRENTS,
+            ),
         )
 
     def read_transaction(

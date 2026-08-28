@@ -7,6 +7,7 @@ import time
 import can
 import pytest
 
+from linkerbot_hand import TelemetrySemantic
 from linkerbot_hand.api import (
     CommandStage,
     DataOrigin,
@@ -16,6 +17,8 @@ from linkerbot_hand.api import (
     HandSide,
     IdentityMismatchError,
     PollingPlan,
+    TransportError,
+    UnsupportedFirmwareError,
 )
 
 from .classic_can_fake import (
@@ -122,6 +125,124 @@ def test_l6_configured_speed_is_dispatch_cache_but_limits_are_queried() -> None:
         assert queried.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         assert transport.script.read_counts[0x02] >= 2
     finally:
+        hand.close()
+
+
+def test_l6_optional_current_query_degrades_without_disconnecting() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.firmware = (2, 3, 3)
+    transport.script.unsupported_queries.add(0x36)
+    hand.open()
+    try:
+        hand.start_polling(PollingPlan(angles_hz=50, current_hz=50))
+
+        wait_until(
+            lambda: bool(hand.get_capabilities().firmware_unsupported_telemetry),
+            timeout_s=1,
+        )
+        current_count = transport.script.read_counts[0x36]
+        angle_count = transport.script.read_counts[0x01]
+        time.sleep(0.08)
+
+        capabilities = hand.get_capabilities()
+        health = hand.get_health()
+        assert capabilities.identity.firmware == "2.3.3"
+        assert capabilities.firmware_unsupported_telemetry == (
+            TelemetrySemantic.CURRENTS,
+        )
+        assert health.connected
+        assert health.recent_error is not None
+        assert health.recent_error.error_type == "UnsupportedFirmwareError"
+        current_health = next(
+            channel for channel in health.channels if channel.channel == "currents"
+        )
+        assert current_health.requested_hz == 0
+        assert current_health.timeouts == 1
+        assert transport.script.read_counts[0x36] == current_count == 1
+        assert transport.script.read_counts[0x01] > angle_count
+
+        with pytest.raises(UnsupportedFirmwareError, match="currents"):
+            hand.get_currents(timeout=0.2)
+        assert transport.script.read_counts[0x36] == current_count
+    finally:
+        hand.stop_polling()
+        hand.close()
+
+
+@pytest.mark.parametrize("response", (b"\x36", b"\x36\x01"))
+def test_l6_malformed_optional_current_reply_degrades_once(
+    response: bytes,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.malformed_query_responses[0x36] = response
+    hand.open()
+    try:
+        with caplog.at_level("WARNING", logger="linkerbot_hand.runtime._device_actor"):
+            with pytest.raises(UnsupportedFirmwareError, match="currents"):
+                hand.get_currents(timeout=0.2)
+            with pytest.raises(UnsupportedFirmwareError, match="currents"):
+                hand.get_currents(timeout=0.2)
+
+        assert transport.script.read_counts[0x36] == 1
+        warnings = [
+            record
+            for record in caplog.records
+            if "disabling this query" in record.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_l6_optional_query_transport_failure_disconnects_instead_of_degrading() -> None:
+    hand, transport = _make_hand(
+        "L6",
+        HandSide.LEFT,
+        config=DeviceConfig(auto_reconnect=False),
+    )
+    hand.open()
+    try:
+        transport.current_dispatcher.send_error = OSError("simulated bus write failure")
+
+        with pytest.raises(TransportError, match="batch did not dispatch"):
+            hand.get_currents(timeout=0.2)
+
+        wait_until(lambda: not hand.get_health().connected)
+        assert not hand.get_capabilities().firmware_unsupported_telemetry
+        assert transport.script.read_counts[0x36] == 0
+    finally:
+        hand.close()
+
+
+def test_l6_recovery_reprobes_runtime_firmware_capabilities() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.unsupported_queries.add(0x36)
+    hand.open()
+    try:
+        hand.start_polling(PollingPlan(current_hz=50))
+        wait_until(
+            lambda: (
+                TelemetrySemantic.CURRENTS
+                in hand.get_capabilities().firmware_unsupported_telemetry
+            ),
+            timeout_s=1,
+        )
+
+        transport.script.unsupported_queries.clear()
+        hand.recover(timeout=1)
+        wait_until(
+            lambda: transport.script.read_counts[0x36] >= 2,
+            timeout_s=1,
+        )
+
+        assert not hand.get_capabilities().firmware_unsupported_telemetry
+        currents = hand.get_snapshot().currents
+        assert currents is not None
+        assert currents.meta.valid
+    finally:
+        hand.stop_polling()
         hand.close()
 
 

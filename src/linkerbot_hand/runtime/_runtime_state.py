@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Hashable
+from dataclasses import replace
 from typing import TypeVar
 
 from ..api.errors import (
@@ -12,7 +13,7 @@ from ..api.errors import (
     ProtocolError,
     ValidationError,
 )
-from ..capabilities.types import DeviceCapabilities
+from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import IdentityResult
 
 _ResultT = TypeVar("_ResultT")
@@ -121,6 +122,36 @@ class RuntimeState:
         with self._lock:
             self._ready = False
             self._admitting = False
+
+    def mark_firmware_unsupported_telemetry(
+        self,
+        semantic: TelemetrySemantic,
+    ) -> DeviceCapabilities:
+        """Record one runtime-discovered firmware limitation atomically."""
+
+        if not isinstance(semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        with self._lock:
+            if not self._ready:
+                raise DeviceNotReadyError(
+                    "cannot update capabilities for an inactive connection",
+                    model=self._declared.model,
+                    generation=self._generation,
+                )
+            if self._capabilities.telemetry_channel(semantic) is None:
+                raise ProtocolError(
+                    f"cannot disable undeclared telemetry {semantic.value}"
+                )
+            if semantic in self._capabilities.firmware_unsupported_telemetry:
+                return self._capabilities
+            self._capabilities = replace(
+                self._capabilities,
+                firmware_unsupported_telemetry=(
+                    *self._capabilities.firmware_unsupported_telemetry,
+                    semantic,
+                ),
+            )
+            return self._capabilities
 
 
 __all__ = ["RuntimeState"]

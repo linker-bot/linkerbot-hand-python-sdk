@@ -55,6 +55,7 @@ class PollScheduler:
         self._lock = threading.Lock()
         self._plan: PollingPlan | None = None
         self._states: dict[TelemetrySemantic, _PollState] = {}
+        self._disabled_states: dict[TelemetrySemantic, _PollState] = {}
         self._in_flight = 0
         self._idle = threading.Event()
         self._idle.set()
@@ -68,6 +69,7 @@ class PollScheduler:
             if self._states:
                 raise PollingPlanError("cannot change capabilities while polling")
             self._capabilities = capabilities
+            self._disabled_states.clear()
 
     def replace(self, plan: PollingPlan, *, now: float) -> bool:
         """Atomically install a plan; equal plans are strict no-ops."""
@@ -94,6 +96,7 @@ class PollScheduler:
                     started_at_s=now,
                 )
             self._states = states
+            self._disabled_states.clear()
             return True
 
     def stop(self) -> bool:
@@ -103,6 +106,7 @@ class PollScheduler:
             changed = self._plan is not None
             self._plan = None
             self._states.clear()
+            self._disabled_states.clear()
             return changed
 
     def take_due(self, *, now: float) -> TelemetrySemantic | None:
@@ -208,9 +212,28 @@ class PollScheduler:
         """Count one failed due transaction without creating a retry backlog."""
 
         with self._lock:
-            state = self._states.get(semantic)
+            state = self._states.get(semantic) or self._disabled_states.get(semantic)
             if state is not None:
                 state.timeouts += 1
+
+    def disable_firmware_unsupported(
+        self,
+        semantic: TelemetrySemantic,
+        capabilities: DeviceCapabilities,
+    ) -> None:
+        """Stop one channel while retaining its final timeout metrics."""
+
+        if not isinstance(semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        if not isinstance(capabilities, DeviceCapabilities):
+            raise ValidationError("capabilities must be DeviceCapabilities")
+        if semantic not in capabilities.firmware_unsupported_telemetry:
+            raise ValidationError("capabilities do not mark semantic unsupported")
+        with self._lock:
+            state = self._states.pop(semantic, None)
+            if state is not None:
+                self._disabled_states[semantic] = state
+            self._capabilities = capabilities
 
     def begin_poll(self, semantic: TelemetrySemantic) -> bool:
         """Register a due poll only if its plan is still active."""
@@ -315,7 +338,8 @@ class PollScheduler:
         now: float,
         data_ages: dict[TelemetrySemantic, DataAge],
     ) -> ChannelMetrics:
-        state = self._states.get(semantic)
+        active_state = self._states.get(semantic)
+        state = active_state or self._disabled_states.get(semantic)
         elapsed = 0.0 if state is None else max(0.0, now - state.started_at_s)
         achieved = (
             0.0
@@ -324,7 +348,7 @@ class PollScheduler:
         )
         return ChannelMetrics(
             channel=semantic.value,
-            requested_hz=0.0 if state is None else state.requested_hz,
+            requested_hz=0.0 if active_state is None else active_state.requested_hz,
             achieved_hz=achieved,
             missed_deadlines=0 if state is None else state.missed_deadlines,
             timeouts=0 if state is None else state.timeouts,
@@ -354,7 +378,11 @@ class PollScheduler:
         for channel, _rate in plan.enabled_rates():
             semantic = POLL_CHANNELS[channel]
             telemetry = self._capabilities.telemetry_channel(semantic)
-            if telemetry is None or not telemetry.device_queried:
+            if (
+                telemetry is None
+                or not telemetry.device_queried
+                or not self._capabilities.telemetry_supported(semantic)
+            ):
                 raise PollingPlanError(
                     f"{self._capabilities.model} cannot poll {channel}",
                     operation="start_polling",

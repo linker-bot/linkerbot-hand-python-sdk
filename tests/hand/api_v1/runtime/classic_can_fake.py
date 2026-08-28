@@ -29,6 +29,8 @@ class ClassicCANDeviceScript:
     command_payloads: list[bytes] = field(default_factory=list)
     read_counts: Counter[int] = field(default_factory=Counter)
     identity_queries: int = 0
+    unsupported_queries: set[int] = field(default_factory=set)
+    malformed_query_responses: dict[int, bytes] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.model not in {"L6", "O6", "L20Lite", "L25"}:
@@ -84,6 +86,10 @@ class ClassicCANDeviceScript:
         if len(data) == 1 and data[0] in self.readings:
             opcode = data[0]
             self.read_counts[opcode] += 1
+            if opcode in self.unsupported_queries:
+                return ()
+            if opcode in self.malformed_query_responses:
+                return (self._frame(self.malformed_query_responses[opcode]),)
             return (self._frame(bytes((opcode, *self.readings[opcode]))),)
         if (
             len(data) == 2

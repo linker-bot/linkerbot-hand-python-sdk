@@ -50,7 +50,10 @@ class ConnectionInitializer:
     ) -> None:
         """Verify identity, read baseline, then atomically open admission."""
 
-        current = self._state.capabilities()
+        # Every connection generation starts from the declared latest-protocol
+        # profile. Runtime feature probes from a prior connection must not leak
+        # into a newly connected device or firmware image.
+        current = self._state.declared
         identity_outcome = runner.execute(
             self._backend.identity_transaction(current),
             capabilities=current,
