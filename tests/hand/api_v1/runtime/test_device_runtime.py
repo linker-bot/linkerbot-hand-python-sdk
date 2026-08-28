@@ -61,6 +61,50 @@ def test_one_runtime_consumes_multiple_exact_routes_from_one_subscription() -> N
     assert transport.get_health().route_count == 0
 
 
+def test_shared_devices_report_the_same_physical_transport_traffic() -> None:
+    l6, _l6_state, o6, _o6_state, transport = make_shared_hands()
+    l6.open()
+    o6.open()
+    try:
+        before = transport.get_health()
+        assert before.tx_frames > 0
+        assert before.tx_bytes > 0
+        assert before.rx_frames > 0
+        assert before.rx_bytes > 0
+
+        for hand in (l6, o6):
+            projected = hand.get_health().transport
+            assert projected.tx_frames == before.tx_frames
+            assert projected.tx_bytes == before.tx_bytes
+            assert projected.rx_frames == before.rx_frames
+            assert projected.rx_bytes == before.rx_bytes
+
+        for _ in range(100):
+            l6.get_health()
+            o6.get_health()
+        after_health_reads = transport.get_health()
+        assert after_health_reads.tx_frames == before.tx_frames
+        assert after_health_reads.tx_bytes == before.tx_bytes
+        assert after_health_reads.rx_frames == before.rx_frames
+        assert after_health_reads.rx_bytes == before.rx_bytes
+
+        handle = l6.set_angles((10,) * 6)
+        assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+        after_command = transport.get_health()
+        assert after_command.tx_frames == before.tx_frames + 1
+        assert after_command.tx_bytes > before.tx_bytes
+
+        for hand in (l6, o6):
+            projected = hand.get_health().transport
+            assert projected.tx_frames == after_command.tx_frames
+            assert projected.tx_bytes == after_command.tx_bytes
+            assert projected.rx_frames == after_command.rx_frames
+            assert projected.rx_bytes == after_command.rx_bytes
+    finally:
+        l6.close()
+        o6.close()
+
+
 @pytest.mark.parametrize(
     ("route_keys", "message"),
     (

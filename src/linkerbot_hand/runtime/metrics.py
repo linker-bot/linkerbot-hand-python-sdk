@@ -40,7 +40,6 @@ class RuntimeMetrics:
         self._consecutive_errors = initial.consecutive_errors
         self._recent_error = initial.recent_error
         self._latencies: deque[float] = deque(maxlen=2048)
-        self._tx_frames = initial.transport.tx_frames
 
     def opening(self) -> None:
         """Publish the synchronous open transition."""
@@ -107,12 +106,11 @@ class RuntimeMetrics:
             verified=False,
         )
 
-    def sent(self, *, timestamp: float, frames: int) -> None:
-        """Record only frames whose transport receipt reached DISPATCHED."""
+    def sent(self, *, timestamp: float) -> None:
+        """Record the latest device transaction dispatched by the transport."""
 
         with self._lock:
             self._last_send = timestamp
-            self._tx_frames += frames
             self._consecutive_errors = 0
 
     def received(self, *, timestamp: float) -> None:
@@ -166,7 +164,6 @@ class RuntimeMetrics:
             consecutive_errors = self._consecutive_errors
             recent_error = self._recent_error
             latencies = tuple(self._latencies)
-            tx_frames = self._tx_frames
         data_ages = snapshot_store.data_ages(
             captured_at=captured_at,
             monotonic_now=now,
@@ -189,7 +186,7 @@ class RuntimeMetrics:
             discrete_queue_depth=commands.discrete_depth,
             channels=channels,
             transaction_latency=_latency_metrics(latencies),
-            transport=_transport_metrics(transport, arbiter, tx_frames),
+            transport=_transport_metrics(transport, arbiter),
         )
 
     def _set_connection(
@@ -231,18 +228,19 @@ def _percentile(values: list[float], fraction: float) -> float:
 def _transport_metrics(
     health: TransportHealth | None,
     arbiter: object | None,
-    tx_frames: int,
 ) -> TransportMetrics:
     if health is None:
-        return TransportMetrics(tx_frames=tx_frames)
+        return TransportMetrics()
     pending_arbiter = 0
     if arbiter is not None:
         pending_arbiter = int(getattr(arbiter, "pending_total", 0)) + int(
             bool(getattr(arbiter, "in_flight", False))
         )
     return TransportMetrics(
-        tx_frames=tx_frames,
+        tx_frames=health.tx_frames,
         rx_frames=health.rx_frames,
+        tx_bytes=health.tx_bytes,
+        rx_bytes=health.rx_bytes,
         dropped_frames=health.rx_overflows + health.dropped_rx_on_close,
         route_misses=health.route_misses,
         pending_tx=health.pending_tx + pending_arbiter,

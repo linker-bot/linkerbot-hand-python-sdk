@@ -280,7 +280,10 @@ class ScriptedFakeTransport(FakeTransport[WireMessage]):
     def __init__(self, *backends: FakeProtocolBackend) -> None:
         if not backends:
             raise ValueError("at least one fake protocol backend is required")
-        super().__init__(route_key_of=lambda message: message.route)
+        super().__init__(
+            route_key_of=lambda message: message.route,
+            data_size_of=lambda message: 1 + len(message.values),
+        )
         self.backends = {backend.endpoint_id: backend for backend in backends}
         if len(self.backends) != len(backends):
             raise ValueError("fake protocol endpoint IDs must be unique")

@@ -294,7 +294,7 @@ class TransactionRunner:
                 raise ProtocolError(f"send ended as {result.outcome.value}")
             dispatched_at = result.completed_at_s
             sent_frames = len(transaction.request_messages)
-            self._metrics.sent(timestamp=dispatched_at, frames=sent_frames)
+            self._metrics.sent(timestamp=dispatched_at)
             if on_dispatched is not None:
                 on_dispatched(dispatched_at, sent_frames)
 

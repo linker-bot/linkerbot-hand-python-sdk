@@ -82,7 +82,7 @@ class LatencyMetrics:
 
 @dataclass(frozen=True, slots=True)
 class TransportMetrics:
-    """Cached transport traffic and error counters."""
+    """Cached counters for the complete shared physical transport channel."""
 
     tx_frames: int = 0
     rx_frames: int = 0
