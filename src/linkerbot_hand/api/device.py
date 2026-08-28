@@ -25,6 +25,7 @@ from .readings import (
     VoltageSample,
 )
 from .stall import (
+    LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
     StallThresholdSample,
@@ -325,6 +326,28 @@ class HandDevice(_DeviceCore):
             operation="get_stall_hold_currents",
         )
 
+    def set_limit_compensations(
+        self,
+        values: Iterable[RawNumber],
+    ) -> CommandHandle:
+        """Submit raw per-joint limit compensation with response validation."""
+
+        return self._submit_raw(
+            CommandSemantic.LIMIT_COMPENSATIONS,
+            values,
+            operation="set_limit_compensations",
+        )
+
+    def get_limit_compensations(self, timeout: float) -> LimitCompensationSample:
+        """Actively read raw per-joint limit compensation values."""
+
+        return self._read(
+            TelemetrySemantic.LIMIT_COMPENSATIONS,
+            timeout,
+            LimitCompensationSample,
+            operation="get_limit_compensations",
+        )
+
     def clear_faults(self) -> CommandHandle:
         """Submit one bounded discrete clear-fault operation."""
 
@@ -344,6 +367,11 @@ class HandDevice(_DeviceCore):
         """Submit one bounded discrete device-calibration operation."""
 
         return self._operate("calibrate")
+
+    def save_parameters(self) -> CommandHandle:
+        """Persist supported device configuration in non-volatile storage."""
+
+        return self._operate("save_parameters")
 
 
 __all__ = ["HandDevice"]

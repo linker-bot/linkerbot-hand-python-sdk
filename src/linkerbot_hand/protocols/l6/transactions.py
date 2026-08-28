@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...api.enums import HandSide
+from ...api.readings import RawNumber
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -19,6 +20,11 @@ from .codec import (
     TELEMETRY_OPCODES,
 )
 from .identity import l6_identity_transaction
+from .management import (
+    echoed_configuration_transaction,
+    limit_compensation_transaction,
+    save_parameters_transaction,
+)
 from .tactile import l6_tactile_transaction
 
 
@@ -33,13 +39,14 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
             telemetry_opcodes=TELEMETRY_OPCODES,
             baseline=BASELINE_SEMANTICS,
             operation_payloads={"clear_faults": CLEAR_FAULTS_PAYLOAD},
-            command_cache={
-                CommandSemantic.SPEEDS: TelemetrySemantic.CONFIGURED_SPEEDS,
-            },
             config_telemetry=CONFIG_TELEMETRY,
             firmware_optional_reads=(
                 TelemetrySemantic.TEMPERATURES,
                 TelemetrySemantic.CURRENTS,
+                TelemetrySemantic.LIMIT_COMPENSATIONS,
+                TelemetrySemantic.STALL_DETECTION_TIMES,
+                TelemetrySemantic.STALL_THRESHOLDS,
+                TelemetrySemantic.STALL_HOLD_CURRENTS,
             ),
         )
 
@@ -53,6 +60,66 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
         if semantic is TelemetrySemantic.FORCE:
             return l6_tactile_transaction(capabilities)
         return super().read_transaction(semantic, capabilities)
+
+    def command_transaction(
+        self,
+        semantic: CommandSemantic,
+        values: tuple[RawNumber, ...],
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build ordinary raw writes and response-gated configuration writes."""
+
+        if semantic is CommandSemantic.LIMIT_COMPENSATIONS:
+            return limit_compensation_transaction(values, capabilities)
+        echoed = {
+            CommandSemantic.SPEEDS: (
+                TelemetrySemantic.CONFIGURED_SPEEDS,
+                0x05,
+                False,
+            ),
+            CommandSemantic.CURRENT_LIMITS: (
+                TelemetrySemantic.CURRENT_LIMITS,
+                0x02,
+                False,
+            ),
+            CommandSemantic.STALL_DETECTION_TIMES: (
+                TelemetrySemantic.STALL_DETECTION_TIMES,
+                0xC5,
+                True,
+            ),
+            CommandSemantic.STALL_THRESHOLDS: (
+                TelemetrySemantic.STALL_THRESHOLDS,
+                0xC6,
+                True,
+            ),
+            CommandSemantic.STALL_HOLD_CURRENTS: (
+                TelemetrySemantic.STALL_HOLD_CURRENTS,
+                0xC7,
+                True,
+            ),
+        }.get(semantic)
+        if echoed is not None:
+            telemetry_semantic, opcode, require_exact_echo = echoed
+            return echoed_configuration_transaction(
+                semantic,
+                telemetry_semantic,
+                opcode,
+                values,
+                capabilities,
+                require_exact_echo=require_exact_echo,
+            )
+        return super().command_transaction(semantic, values, capabilities)
+
+    def operation_transaction(
+        self,
+        operation: str,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Build dispatch-only clear-faults or acknowledged parameter save."""
+
+        if operation == "save_parameters":
+            return save_parameters_transaction(capabilities)
+        return super().operation_transaction(operation, capabilities)
 
 
 __all__ = ["L6ProtocolBackend"]

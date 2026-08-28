@@ -31,6 +31,7 @@ class ClassicCANDeviceScript:
     identity_queries: int = 0
     unsupported_queries: set[int] = field(default_factory=set)
     malformed_query_responses: dict[int, bytes] = field(default_factory=dict)
+    bad_command_echoes: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.model not in {"L6", "O6", "L20Lite", "L25"}:
@@ -83,6 +84,9 @@ class ClassicCANDeviceScript:
             return (self._frame(bytes((0xC2, *self.firmware))),)
         if data == b"\xc4":
             return (self._frame(b"\xc4\x01\x00\x02"),)
+        if data == bytes((0xCF,)) * 8:
+            self.command_payloads.append(data)
+            return (self._frame(b"\xcf\x01"),)
         if len(data) == 1 and data[0] in self.readings:
             opcode = data[0]
             self.read_counts[opcode] += 1
@@ -111,8 +115,15 @@ class ClassicCANDeviceScript:
                 if self.model == "L20Lite"
                 else set(range(0x41, 0x46))
             )
-            if data[0] in angle_opcodes:
-                return (self._frame(bytes((data[0], *self.readings[data[0]]))),)
+            echo_opcodes = angle_opcodes | (
+                {0x02, 0x05, 0x38, 0xC5, 0xC6, 0xC7} if self.model == "L6" else set()
+            )
+            if data[0] in echo_opcodes:
+                echoed = self.bad_command_echoes.get(
+                    data[0],
+                    self.readings[data[0]],
+                )
+                return (self._frame(bytes((data[0], *echoed))),)
             return ()
         if len(data) == 7 and data[0] == 0x83:
             self.command_payloads.append(data)
@@ -192,7 +203,7 @@ def make_script(model: str, side: HandSide) -> ClassicCANDeviceScript:
 
 def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
     if model in {"L6", "O6"}:
-        return {
+        readings = {
             0x01: (10, 20, 30, 40, 50, 60),
             0x02: (80,) * 6,
             0x05: (90,) * 6,
@@ -201,6 +212,16 @@ def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
             0x36: (1, 2, 3, 4, 5, 6),
             0x87: (20,) * 6,
         }
+        if model == "L6":
+            readings.update(
+                {
+                    0x38: (0, 0, 227, 223, 208, 207),
+                    0xC5: (5,) * 6,
+                    0xC6: (91,) * 6,
+                    0xC7: (106,) * 6,
+                }
+            )
+        return readings
     if model == "L20Lite":
         return {
             0x01: tuple(range(10, 16)),

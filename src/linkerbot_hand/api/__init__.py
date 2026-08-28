@@ -68,6 +68,7 @@ from .readings import (
 )
 from .snapshot import HandSnapshot, JointState
 from .stall import (
+    LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
     StallThresholdSample,
@@ -112,6 +113,7 @@ __all__ = [
     "LatencyMetrics",
     "LifecycleError",
     "LifecycleState",
+    "LimitCompensationSample",
     "MeasuredSpeedSample",
     "MotionTimeSample",
     "PollingPlan",

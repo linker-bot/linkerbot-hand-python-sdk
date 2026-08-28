@@ -20,7 +20,13 @@ class StallHoldCurrentSample(_RawVectorSample):
     """Protocol values used for current maintained after a detected stall."""
 
 
+@dataclass(frozen=True, slots=True)
+class LimitCompensationSample(_RawVectorSample):
+    """Raw joint-limit compensation values returned by the device."""
+
+
 __all__ = [
+    "LimitCompensationSample",
     "StallDetectionTimeSample",
     "StallHoldCurrentSample",
     "StallThresholdSample",

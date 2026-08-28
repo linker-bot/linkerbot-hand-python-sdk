@@ -8,6 +8,7 @@ from linkerbot_hand.api import (
     AckSupport,
     Confidence,
     HandSide,
+    ReadMode,
     UnsupportedOperationError,
 )
 from linkerbot_hand.api.errors import ValidationError
@@ -97,6 +98,7 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     assert l6_speed is not None
     assert not l6_speed.device_measured
     assert not l6_speed.device_queried
+    assert l6_speed.read_mode is ReadMode.COMMAND_RESPONSE
     assert l6.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert o6.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert o20.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is not None
@@ -203,6 +205,37 @@ def test_l6_percent_mapping_matches_measured_raw_direction() -> None:
     assert thumb_abd.zero_label == "toward_thumb_web"
     assert thumb_abd.hundred_label == "away_from_thumb_web"
     assert thumb_abd.confidence is Confidence.MEASURED
+
+
+def test_l6_latest_protocol_metadata_exposes_units_and_management_objects() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    stall = capabilities.stall_protection
+
+    assert stall is not None
+    assert stall.read_supported and stall.write_supported
+    assert stall.detection_time.raw_scale_note is not None
+    assert "10 ms/count" in stall.detection_time.raw_scale_note
+    assert "1400/255 protocol-units/count" in (stall.threshold.raw_scale_note or "")
+    assert stall.threshold.unit_confidence is Confidence.UNKNOWN
+    assert "stall torque" in (stall.hold_current.raw_scale_note or "")
+    assert stall.hold_current.unit_confidence is Confidence.CONFLICTING
+    assert capabilities.command(CommandSemantic.LIMIT_COMPENSATIONS) is not None
+    assert (
+        capabilities.telemetry_channel(TelemetrySemantic.LIMIT_COMPENSATIONS)
+        is not None
+    )
+    assert capabilities.operations.save_parameters
+    assert "save_parameters" in capabilities.operations.acknowledged_operations
+
+    currents = capabilities.telemetry_channel(TelemetrySemantic.CURRENTS)
+    temperatures = capabilities.telemetry_channel(TelemetrySemantic.TEMPERATURES)
+    faults = capabilities.telemetry_channel(TelemetrySemantic.FAULTS)
+    force = capabilities.telemetry_channel(TelemetrySemantic.FORCE)
+    assert currents is not None
+    assert "absolute current magnitude" in (currents.raw_scale_note or "")
+    assert temperatures is not None and temperatures.raw_unit == "degree_celsius"
+    assert faults is not None and "bit6 MCU" in (faults.raw_scale_note or "")
+    assert force is not None and force.unit_confidence is Confidence.UNKNOWN
 
 
 def test_runtime_disabled_telemetry_retains_metadata_but_reports_unsupported() -> None:

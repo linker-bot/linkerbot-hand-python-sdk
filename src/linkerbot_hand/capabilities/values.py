@@ -24,6 +24,7 @@ class CommandSemantic(str, Enum):
     STALL_DETECTION_TIMES = "stall_detection_times"
     STALL_THRESHOLDS = "stall_thresholds"
     STALL_HOLD_CURRENTS = "stall_hold_currents"
+    LIMIT_COMPENSATIONS = "limit_compensations"
 
 
 class TelemetrySemantic(str, Enum):
@@ -45,6 +46,7 @@ class TelemetrySemantic(str, Enum):
     STALL_DETECTION_TIMES = "stall_detection_times"
     STALL_THRESHOLDS = "stall_thresholds"
     STALL_HOLD_CURRENTS = "stall_hold_currents"
+    LIMIT_COMPENSATIONS = "limit_compensations"
 
 
 def _validate_channels(channels: tuple[str, ...]) -> None:
@@ -170,7 +172,11 @@ class TelemetryCapability:
         )
         for name in ("recommended_hz", "estimated_transaction_s"):
             value = getattr(self, name)
-            minimum = 0 if self.read_mode is ReadMode.COMMAND_CACHE else 1e-300
+            minimum = (
+                0
+                if self.read_mode in {ReadMode.COMMAND_CACHE, ReadMode.COMMAND_RESPONSE}
+                else 1e-300
+            )
             if not is_finite_number(value) or value < minimum:
                 qualifier = "non-negative" if minimum == 0 else "positive"
                 raise ValidationError(f"{name} must be finite and {qualifier}")
@@ -184,8 +190,15 @@ class TelemetryCapability:
             self.device_queried, bool
         ):
             raise ValidationError("device measurement flags must be bool")
-        if self.read_mode is ReadMode.COMMAND_CACHE and self.device_queried:
-            raise ValidationError("command-cache telemetry cannot be device queried")
+        if (
+            self.read_mode
+            in {
+                ReadMode.COMMAND_CACHE,
+                ReadMode.COMMAND_RESPONSE,
+            }
+            and self.device_queried
+        ):
+            raise ValidationError("command-derived telemetry cannot be device queried")
 
 
 @dataclass(frozen=True, slots=True)

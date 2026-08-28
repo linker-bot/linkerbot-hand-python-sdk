@@ -311,16 +311,17 @@ def test_transport_failure_never_reports_dispatched() -> None:
 
 
 def test_command_cache_returns_configured_speed_without_device_query() -> None:
-    hand, state, transport = make_hand()
+    hand, state, transport = make_hand(capabilities=get_declared_capabilities("l30"))
+    values = (7,) * 17
     hand.open()
     try:
-        handle = hand.set_speeds((7,) * 6)
+        handle = hand.set_speeds(values)
         assert handle.wait(timeout=1) is CommandStage.DISPATCHED
         sent_before = len(transport.sent)
 
         sample = hand.get_configured_speeds(timeout=0.1)
 
-        assert sample.raw == (7,) * 6
+        assert sample.raw == values
         assert sample.meta.origin is DataOrigin.COMMAND_CACHE
         assert len(transport.sent) == sent_before
         with state.lock:

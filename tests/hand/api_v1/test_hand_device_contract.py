@@ -72,10 +72,13 @@ _PUBLIC_METHODS = (
     "get_stall_thresholds",
     "set_stall_hold_currents",
     "get_stall_hold_currents",
+    "set_limit_compensations",
+    "get_limit_compensations",
     "clear_faults",
     "enable",
     "disable",
     "calibrate",
+    "save_parameters",
     "get_snapshot",
     "get_health",
     "get_capabilities",
@@ -93,6 +96,7 @@ _COMMAND_METHODS = {
     CommandSemantic.STALL_DETECTION_TIMES: "set_stall_detection_times",
     CommandSemantic.STALL_THRESHOLDS: "set_stall_thresholds",
     CommandSemantic.STALL_HOLD_CURRENTS: "set_stall_hold_currents",
+    CommandSemantic.LIMIT_COMPENSATIONS: "set_limit_compensations",
 }
 
 _TELEMETRY_METHODS = {
@@ -112,6 +116,7 @@ _TELEMETRY_METHODS = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "get_stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "get_stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "get_stall_hold_currents",
+    TelemetrySemantic.LIMIT_COMPENSATIONS: "get_limit_compensations",
 }
 
 _SNAPSHOT_ATTRIBUTES = {
@@ -131,6 +136,7 @@ _SNAPSHOT_ATTRIBUTES = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "stall_hold_currents",
+    TelemetrySemantic.LIMIT_COMPENSATIONS: "limit_compensations",
 }
 
 

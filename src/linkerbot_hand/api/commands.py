@@ -38,6 +38,7 @@ class CommandFamily(str, Enum):
     TORQUE_TARGET = "torque_target"
     MOTION_TIME_SETTING = "motion_time_setting"
     STALL_CONFIGURATION = "stall_configuration"
+    LIMIT_COMPENSATION = "limit_compensation"
     DISCRETE_OPERATION = "discrete_operation"
 
 

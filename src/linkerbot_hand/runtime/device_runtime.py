@@ -281,7 +281,8 @@ class DeviceRuntime:
                 monotonic_now=self._clock.monotonic(),
             )
             if (
-                telemetry.read_mode is ReadMode.COMMAND_CACHE
+                telemetry.read_mode
+                in {ReadMode.COMMAND_CACHE, ReadMode.COMMAND_RESPONSE}
                 and sample is not None
                 and sample.meta.valid  # ty: ignore[unresolved-attribute]
             ):

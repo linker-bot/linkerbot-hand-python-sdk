@@ -19,6 +19,7 @@ from linkerbot_hand.api import (
     PollingPlan,
     TransportError,
     UnsupportedFirmwareError,
+    ValidationError,
 )
 
 from .classic_can_fake import (
@@ -104,26 +105,113 @@ def test_default_l6_profile_opens_and_controls_raw_and_percent_angles() -> None:
         hand.close()
 
 
-def test_l6_configured_speed_is_dispatch_cache_but_limits_are_queried() -> None:
+def test_l6_configured_speed_and_limits_use_device_confirmed_values() -> None:
     hand, transport = _make_hand("L6", HandSide.LEFT)
     hand.open()
     try:
         speed = hand.set_speeds((40, 41, 42, 43, 44, 45))
-        assert speed.wait(timeout=1) is CommandStage.DISPATCHED
-        sends_before_cache_read = len(transport.script.sent_payloads)
+        assert speed.wait(timeout=1) is CommandStage.ACKNOWLEDGED
 
         configured = hand.get_configured_speeds(timeout=0.1)
 
         assert configured.raw == (40, 41, 42, 43, 44, 45)
-        assert configured.meta.origin is DataOrigin.COMMAND_CACHE
-        assert len(transport.script.sent_payloads) == sends_before_cache_read
+        assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert transport.script.read_counts[0x05] == 0
 
         limits = hand.set_current_limits((70,) * 6)
-        assert limits.wait(timeout=1) is CommandStage.DISPATCHED
+        assert limits.wait(timeout=1) is CommandStage.ACKNOWLEDGED
         queried = hand.get_current_limits(timeout=0.2)
         assert queried.raw == (70,) * 6
         assert queried.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         assert transport.script.read_counts[0x02] >= 2
+    finally:
+        hand.close()
+
+
+def test_l6_latest_management_queries_and_raw_writes_use_verified_protocol() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    hand.open()
+    try:
+        assert hand.get_stall_detection_times(timeout=0.2).raw == (5,) * 6
+        assert hand.get_stall_thresholds(timeout=0.2).raw == (91,) * 6
+        assert hand.get_stall_hold_currents(timeout=0.2).raw == (106,) * 6
+        assert hand.get_limit_compensations(timeout=0.2).raw == (
+            0,
+            0,
+            227,
+            223,
+            208,
+            207,
+        )
+
+        cases = (
+            (hand.set_stall_detection_times, 0xC5, (6,) * 6),
+            (hand.set_stall_thresholds, 0xC6, (92,) * 6),
+            (hand.set_stall_hold_currents, 0xC7, (107,) * 6),
+        )
+        for setter, opcode, values in cases:
+            handle = setter(values)
+            assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+            assert transport.script.command_payloads[-1] == bytes((opcode, *values))
+
+        compensation = hand.set_limit_compensations((1, 2, 3, 4, 5, 6))
+        assert compensation.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert transport.script.command_payloads[-1] == (
+            b"\x38\x01\x02\x03\x04\x05\x06"
+        )
+        cached = hand.get_snapshot().limit_compensations
+        assert cached is not None and cached.raw == (1, 2, 3, 4, 5, 6)
+
+        save = hand.save_parameters()
+        assert save.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert transport.script.command_payloads[-1] == bytes((0xCF,)) * 8
+    finally:
+        hand.close()
+
+
+def test_l6_zero_stall_detection_time_is_rejected_before_transport() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    hand.open()
+    try:
+        sent_before = tuple(transport.script.sent_payloads)
+
+        with pytest.raises(ValidationError, match="outside the declared range"):
+            hand.set_stall_detection_times((0,) * 6)
+
+        assert tuple(transport.script.sent_payloads) == sent_before
+    finally:
+        hand.close()
+
+
+def test_l6_bad_stall_echo_fails_command_without_disconnect() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.bad_command_echoes[0xC5] = (5,) * 6
+    hand.open()
+    try:
+        handle = hand.set_stall_detection_times((6,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.error is not None
+        assert "did not echo" in handle.error.message
+        assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_l6_limit_compensation_bad_echo_fails_without_disconnect() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.bad_command_echoes[0x38] = (0,) * 6
+    hand.open()
+    try:
+        handle = hand.set_limit_compensations((1, 2, 3, 4, 5, 6))
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.error is not None
+        assert "did not echo" in handle.error.message
+        assert transport.script.command_payloads[-1] == (
+            b"\x38\x01\x02\x03\x04\x05\x06"
+        )
+        assert hand.get_health().connected
     finally:
         hand.close()
 

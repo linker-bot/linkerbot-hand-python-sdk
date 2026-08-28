@@ -39,7 +39,7 @@ def _request_data(transaction: ProtocolTransaction) -> bytes:
     return bytes(message.data)
 
 
-def test_l6_commands_keep_speed_cache_and_current_limit_separate() -> None:
+def test_l6_speed_and_current_limit_writes_use_documented_responses() -> None:
     capabilities = get_declared_capabilities("l6", side="left")
     backend = L6ProtocolBackend(HandSide.LEFT)
 
@@ -61,12 +61,21 @@ def test_l6_commands_keep_speed_cache_and_current_limit_separate() -> None:
 
     assert _request_data(angles) == b"\x01\x00\x01\x02\x03\x04\xff"
     assert _request_data(speeds) == b"\x05" + bytes((80,) * 6)
-    assert (
-        speeds.dispatch_publications[0].semantic is TelemetrySemantic.CONFIGURED_SPEEDS
-    )
-    assert speeds.dispatch_publications[0].origin is DataOrigin.COMMAND_CACHE
+    assert not speeds.dispatch_publications
+    assert speeds.terminal_acknowledges_command
+    speed_response = speeds.consume(_reply(HandSide.LEFT, 0x05, (79,) * 6))
+    assert speed_response.acknowledged
+    assert isinstance(speed_response.result, SamplePayload)
+    assert speed_response.result.semantic is TelemetrySemantic.CONFIGURED_SPEEDS
+    assert speed_response.result.raw == (79,) * 6
+    assert speed_response.result.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
     assert _request_data(limits) == b"\x02" + bytes((90,) * 6)
     assert not limits.dispatch_publications
+    assert limits.terminal_acknowledges_command
+    limit_response = limits.consume(_reply(HandSide.LEFT, 0x02, (89,) * 6))
+    assert limit_response.acknowledged
+    assert isinstance(limit_response.result, SamplePayload)
+    assert limit_response.result.raw == (89,) * 6
     assert angles.expects_response
     echo = _payload(angles, _reply(HandSide.LEFT, 0x01, (6, 5, 4, 3, 2, 1)))
     assert echo.raw == (6, 5, 4, 3, 2, 1)
@@ -106,6 +115,90 @@ def test_l6_clear_faults_is_a_bounded_dispatch_only_operation() -> None:
 
     assert _request_data(transaction) == b"\x83" + bytes((1,) * 6)
     assert not transaction.expects_response
+
+
+def test_l6_stall_configuration_maps_raw_objects_and_echo_responses() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    backend = L6ProtocolBackend(HandSide.LEFT)
+    cases = (
+        (
+            CommandSemantic.STALL_DETECTION_TIMES,
+            TelemetrySemantic.STALL_DETECTION_TIMES,
+            0xC5,
+        ),
+        (
+            CommandSemantic.STALL_THRESHOLDS,
+            TelemetrySemantic.STALL_THRESHOLDS,
+            0xC6,
+        ),
+        (
+            CommandSemantic.STALL_HOLD_CURRENTS,
+            TelemetrySemantic.STALL_HOLD_CURRENTS,
+            0xC7,
+        ),
+    )
+
+    for command_semantic, telemetry_semantic, opcode in cases:
+        command = backend.command_transaction(
+            command_semantic,
+            (10, 20, 30, 40, 50, 60),
+            capabilities,
+        )
+        assert _request_data(command) == bytes((opcode, 10, 20, 30, 40, 50, 60))
+        assert command.terminal_acknowledges_command
+        read = backend.read_transaction(telemetry_semantic, capabilities)
+        assert _request_data(read) == bytes((opcode,))
+        payload = _payload(read, _reply(HandSide.LEFT, opcode, (1,) * 6))
+        assert payload.semantic is telemetry_semantic
+        assert payload.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+
+
+def test_l6_limit_compensation_write_requires_documented_exact_echo() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    backend = L6ProtocolBackend(HandSide.LEFT)
+    transaction = backend.command_transaction(
+        CommandSemantic.LIMIT_COMPENSATIONS,
+        (0, 1, 2, 3, 4, 255),
+        capabilities,
+    )
+
+    assert _request_data(transaction) == b"\x38\x00\x01\x02\x03\x04\xff"
+    assert transaction.next_transaction is None
+    assert transaction.terminal_acknowledges_command
+    assert transaction.consume(
+        _reply(HandSide.LEFT, 0x38, (0, 1, 2, 3, 4, 255))
+    ).acknowledged
+    with pytest.raises(ProtocolError, match="did not echo"):
+        transaction.consume(_reply(HandSide.LEFT, 0x38, (0,) * 6))
+
+
+def test_l6_limit_compensation_read_and_parameter_save_are_response_gated() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    backend = L6ProtocolBackend(HandSide.LEFT)
+    read = backend.read_transaction(
+        TelemetrySemantic.LIMIT_COMPENSATIONS,
+        capabilities,
+    )
+    save = backend.operation_transaction("save_parameters", capabilities)
+
+    assert _request_data(read) == b"\x38"
+    assert _request_data(save) == bytes((0xCF,)) * 8
+    assert save.response_acknowledges_command
+    assert save.consume(
+        can.Message(
+            arbitration_id=classic_route(HandSide.LEFT).arbitration_id,
+            data=b"\xcf\x01",
+            is_extended_id=False,
+        )
+    ).acknowledged
+    with pytest.raises(ProtocolError, match="was not CF 01"):
+        save.consume(
+            can.Message(
+                arbitration_id=classic_route(HandSide.LEFT).arbitration_id,
+                data=b"\xcf\x00",
+                is_extended_id=False,
+            )
+        )
 
 
 def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:

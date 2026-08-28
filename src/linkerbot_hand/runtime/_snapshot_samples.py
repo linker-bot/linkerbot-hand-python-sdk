@@ -27,6 +27,7 @@ from ..api.readings import (
 )
 from ..api.snapshot import HandSnapshot, JointState
 from ..api.stall import (
+    LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
     StallThresholdSample,
@@ -56,6 +57,7 @@ SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "stall_hold_currents",
+    TelemetrySemantic.LIMIT_COMPENSATIONS: "limit_compensations",
 }
 
 _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
@@ -73,6 +75,7 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
     TelemetrySemantic.STALL_DETECTION_TIMES: StallDetectionTimeSample,
     TelemetrySemantic.STALL_THRESHOLDS: StallThresholdSample,
     TelemetrySemantic.STALL_HOLD_CURRENTS: StallHoldCurrentSample,
+    TelemetrySemantic.LIMIT_COMPENSATIONS: LimitCompensationSample,
 }
 
 

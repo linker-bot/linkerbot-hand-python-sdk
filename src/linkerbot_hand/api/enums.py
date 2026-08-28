@@ -67,6 +67,7 @@ class ReadMode(str, Enum):
     REPORT = "report"
     QUERY_AND_REPORT = "query_and_report"
     COMMAND_CACHE = "command_cache"
+    COMMAND_RESPONSE = "command_response"
 
 
 class Quantization(str, Enum):

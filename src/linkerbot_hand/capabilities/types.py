@@ -148,6 +148,7 @@ class OperationCapabilities:
     enable: bool = False
     disable: bool = False
     calibrate: bool = False
+    save_parameters: bool = False
     read_stall_protection: bool = False
     write_stall_protection: bool = False
     acknowledged_operations: tuple[str, ...] = ()
@@ -159,6 +160,7 @@ class OperationCapabilities:
             "enable",
             "disable",
             "calibrate",
+            "save_parameters",
             "read_stall_protection",
             "write_stall_protection",
         ):
@@ -173,6 +175,13 @@ class OperationCapabilities:
             )
         if len(set(self.acknowledged_operations)) != len(self.acknowledged_operations):
             raise ValidationError("acknowledged_operations must be unique")
+        if any(
+            not getattr(self, operation, False)
+            for operation in self.acknowledged_operations
+        ):
+            raise ValidationError(
+                "acknowledged operations must also be declared supported"
+            )
 
 
 @dataclass(frozen=True, slots=True)
