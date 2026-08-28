@@ -4,11 +4,19 @@
 
 ## 未发布
 
+## 1.0.0.dev0 - 2026-08-28
+
 - 删除 `linkerbot.hand` 七型号类、manager、`HandSession`、legacy backend 和重复
   runtime，只保留 `linkerbot_hand.HandDevice` 一种公开调用方式。
 - 普通 `set_*()` / `get_*()` 统一表示协议原值；百分比接口统一使用
   `set_percent_*()` 命名，删除 LUT、标准 raw、hardware raw 和 `submit_*` 别名。
 - capability registry 只返回 Hand 1.0 不可变类型，不再生成旧 contract 兼容视图。
+- 使用单 actor runtime 统一生命周期、命令、主动读取、轮询、缓存和安全恢复；同一物理
+  CAN/CAN FD 通道只保留一个连接、RX owner 和有界 TX arbiter。
+- 将 L6、O6、L20Lite、L25、O20、L30 和 O30i 全部迁移到独立协议 profile，并由
+  capability 表达型号、关节、传感器、命令和反馈差异。
+- health 区分逻辑读取完成、缓存更新来源与 ROS 发布所需指标；transport 流量统一按共享
+  物理通道累计帧数和 DLC 数据区字节数。
 - 核心发行依赖移除 NumPy，并将 transport 依赖限制为 CAN/CAN FD extras；wheel 不再包含
   `linkerbot` namespace，sdist 不再携带内部测试。
 - 重写 README、API reference 和破坏性迁移说明，删除只能调用旧 manager 的型号文档。
