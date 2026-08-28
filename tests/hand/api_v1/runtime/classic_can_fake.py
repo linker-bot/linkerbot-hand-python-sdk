@@ -32,6 +32,7 @@ class ClassicCANDeviceScript:
     unsupported_queries: set[int] = field(default_factory=set)
     malformed_query_responses: dict[int, bytes] = field(default_factory=dict)
     bad_command_echoes: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    dropped_command_responses: set[int] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if self.model not in {"L6", "O6", "L20Lite", "L25"}:
@@ -101,6 +102,11 @@ class ClassicCANDeviceScript:
             and data[1] == self.tactile_selector
         ):
             self.read_counts[data[1]] += 1
+            if (
+                data[0] in self.unsupported_queries
+                or data[1] in self.unsupported_queries
+            ):
+                return ()
             return self._tactile_frames(data[0])
         if len(data) > 1 and data[0] in self.readings:
             self.command_payloads.append(data)
@@ -115,10 +121,17 @@ class ClassicCANDeviceScript:
                 if self.model == "L20Lite"
                 else set(range(0x41, 0x46))
             )
-            echo_opcodes = angle_opcodes | (
-                {0x02, 0x05, 0x38, 0xC5, 0xC6, 0xC7} if self.model == "L6" else set()
+            config_echo_opcodes = (
+                {0x02, 0x05, 0x38, 0xC5, 0xC6, 0xC7}
+                if self.model == "L6"
+                else {0x02, 0x05, 0x87, 0xC5, 0xC6, 0xC7}
+                if self.model == "O6"
+                else set()
             )
+            echo_opcodes = angle_opcodes | config_echo_opcodes
             if data[0] in echo_opcodes:
+                if data[0] in self.dropped_command_responses:
+                    return ()
                 echoed = self.bad_command_echoes.get(
                     data[0],
                     self.readings[data[0]],
@@ -219,6 +232,14 @@ def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
                     0xC5: (5,) * 6,
                     0xC6: (91,) * 6,
                     0xC7: (106,) * 6,
+                }
+            )
+        elif model == "O6":
+            readings.update(
+                {
+                    0xC5: (128,) * 6,
+                    0xC6: (5,) * 6,
+                    0xC7: (118,) * 6,
                 }
             )
         return readings

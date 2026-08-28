@@ -87,6 +87,7 @@ def test_tactile_transaction_pipelines_and_atomically_assembles_all_fingers(
         bytes((opcode, selector)) for opcode in _FINGERS
     )
     assert transaction.request_interval_s == request_interval_s
+    assert transaction.firmware_optional
 
     progress = None
     frames = [

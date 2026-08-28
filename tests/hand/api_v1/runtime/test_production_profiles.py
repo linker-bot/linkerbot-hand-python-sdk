@@ -13,6 +13,7 @@ from linkerbot_hand.api import (
     DataOrigin,
     DeviceConfig,
     DeviceNotReadyError,
+    ErrorCode,
     HandDevice,
     HandSide,
     IdentityMismatchError,
@@ -361,11 +362,105 @@ def test_o6_configuration_reads_are_device_responses_not_measurements() -> None:
         )
         for setter, getter, values, opcode in cases:
             handle = setter(values)
-            assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+            assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
             sample = getter(timeout=0.2)
             assert sample.raw == values
             assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
             assert transport.script.read_counts[opcode] >= 1
+    finally:
+        hand.close()
+
+
+def test_o6_stall_management_reads_writes_and_saves_parameters() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    hand.open()
+    try:
+        assert hand.get_stall_thresholds(timeout=0.2).raw == (128,) * 6
+        assert hand.get_stall_detection_times(timeout=0.2).raw == (5,) * 6
+        assert hand.get_stall_hold_currents(timeout=0.2).raw == (118,) * 6
+
+        cases = (
+            (hand.set_stall_thresholds, 0xC5, (129,) * 6),
+            (hand.set_stall_detection_times, 0xC6, (6,) * 6),
+            (hand.set_stall_hold_currents, 0xC7, (119,) * 6),
+        )
+        for setter, opcode, values in cases:
+            handle = setter(values)
+            assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+            assert transport.script.command_payloads[-1] == bytes((opcode, *values))
+
+        save = hand.save_parameters()
+        assert save.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert transport.script.command_payloads[-1] == bytes((0xCF,)) * 8
+    finally:
+        hand.close()
+
+
+def test_o6_bad_configuration_echo_fails_without_disconnecting() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    transport.script.bad_command_echoes[0xC5] = (128,) * 6
+    hand.open()
+    try:
+        handle = hand.set_stall_thresholds((129,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.error is not None
+        assert "did not echo" in handle.error.message
+        assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_o6_configuration_timeout_fails_without_firmware_read_degradation() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    transport.script.dropped_command_responses.add(0xC5)
+    hand.open()
+    try:
+        handle = hand.set_stall_thresholds((129,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.FAILED
+        assert handle.error is not None
+        assert handle.error.code is ErrorCode.TIMEOUT
+        assert hand.get_health().connected
+        assert not hand.get_capabilities().firmware_unsupported_telemetry
+    finally:
+        hand.close()
+
+
+def test_o6_optional_stall_query_degrades_without_disconnecting() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    transport.script.unsupported_queries.add(0xC5)
+    hand.open()
+    try:
+        with pytest.raises(UnsupportedFirmwareError, match="stall_thresholds"):
+            hand.get_stall_thresholds(timeout=0.2)
+
+        assert hand.get_health().connected
+        assert hand.get_capabilities().firmware_unsupported_telemetry == (
+            TelemetrySemantic.STALL_THRESHOLDS,
+        )
+        with pytest.raises(UnsupportedFirmwareError, match="stall_thresholds"):
+            hand.get_stall_thresholds(timeout=0.2)
+        assert transport.script.read_counts[0xC5] == 1
+    finally:
+        hand.close()
+
+
+def test_o6_optional_tactile_query_degrades_without_disconnecting() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    transport.script.unsupported_queries.add(0xA4)
+    hand.open()
+    try:
+        with pytest.raises(UnsupportedFirmwareError, match="force"):
+            hand.get_force(timeout=0.3)
+
+        assert hand.get_health().connected
+        assert hand.get_capabilities().firmware_unsupported_telemetry == (
+            TelemetrySemantic.FORCE,
+        )
+        with pytest.raises(UnsupportedFirmwareError, match="force"):
+            hand.get_force(timeout=0.3)
+        assert transport.script.read_counts[0xA4] == 5
     finally:
         hand.close()
 

@@ -222,6 +222,12 @@ def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:
         )
         assert _request_data(command) == bytes((opcode, *([100] * 6)))
         assert not command.dispatch_publications
+        assert command.terminal_acknowledges_command
+        response = command.consume(_reply(HandSide.RIGHT, opcode, (100,) * 6))
+        assert response.acknowledged
+        assert isinstance(response.result, SamplePayload)
+        assert response.result.semantic is telemetry_semantic
+        assert response.result.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         read = backend.read_transaction(telemetry_semantic, capabilities)
         payload = _payload(read, _reply(HandSide.RIGHT, opcode, (42,) * 6))
         assert payload.semantic is telemetry_semantic
@@ -229,6 +235,73 @@ def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:
 
     assert capabilities.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert capabilities.telemetry_channel(TelemetrySemantic.TORQUES) is None
+
+
+def test_o6_stall_configuration_uses_protocol_specific_opcode_order() -> None:
+    capabilities = get_declared_capabilities("o6", side="right")
+    backend = O6ProtocolBackend(HandSide.RIGHT)
+    cases = (
+        (
+            CommandSemantic.STALL_THRESHOLDS,
+            TelemetrySemantic.STALL_THRESHOLDS,
+            0xC5,
+        ),
+        (
+            CommandSemantic.STALL_DETECTION_TIMES,
+            TelemetrySemantic.STALL_DETECTION_TIMES,
+            0xC6,
+        ),
+        (
+            CommandSemantic.STALL_HOLD_CURRENTS,
+            TelemetrySemantic.STALL_HOLD_CURRENTS,
+            0xC7,
+        ),
+    )
+
+    for command_semantic, telemetry_semantic, opcode in cases:
+        values = (10, 20, 30, 40, 50, 60)
+        command = backend.command_transaction(
+            command_semantic,
+            values,
+            capabilities,
+        )
+        assert _request_data(command) == bytes((opcode, *values))
+        assert command.terminal_acknowledges_command
+        assert command.consume(_reply(HandSide.RIGHT, opcode, values)).acknowledged
+        with pytest.raises(ProtocolError, match="did not echo"):
+            command.consume(_reply(HandSide.RIGHT, opcode, (0,) * 6))
+
+        read = backend.read_transaction(telemetry_semantic, capabilities)
+        assert _request_data(read) == bytes((opcode,))
+        payload = _payload(read, _reply(HandSide.RIGHT, opcode, (1,) * 6))
+        assert payload.semantic is telemetry_semantic
+        assert payload.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+
+
+def test_o6_parameter_save_requires_cf_01_response() -> None:
+    capabilities = get_declared_capabilities("o6", side="right")
+    transaction = O6ProtocolBackend(HandSide.RIGHT).operation_transaction(
+        "save_parameters",
+        capabilities,
+    )
+
+    assert _request_data(transaction) == bytes((0xCF,)) * 8
+    assert transaction.response_acknowledges_command
+    assert transaction.consume(
+        can.Message(
+            arbitration_id=classic_route(HandSide.RIGHT).arbitration_id,
+            data=b"\xcf\x01",
+            is_extended_id=False,
+        )
+    ).acknowledged
+    with pytest.raises(ProtocolError, match="was not CF 01"):
+        transaction.consume(
+            can.Message(
+                arbitration_id=classic_route(HandSide.RIGHT).arbitration_id,
+                data=b"\xcf\x00",
+                is_extended_id=False,
+            )
+        )
 
 
 def test_unsolicited_replies_preserve_semantics_without_active_query() -> None:

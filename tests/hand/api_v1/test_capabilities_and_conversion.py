@@ -179,6 +179,51 @@ def test_o6_declared_sensor_shape_matches_04_b_contract() -> None:
 
     assert force is not None
     assert force.shape == (5, 10, 4)
+    assert force.unit_confidence is Confidence.UNKNOWN
+
+
+def test_o6_latest_protocol_metadata_exposes_units_and_stall_management() -> None:
+    capabilities = get_declared_capabilities("o6", side="right")
+    stall = capabilities.stall_protection
+
+    assert stall is not None
+    assert stall.channels == capabilities.joint_names
+    assert stall.read_supported and stall.write_supported
+    assert stall.detection_time.raw_scale_note == "10 ms/count"
+    assert "1000/255 mA/count" in (stall.threshold.raw_scale_note or "")
+    assert stall.threshold.unit_confidence is Confidence.DOCUMENTED
+    assert "physical semantics conflict" in (stall.hold_current.raw_scale_note or "")
+    assert stall.hold_current.unit_confidence is Confidence.CONFLICTING
+    assert capabilities.operations.save_parameters
+    assert capabilities.operations.read_stall_protection
+    assert capabilities.operations.write_stall_protection
+    assert "save_parameters" in capabilities.operations.acknowledged_operations
+
+    speed = capabilities.command(CommandSemantic.SPEEDS)
+    acceleration = capabilities.command(CommandSemantic.ACCELERATIONS)
+    current_limit = capabilities.command(CommandSemantic.CURRENT_LIMITS)
+    faults = capabilities.telemetry_channel(TelemetrySemantic.FAULTS)
+    temperature = capabilities.telemetry_channel(TelemetrySemantic.TEMPERATURES)
+    assert speed is not None and "0.732 rpm/count" in (speed.raw_scale_note or "")
+    assert acceleration is not None and "8.7" in (acceleration.raw_scale_note or "")
+    assert current_limit is not None and "6.5 mA/count" in (
+        current_limit.raw_scale_note or ""
+    )
+    assert all(
+        command.ack_support is AckSupport.SUPPORTED
+        for command in (speed, acceleration, current_limit)
+    )
+    assert faults is not None and "bit5 load overload" in (faults.raw_scale_note or "")
+    assert temperature is not None and temperature.raw_unit == "degree_celsius"
+
+
+def test_o6_acceleration_excludes_protocol_byte_ff() -> None:
+    capabilities = get_declared_capabilities("o6", side="right")
+    acceleration = capabilities.command(CommandSemantic.ACCELERATIONS)
+
+    assert acceleration is not None
+    assert acceleration.range_for(0).contains(254)
+    assert not acceleration.range_for(0).contains(255)
 
 
 def test_l6_percent_mapping_matches_measured_raw_direction() -> None:

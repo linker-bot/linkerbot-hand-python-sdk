@@ -1,5 +1,7 @@
 """O6 04-B five-finger 10 by 4 tactile transaction."""
 
+from dataclasses import replace
+
 from ...capabilities.types import DeviceCapabilities
 from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
@@ -14,7 +16,7 @@ def o6_tactile_transaction(
     """Build the complete pipelined ``B1..B5 A4`` transaction."""
 
     # O6 04-B can drop one B1 row when all five selectors arrive back-to-back.
-    return tactile_transaction(
+    transaction = tactile_transaction(
         capabilities,
         route=classic_route(capabilities.side),
         selector=0xA4,
@@ -24,6 +26,7 @@ def o6_tactile_transaction(
         response_timeout_s=0.08,
         late_response_guard_s=0.03,
     )
+    return replace(transaction, firmware_optional=True)
 
 
 __all__ = ["o6_tactile_transaction"]

@@ -274,6 +274,25 @@ def test_o6_non_b_variant_does_not_advertise_tactile() -> None:
     assert result.capabilities.telemetry_channel(TelemetrySemantic.FORCE) is None
 
 
+def test_o6_identity_does_not_gate_connection_by_firmware_version() -> None:
+    declared = get_declared_capabilities("o6", side="right")
+    transaction = o6_identity_transaction(declared)
+
+    result = _consume_identity(
+        transaction,
+        _identity_frames(
+            HandSide.RIGHT,
+            b"LHO6-04.1-730-R-B-1-D",
+            l6=False,
+            firmware=(1, 1, 1),
+        ),
+    )
+
+    assert result.capabilities.identity.verified
+    assert result.capabilities.identity.firmware == "1.1.1"
+    assert result.capabilities.telemetry_channel(TelemetrySemantic.FORCE) is not None
+
+
 def test_factory_side_mismatch_is_rejected() -> None:
     transaction = o6_identity_transaction(get_declared_capabilities("o6", side="left"))
     frames = _identity_frames(

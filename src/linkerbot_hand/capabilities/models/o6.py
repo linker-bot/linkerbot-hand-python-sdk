@@ -1,11 +1,14 @@
 """Declared O6 capability profile available before device identification."""
 
+from ...api.commands import AckSupport
 from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
 from ..ranges import NumericRange
 from ..types import (
     CommandSemantic,
     DeviceCapabilities,
     OperationCapabilities,
+    StallFieldCapability,
+    StallProtectionCapability,
     TelemetrySemantic,
 )
 from ._common import (
@@ -40,6 +43,37 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         )
         for index, name in enumerate(_JOINT_NAMES)
     )
+    stall = StallProtectionCapability(
+        channels=_JOINT_NAMES,
+        detection_time=StallFieldCapability(
+            raw_range=U8_RANGE,
+            raw_encoding="u8",
+            raw_unit="count",
+            raw_scale_note="10 ms/count",
+            unit_confidence=Confidence.DOCUMENTED,
+        ),
+        threshold=StallFieldCapability(
+            raw_range=U8_RANGE,
+            raw_encoding="u8",
+            raw_unit="count",
+            raw_scale_note="1000/255 mA/count; lock/stall trigger threshold",
+            unit_confidence=Confidence.DOCUMENTED,
+        ),
+        hold_current=StallFieldCapability(
+            raw_range=U8_RANGE,
+            raw_encoding="u8",
+            raw_unit="count",
+            raw_scale_note=(
+                "1000/255 mA/count according to the formula; the protocol calls "
+                "this field lock/stall torque, so its physical semantics conflict"
+            ),
+            unit_confidence=Confidence.CONFLICTING,
+        ),
+        physical_semantics_confidence=Confidence.CONFLICTING,
+        safety_range_verified=False,
+        read_supported=True,
+        write_supported=True,
+    )
     return DeviceCapabilities(
         identity=identity(
             "O6",
@@ -63,8 +97,12 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 U8_RANGE,
                 "u8",
                 raw_unit="count",
-                raw_scale_note="documentation states value * 180 / 255",
+                raw_scale_note=(
+                    "the title states 0.732 rpm/count, while the formula states "
+                    "raw * 180 / 255 rpm; the physical scale is unresolved"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.ACCELERATIONS,
@@ -72,8 +110,13 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 _ACCELERATION_RANGE,
                 "u8",
                 raw_unit="count",
-                raw_scale_note="zero is a special maximum-acceleration encoding",
+                raw_scale_note=(
+                    "the title states 8.7 degree_per_second_squared/count, while "
+                    "the formula states raw * 254 / 255; raw 0 is a special "
+                    "maximum-acceleration encoding and raw 1..254 increases"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.CURRENT_LIMITS,
@@ -81,8 +124,43 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 U8_RANGE,
                 "u8",
                 raw_unit="count",
-                raw_scale_note="source title and value * 1000 / 255 formula conflict",
+                raw_scale_note=(
+                    "the title states 6.5 mA/count, while the formula states "
+                    "raw * 1000 / 255 mA; this is a current-limit configuration, "
+                    "not measured torque"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
+                CommandSemantic.STALL_DETECTION_TIMES,
+                _JOINT_NAMES,
+                U8_RANGE,
+                "u8",
+                raw_unit=stall.detection_time.raw_unit,
+                raw_scale_note=stall.detection_time.raw_scale_note,
+                unit_confidence=stall.detection_time.unit_confidence,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
+                CommandSemantic.STALL_THRESHOLDS,
+                _JOINT_NAMES,
+                U8_RANGE,
+                "u8",
+                raw_unit=stall.threshold.raw_unit,
+                raw_scale_note=stall.threshold.raw_scale_note,
+                unit_confidence=stall.threshold.unit_confidence,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
+                CommandSemantic.STALL_HOLD_CURRENTS,
+                _JOINT_NAMES,
+                U8_RANGE,
+                "u8",
+                raw_unit=stall.hold_current.raw_unit,
+                raw_scale_note=stall.hold_current.raw_scale_note,
+                unit_confidence=stall.hold_current.unit_confidence,
+                ack_support=AckSupport.SUPPORTED,
             ),
         ),
         telemetry=(
@@ -99,7 +177,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
-                raw_scale_note="configuration response; not measured joint speed",
+                raw_scale_note=(
+                    "configuration response, not measured joint speed; the title "
+                    "states 0.732 rpm/count while the formula states raw * 180 / "
+                    "255 rpm"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
                 recommended_hz=30,
                 stale_after_s=0.1,
@@ -113,7 +195,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(6,),
                 raw_range=_ACCELERATION_RANGE,
                 raw_unit="count",
-                raw_scale_note="configuration response with zero special encoding",
+                raw_scale_note=(
+                    "configuration response, not measured acceleration; raw 0 is "
+                    "a special maximum encoding and the documented physical scales "
+                    "conflict"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
                 recommended_hz=10,
                 stale_after_s=0.3,
@@ -127,7 +213,10 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
-                raw_scale_note="configuration response; source unit is conflicting",
+                raw_scale_note=(
+                    "current-limit configuration response; 6.5 mA/count in the "
+                    "title conflicts with the raw * 1000 / 255 mA formula"
+                ),
                 unit_confidence=Confidence.CONFLICTING,
                 recommended_hz=30,
                 stale_after_s=0.1,
@@ -141,8 +230,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(5, 10, 4),
                 raw_range=U8_RANGE,
                 raw_unit="count",
-                raw_scale_note="available only after selecting a compatible sensor profile",
-                unit_confidence=Confidence.MEASURED,
+                raw_scale_note=(
+                    "raw tactile normal-force sensor count; physical calibration "
+                    "is unknown; available only for a compatible identity profile"
+                ),
+                unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.012,
@@ -154,6 +246,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit="degree_celsius",
+                raw_scale_note="protocol byte is expressed as 1 degree Celsius/count",
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=1,
                 stale_after_s=3,
@@ -166,15 +259,46 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
+                raw_scale_note=(
+                    "bit5 load overload; bit3 over-current; bit2 over-temperature; "
+                    "bit1 magnetic-encoder fault; bit0 over/under-voltage; bits "
+                    "7, 6, and 4 reserved"
+                ),
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=5,
                 stale_after_s=0.5,
                 estimated_transaction_s=0.005,
             ),
+            *(
+                telemetry(
+                    semantic,
+                    _JOINT_NAMES,
+                    "u8",
+                    shape=(6,),
+                    raw_range=field.raw_range,
+                    raw_unit=field.raw_unit,
+                    raw_scale_note=field.raw_scale_note,
+                    unit_confidence=field.unit_confidence,
+                    recommended_hz=1,
+                    stale_after_s=3,
+                    estimated_transaction_s=0.005,
+                    device_measured=False,
+                )
+                for semantic, field in (
+                    (TelemetrySemantic.STALL_DETECTION_TIMES, stall.detection_time),
+                    (TelemetrySemantic.STALL_THRESHOLDS, stall.threshold),
+                    (TelemetrySemantic.STALL_HOLD_CURRENTS, stall.hold_current),
+                )
+            ),
         ),
-        stall_protection=None,
+        stall_protection=stall,
         transport=transport(TransportKind.CAN),
-        operations=OperationCapabilities(),
+        operations=OperationCapabilities(
+            save_parameters=True,
+            read_stall_protection=True,
+            write_stall_protection=True,
+            acknowledged_operations=("save_parameters",),
+        ),
     )
 
 
