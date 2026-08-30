@@ -247,6 +247,32 @@ if angles is not None and angles.meta.valid and not angles.meta.stale:
 
 断线或代次变化后，旧样本立即失效。反馈超出声明范围时保留真实 raw，不静默 clamp。
 
+专用状态消费线程可等待缓存变化，避免按固定周期扫描时与设备反馈发生同频混叠：
+
+```python
+previous = hand.get_snapshot()
+while running:
+    current = hand.wait_for_snapshot(previous, timeout=0.05)
+    if (
+        current.connection_generation,
+        current.snapshot_sequence,
+    ) != (
+        previous.connection_generation,
+        previous.snapshot_sequence,
+    ):
+        consume(current)
+    previous = current
+```
+
+`wait_for_snapshot(previous, timeout)` 只等待 copy-on-write 缓存的连接代次或 sequence
+变化，不调用 protocol 或 transport。超时后返回重新计算 age/stale 的当前缓存，因此返回值可能
+与 `previous` 具有相同 revision。该方法是明确的阻塞接口，只应在专用消费线程使用；命令、
+ROS subscription、timer 和 diagnostics callback 仍应调用非阻塞 `get_snapshot()`。
+
+只消费主动查询状态的发布线程可传入
+`wake_on_command_feedback=False`。设备命令反馈仍正常写入快照和健康指标，但只由命令反馈
+产生的 revision 不会唤醒该线程；其他通道、主动查询、连接失效和连接代次变化仍会唤醒。
+
 ## 健康状态
 
 `get_health()` 只读内存，至少报告：

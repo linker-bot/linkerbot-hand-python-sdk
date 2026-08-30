@@ -24,7 +24,8 @@ The complete Chinese API reference is under
 - Query-backed `get_*()` methods perform a fresh on-demand transaction.
   Getters declared as `COMMAND_CACHE` or `COMMAND_RESPONSE` return explicitly
   identified host cache state or a device write response. `get_snapshot()` and
-  `get_health()` always read memory only.
+  `get_health()` always read memory only. Dedicated consumer threads may use
+  `wait_for_snapshot()` to wait for a cache revision without device I/O.
 - The SDK is the sole owner of periodic device queries. Applications and ROS
   submit a `PollingPlan` instead of creating another query timer.
 - The core package does not depend on NumPy, SciPy, ROS, the Arm SDK, or the

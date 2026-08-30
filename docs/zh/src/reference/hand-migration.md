@@ -82,7 +82,7 @@ ROS 2 映射：
 | `on_configure` | 构造 transport 和 `HandDevice`，读取 declared capability |
 | `on_activate` | `open()`，读取 verified capability，`start_polling()` |
 | command callback | 只调用 `set_*()` 并立即返回 |
-| publisher/diagnostics | 只调用 `get_snapshot()` / `get_health()` |
+| publisher/diagnostics | callback 只调用 `get_snapshot()` / `get_health()`；专用发布线程可调用 `wait_for_snapshot()` |
 | `on_deactivate` | `stop_polling()` |
 | `on_cleanup` / shutdown | `close()` |
 

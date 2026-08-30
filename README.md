@@ -18,7 +18,8 @@ L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号�
   `0=弯曲/闭合，100=伸直/张开`。
 - 查询型 `get_*()` 主动执行一次新事务；声明为 `COMMAND_CACHE` 或
   `COMMAND_RESPONSE` 的 getter 只返回明确标注来源的主机缓存或设备写响应。
-  `get_snapshot()` 和 `get_health()` 始终只读内存。
+  `get_snapshot()` 和 `get_health()` 始终只读内存；专用消费线程可用
+  `wait_for_snapshot()` 等待缓存 revision，不产生设备 I/O。
 - SDK 是设备周期查询的唯一所有者，ROS 或应用只提交 `PollingPlan`。
 - 核心包不依赖 NumPy、SciPy、ROS、机械臂或旧聚合 SDK。
 

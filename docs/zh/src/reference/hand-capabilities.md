@@ -140,7 +140,7 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
 提供的型号、左右手、固件、硬件/机械版本、传感器变体、序列号和产品编码。
 
 例如 O6 `04-B` profile 使用五指 `10x4` 触觉。L6/O6 都不设置最低固件连接门槛；旧固件可
-连接，可选查询首次超时或结构不符时只禁用该通道并抛出
+连接；可选查询连续 3 次超时或结构不符时才禁用该通道并抛出
 `UnsupportedFirmwareError`，其他能力保持运行。身份变化仍抛出
 `IdentityMismatchError`。逐接口和版本证据见 [L6 型号文档](./models/l6.md)、
 [L6 固件支持证据](./models/l6-firmware-support.md)、[O6 型号文档](./models/o6.md) 与
