@@ -8,7 +8,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Linkerbot" }]
 dependencies = [
-  "linkerbot-transport[can,canfd]>=0.1.4,<0.2.0",
+  "linkerbot-transport[can,canfd]>=1.0.0rc2,<2.0.0",
 ]
 
 [project.urls]
