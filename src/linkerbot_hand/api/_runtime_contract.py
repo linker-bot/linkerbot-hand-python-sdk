@@ -45,6 +45,14 @@ class DeviceRuntimeContract(Protocol):
 
     def get_snapshot(self) -> HandSnapshot: ...
 
+    def wait_for_snapshot(
+        self,
+        previous: HandSnapshot,
+        timeout: float,
+        *,
+        wake_on_command_feedback: bool = True,
+    ) -> HandSnapshot: ...
+
     def get_health(self) -> HealthStatus: ...
 
 

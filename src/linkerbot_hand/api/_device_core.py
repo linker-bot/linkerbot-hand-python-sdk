@@ -195,6 +195,24 @@ class _DeviceCore:
             return self._initial_snapshot
         return runtime.get_snapshot()
 
+    def _wait_for_snapshot(
+        self,
+        previous: HandSnapshot,
+        timeout: float,
+        *,
+        wake_on_command_feedback: bool,
+    ) -> HandSnapshot:
+        """Wait for a cache revision or timeout without producing device I/O."""
+
+        if not isinstance(previous, HandSnapshot):
+            raise ValidationError("previous must be HandSnapshot")
+        timeout_s = _coerce_timeout(timeout)
+        return self._require_runtime("wait_for_snapshot").wait_for_snapshot(
+            previous,
+            timeout_s,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
+
     def get_health(self) -> HealthStatus:
         """Return cached lifecycle and scheduler health without device I/O."""
 

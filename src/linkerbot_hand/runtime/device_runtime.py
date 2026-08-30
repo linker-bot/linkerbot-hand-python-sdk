@@ -361,6 +361,25 @@ class DeviceRuntime:
             monotonic_now=self._clock.monotonic(),
         )
 
+    def wait_for_snapshot(
+        self,
+        previous: HandSnapshot,
+        timeout: float,
+        *,
+        wake_on_command_feedback: bool = True,
+    ) -> HandSnapshot:
+        """Wait for a visible cache revision without accessing the transport."""
+
+        changed = self._snapshot_store.wait_for_aged_change(
+            connection_generation=previous.connection_generation,
+            snapshot_sequence=previous.snapshot_sequence,
+            timeout_s=timeout,
+            captured_at=self._clock.time,
+            monotonic_now=self._clock.monotonic,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
+        return self.get_snapshot() if changed is None else changed
+
     def get_health(self) -> HealthStatus:
         """Return cached runtime/transport metrics without device traffic."""
 

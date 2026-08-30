@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from ..api._initial_state import make_initial_snapshot
@@ -37,6 +38,12 @@ class _GenerationState:
     device_info_collected_monotonic: float | None
     sequences: dict[TelemetrySemantic, int]
     device_info_sequence: int
+    last_change: HandSnapshot
+    last_change_collected_monotonic: dict[TelemetrySemantic, float]
+    last_change_device_info_collected_monotonic: float | None
+    last_non_command_feedback_change: HandSnapshot
+    last_non_command_feedback_collected_monotonic: dict[TelemetrySemantic, float]
+    last_non_command_feedback_device_info_collected_monotonic: float | None
 
 
 class SnapshotStore:
@@ -52,6 +59,8 @@ class SnapshotStore:
         if not isinstance(initial_snapshot, HandSnapshot):
             raise ValidationError("initial_snapshot must be HandSnapshot")
         self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
+        self._changed_without_command_feedback = threading.Condition(self._lock)
         self._current = _generation_state(capabilities, initial_snapshot)
         self._candidate: _GenerationState | None = None
 
@@ -87,6 +96,9 @@ class SnapshotStore:
                 raise ProtocolError("snapshot candidate generation is unavailable")
             self._current = candidate
             self._candidate = None
+            _record_visible_change(candidate, command_feedback=False)
+            self._changed.notify_all()
+            self._changed_without_command_feedback.notify_all()
 
     def reset_invalid(
         self,
@@ -107,6 +119,8 @@ class SnapshotStore:
         with self._lock:
             self._current = _generation_state(capabilities, invalid)
             self._candidate = None
+            self._changed.notify_all()
+            self._changed_without_command_feedback.notify_all()
 
     def publish(
         self,
@@ -143,18 +157,20 @@ class SnapshotStore:
             )
             sample = build_sample(payload, meta, state.capabilities)
             attribute = SAMPLE_ATTRIBUTES[payload.semantic]
-            updated = replace(
+            state.snapshot = replace(
                 state.snapshot,
                 captured_at=collected_at,
                 snapshot_sequence=state.snapshot.snapshot_sequence + 1,
                 **{attribute: sample},
             )
-            state.snapshot = replace(
-                updated,
-                joints=build_joints(updated, state.capabilities),
-            )
             state.sequences[payload.semantic] = sequence
             state.collected_monotonic[payload.semantic] = collected_monotonic
+            command_feedback = payload.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
+            _record_visible_change(state, command_feedback=command_feedback)
+            if state is self._current:
+                self._changed.notify_all()
+                if not command_feedback:
+                    self._changed_without_command_feedback.notify_all()
             return sample
 
     def publish_device_info(
@@ -199,6 +215,10 @@ class SnapshotStore:
                 device_info=published,
             )
             state.device_info_collected_monotonic = collected_monotonic
+            _record_visible_change(state, command_feedback=False)
+            if state is self._current:
+                self._changed.notify_all()
+                self._changed_without_command_feedback.notify_all()
             return published
 
     def invalidate(self, *, generation: int, captured_at: float) -> None:
@@ -215,7 +235,149 @@ class SnapshotStore:
             )
             self._current.collected_monotonic.clear()
             self._current.device_info_collected_monotonic = None
+            _record_visible_change(self._current, command_feedback=False)
             self._candidate = None
+            self._changed.notify_all()
+            self._changed_without_command_feedback.notify_all()
+
+    def wait_for_update(
+        self,
+        *,
+        connection_generation: int,
+        snapshot_sequence: int,
+        timeout_s: float,
+        wake_on_command_feedback: bool = True,
+    ) -> bool:
+        """Wait boundedly for a visible snapshot revision, without device I/O."""
+
+        _validate_wait_arguments(
+            connection_generation=connection_generation,
+            snapshot_sequence=snapshot_sequence,
+            timeout_s=timeout_s,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
+        condition = (
+            self._changed
+            if wake_on_command_feedback
+            else self._changed_without_command_feedback
+        )
+        with condition:
+            return condition.wait_for(
+                lambda: self._has_visible_update_locked(
+                    connection_generation=connection_generation,
+                    snapshot_sequence=snapshot_sequence,
+                    wake_on_command_feedback=wake_on_command_feedback,
+                ),
+                timeout=float(timeout_s),
+            )
+
+    def wait_for_aged_change(
+        self,
+        *,
+        connection_generation: int,
+        snapshot_sequence: int,
+        timeout_s: float,
+        captured_at: Callable[[], float],
+        monotonic_now: Callable[[], float],
+        wake_on_command_feedback: bool = True,
+    ) -> HandSnapshot | None:
+        """Return one exact revision with coherent current age and stale flags."""
+
+        _validate_wait_arguments(
+            connection_generation=connection_generation,
+            snapshot_sequence=snapshot_sequence,
+            timeout_s=timeout_s,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
+        if not callable(captured_at):
+            raise ValidationError("captured_at must be callable")
+        if not callable(monotonic_now):
+            raise ValidationError("monotonic_now must be callable")
+        condition = (
+            self._changed
+            if wake_on_command_feedback
+            else self._changed_without_command_feedback
+        )
+        with condition:
+            changed = condition.wait_for(
+                lambda: self._has_visible_update_locked(
+                    connection_generation=connection_generation,
+                    snapshot_sequence=snapshot_sequence,
+                    wake_on_command_feedback=wake_on_command_feedback,
+                ),
+                timeout=float(timeout_s),
+            )
+            if not changed:
+                return None
+            state = self._current
+            if wake_on_command_feedback:
+                snapshot = state.last_change
+                collected_monotonic = state.last_change_collected_monotonic
+                device_info_collected_monotonic = (
+                    state.last_change_device_info_collected_monotonic
+                )
+            else:
+                snapshot = state.last_non_command_feedback_change
+                collected_monotonic = (
+                    state.last_non_command_feedback_collected_monotonic
+                )
+                device_info_collected_monotonic = (
+                    state.last_non_command_feedback_device_info_collected_monotonic
+                )
+            capabilities = state.capabilities
+            generation = state.generation
+        return _build_view(
+            snapshot,
+            capabilities=capabilities,
+            generation=generation,
+            collected_monotonic=collected_monotonic,
+            device_info_collected_monotonic=device_info_collected_monotonic,
+            captured_at=captured_at(),
+            monotonic_now=monotonic_now(),
+        )
+
+    def wait_for_change(
+        self,
+        *,
+        connection_generation: int,
+        snapshot_sequence: int,
+        timeout_s: float,
+        wake_on_command_feedback: bool = True,
+    ) -> HandSnapshot | None:
+        """Return an exact visible cache change, or ``None`` after a timeout."""
+
+        _validate_wait_arguments(
+            connection_generation=connection_generation,
+            snapshot_sequence=snapshot_sequence,
+            timeout_s=timeout_s,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
+
+        condition = (
+            self._changed
+            if wake_on_command_feedback
+            else self._changed_without_command_feedback
+        )
+        with condition:
+            changed = condition.wait_for(
+                lambda: self._has_visible_update_locked(
+                    connection_generation=connection_generation,
+                    snapshot_sequence=snapshot_sequence,
+                    wake_on_command_feedback=wake_on_command_feedback,
+                ),
+                timeout=float(timeout_s),
+            )
+            if not changed:
+                return None
+            state = self._current
+            if wake_on_command_feedback:
+                snapshot = state.last_change
+            else:
+                snapshot = state.last_non_command_feedback_change
+            return replace(
+                snapshot,
+                joints=build_joints(snapshot, state.capabilities),
+            )
 
     def view(self, *, captured_at: float, monotonic_now: float) -> HandSnapshot:
         """Return an immutable cache-only view with current age and stale flags."""
@@ -224,27 +386,21 @@ class SnapshotStore:
         _validate_time(monotonic_now)
         with self._lock:
             state = self._current
-            updates: dict[str, object] = {"captured_at": captured_at}
-            for semantic, attribute in SAMPLE_ATTRIBUTES.items():
-                sample = getattr(state.snapshot, attribute)
-                if sample is not None:
-                    updates[attribute] = age_sample(
-                        semantic,
-                        sample,
-                        monotonic_now=monotonic_now,
-                        collected_monotonic=state.collected_monotonic.get(semantic),
-                        capabilities=state.capabilities,
-                        generation=state.generation,
-                    )
-            device_info = state.snapshot.device_info
-            if device_info is not None:
-                updates["device_info"] = age_device_info(
-                    device_info,
-                    monotonic_now=monotonic_now,
-                    collected_monotonic=state.device_info_collected_monotonic,
-                    generation=state.generation,
-                )
-            return replace(state.snapshot, **updates)
+            snapshot = state.snapshot
+            capabilities = state.capabilities
+            generation = state.generation
+            collected_monotonic = dict(state.collected_monotonic)
+            device_info_collected_monotonic = state.device_info_collected_monotonic
+
+        return _build_view(
+            snapshot,
+            capabilities=capabilities,
+            generation=generation,
+            collected_monotonic=collected_monotonic,
+            device_info_collected_monotonic=device_info_collected_monotonic,
+            captured_at=captured_at,
+            monotonic_now=monotonic_now,
+        )
 
     def sample(
         self,
@@ -280,20 +436,26 @@ class SnapshotStore:
     ) -> dict[TelemetrySemantic, DataAge]:
         """Return health metadata derived only from canonical cached samples."""
 
-        snapshot = self.view(captured_at=captured_at, monotonic_now=monotonic_now)
+        _validate_time(captured_at)
+        _validate_time(monotonic_now)
+        with self._lock:
+            state = self._current
+            snapshot = state.snapshot
+            capabilities = state.capabilities
+            generation = state.generation
+            collected_monotonic = dict(state.collected_monotonic)
         result: dict[TelemetrySemantic, DataAge] = {}
         for semantic, attribute in SAMPLE_ATTRIBUTES.items():
             sample = getattr(snapshot, attribute)
             if sample is None:
                 continue
-            result[semantic] = DataAge(
-                channel=semantic.value,
-                age_s=sample.meta.age_s,
-                valid=sample.meta.valid,
-                stale=sample.meta.stale,
-                sequence=sample.meta.sequence,
-                connection_generation=sample.meta.connection_generation,
-                origin=sample.meta.origin,
+            result[semantic] = _data_age(
+                semantic,
+                sample.meta,
+                monotonic_now=monotonic_now,
+                collected_monotonic=collected_monotonic.get(semantic),
+                capabilities=capabilities,
+                generation=generation,
             )
         return result
 
@@ -306,6 +468,22 @@ class SnapshotStore:
         if self._current.generation == generation:
             return self._current
         raise ProtocolError("sample belongs to a stale connection generation")
+
+    def _has_visible_update_locked(
+        self,
+        *,
+        connection_generation: int,
+        snapshot_sequence: int,
+        wake_on_command_feedback: bool,
+    ) -> bool:
+        state = self._current
+        if state.generation != connection_generation:
+            return True
+        if wake_on_command_feedback:
+            return state.snapshot.snapshot_sequence != snapshot_sequence
+        return (
+            state.last_non_command_feedback_change.snapshot_sequence > snapshot_sequence
+        )
 
 
 def _generation_state(
@@ -320,6 +498,125 @@ def _generation_state(
         device_info_collected_monotonic=None,
         sequences={semantic: 0 for semantic in SAMPLE_ATTRIBUTES},
         device_info_sequence=0,
+        last_change=snapshot,
+        last_change_collected_monotonic={},
+        last_change_device_info_collected_monotonic=None,
+        last_non_command_feedback_change=snapshot,
+        last_non_command_feedback_collected_monotonic={},
+        last_non_command_feedback_device_info_collected_monotonic=None,
+    )
+
+
+def _record_visible_change(
+    state: _GenerationState,
+    *,
+    command_feedback: bool,
+) -> None:
+    collected_monotonic = dict(state.collected_monotonic)
+    state.last_change = state.snapshot
+    state.last_change_collected_monotonic = collected_monotonic
+    state.last_change_device_info_collected_monotonic = (
+        state.device_info_collected_monotonic
+    )
+    if command_feedback:
+        return
+    state.last_non_command_feedback_change = state.snapshot
+    state.last_non_command_feedback_collected_monotonic = collected_monotonic
+    state.last_non_command_feedback_device_info_collected_monotonic = (
+        state.device_info_collected_monotonic
+    )
+
+
+def _build_view(
+    snapshot: HandSnapshot,
+    *,
+    capabilities: DeviceCapabilities,
+    generation: int,
+    collected_monotonic: dict[TelemetrySemantic, float],
+    device_info_collected_monotonic: float | None,
+    captured_at: float,
+    monotonic_now: float,
+) -> HandSnapshot:
+    _validate_time(captured_at)
+    _validate_time(monotonic_now)
+    updates: dict[str, object] = {"captured_at": captured_at}
+    for semantic, attribute in SAMPLE_ATTRIBUTES.items():
+        sample = getattr(snapshot, attribute)
+        if sample is not None:
+            updates[attribute] = age_sample(
+                semantic,
+                sample,
+                monotonic_now=monotonic_now,
+                collected_monotonic=collected_monotonic.get(semantic),
+                capabilities=capabilities,
+                generation=generation,
+            )
+    device_info = snapshot.device_info
+    if device_info is not None:
+        updates["device_info"] = age_device_info(
+            device_info,
+            monotonic_now=monotonic_now,
+            collected_monotonic=device_info_collected_monotonic,
+            generation=generation,
+        )
+    view = replace(snapshot, **updates)
+    return replace(view, joints=build_joints(view, capabilities))
+
+
+def _validate_wait_arguments(
+    *,
+    connection_generation: int,
+    snapshot_sequence: int,
+    timeout_s: float,
+    wake_on_command_feedback: bool,
+) -> None:
+    if type(connection_generation) is not int or connection_generation < 0:
+        raise ValidationError("connection_generation must be a non-negative int")
+    if type(snapshot_sequence) is not int or snapshot_sequence < 0:
+        raise ValidationError("snapshot_sequence must be a non-negative int")
+    if not isinstance(wake_on_command_feedback, bool):
+        raise ValidationError("wake_on_command_feedback must be bool")
+    if (
+        isinstance(timeout_s, bool)
+        or not isinstance(timeout_s, (int, float))
+        or not math.isfinite(timeout_s)
+        or timeout_s <= 0
+    ):
+        raise ValidationError("timeout_s must be finite and positive")
+
+
+def _data_age(
+    semantic: TelemetrySemantic,
+    metadata: SampleMeta,
+    *,
+    monotonic_now: float,
+    collected_monotonic: float | None,
+    capabilities: DeviceCapabilities,
+    generation: int,
+) -> DataAge:
+    """Build health metadata without constructing an aged public sample."""
+
+    if not metadata.valid or collected_monotonic is None:
+        valid = metadata.valid and collected_monotonic is not None
+        return DataAge(
+            channel=semantic.value,
+            age_s=None,
+            valid=valid,
+            stale=True,
+            sequence=metadata.sequence if valid else 0,
+            connection_generation=generation,
+            origin=metadata.origin if valid else DataOrigin.NONE,
+        )
+    age_s = max(0.0, monotonic_now - collected_monotonic)
+    telemetry = capabilities.telemetry_channel(semantic)
+    return DataAge(
+        channel=semantic.value,
+        age_s=age_s,
+        valid=True,
+        stale=telemetry is None or age_s > telemetry.stale_after_s,
+        sequence=metadata.sequence,
+        connection_generation=generation,
+        origin=metadata.origin,
     )
 
 

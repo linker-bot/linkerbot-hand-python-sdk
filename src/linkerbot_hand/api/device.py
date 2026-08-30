@@ -8,6 +8,7 @@ from ..capabilities.types import CommandSemantic, TelemetrySemantic
 from ._device_core import _DeviceCore
 from .commands import CommandHandle
 from .device_info import DeviceInfo
+from .errors import ValidationError
 from .readings import (
     AngleSample,
     ConfiguredAccelerationSample,
@@ -24,6 +25,7 @@ from .readings import (
     TorqueSample,
     VoltageSample,
 )
+from .snapshot import HandSnapshot
 from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
@@ -45,6 +47,30 @@ class HandDevice(_DeviceCore):
 
         super().open()
         return self
+
+    def wait_for_snapshot(
+        self,
+        previous: HandSnapshot,
+        timeout: float,
+        *,
+        wake_on_command_feedback: bool = True,
+    ) -> HandSnapshot:
+        """Wait for cached state to change, returning the cache again on timeout.
+
+        This method never sends a device request. It is intended for a dedicated
+        consumer thread that wants change-driven state delivery. Command and ROS
+        callbacks should continue to use the non-blocking :meth:`get_snapshot`.
+        Set ``wake_on_command_feedback=False`` when command feedback is retained
+        in the cache but must not drive this consumer's publication loop.
+        """
+
+        if not isinstance(wake_on_command_feedback, bool):
+            raise ValidationError("wake_on_command_feedback must be bool")
+        return self._wait_for_snapshot(
+            previous,
+            timeout,
+            wake_on_command_feedback=wake_on_command_feedback,
+        )
 
     def set_angles(self, values: Iterable[RawNumber]) -> CommandHandle:
         """Submit exact protocol angle values without direction conversion."""

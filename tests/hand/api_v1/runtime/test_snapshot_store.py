@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import statistics
+import threading
 import time
 from dataclasses import FrozenInstanceError
 
@@ -49,6 +50,306 @@ def test_candidate_generation_remains_hidden_until_atomic_commit() -> None:
     after = store.view(captured_at=101.0, monotonic_now=10.0)
     assert after.connection_generation == 1
     assert after.angles is not None and after.angles.meta.valid
+
+
+def test_snapshot_waiter_wakes_only_for_visible_cache_revisions() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    store = SnapshotStore(capabilities, make_initial_snapshot(capabilities))
+    initial = store.view(captured_at=1.0, monotonic_now=1.0)
+    store.begin_generation(capabilities, generation=1, captured_at=2.0)
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.ANGLES, raw=(1,) * 6),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+
+    assert not store.wait_for_update(
+        connection_generation=initial.connection_generation,
+        snapshot_sequence=initial.snapshot_sequence,
+        timeout_s=0.01,
+    )
+
+    waiting = threading.Event()
+    result: list[bool] = []
+
+    def wait_for_commit() -> None:
+        waiting.set()
+        result.append(
+            store.wait_for_update(
+                connection_generation=initial.connection_generation,
+                snapshot_sequence=initial.snapshot_sequence,
+                timeout_s=0.5,
+            )
+        )
+
+    thread = threading.Thread(target=wait_for_commit)
+    thread.start()
+    assert waiting.wait(0.1)
+    store.commit_generation(generation=1)
+    thread.join(0.5)
+
+    assert not thread.is_alive()
+    assert result == [True]
+
+
+def test_snapshot_waiter_wakes_for_current_generation_publication() -> None:
+    store, _capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    waiting = threading.Event()
+    result: list[bool] = []
+
+    def wait_for_sample() -> None:
+        waiting.set()
+        result.append(
+            store.wait_for_update(
+                connection_generation=previous.connection_generation,
+                snapshot_sequence=previous.snapshot_sequence,
+                timeout_s=0.5,
+            )
+        )
+
+    thread = threading.Thread(target=wait_for_sample)
+    thread.start()
+    assert waiting.wait(0.1)
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.ANGLES, raw=(1,) * 6),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+    thread.join(0.5)
+
+    assert not thread.is_alive()
+    assert result == [True]
+
+
+def test_snapshot_waiter_can_ignore_command_feedback_only_revisions() -> None:
+    store, _capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    waiting = threading.Event()
+    result: list[bool] = []
+
+    def wait_for_query() -> None:
+        waiting.set()
+        result.append(
+            store.wait_for_update(
+                connection_generation=previous.connection_generation,
+                snapshot_sequence=previous.snapshot_sequence,
+                timeout_s=0.5,
+                wake_on_command_feedback=False,
+            )
+        )
+
+    thread = threading.Thread(target=wait_for_query)
+    thread.start()
+    assert waiting.wait(0.1)
+    store.publish(
+        SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(1,) * 6,
+            origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+        ),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+    time.sleep(0.02)
+    assert thread.is_alive()
+
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.ANGLES, raw=(2,) * 6),
+        generation=1,
+        collected_at=3.0,
+        collected_monotonic=3.0,
+    )
+    thread.join(0.5)
+
+    assert not thread.is_alive()
+    assert result == [True]
+
+
+def test_snapshot_change_wait_times_out_without_a_cache_revision() -> None:
+    store, _capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+
+    change = store.wait_for_change(
+        connection_generation=previous.connection_generation,
+        snapshot_sequence=previous.snapshot_sequence,
+        timeout_s=0.01,
+    )
+
+    assert change is None
+
+
+def test_filtered_snapshot_change_preserves_query_revision_after_command_echo() -> None:
+    store, _capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    store.publish(
+        SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(2,) * 6,
+            origin=DataOrigin.DEVICE_RESPONSE,
+        ),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+    store.publish(
+        SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(3,) * 6,
+            origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+        ),
+        generation=1,
+        collected_at=3.0,
+        collected_monotonic=3.0,
+    )
+
+    change = store.wait_for_change(
+        connection_generation=previous.connection_generation,
+        snapshot_sequence=previous.snapshot_sequence,
+        timeout_s=0.01,
+        wake_on_command_feedback=False,
+    )
+
+    assert change is not None
+    assert change.angles is not None
+    assert change.angles.raw == (2,) * 6
+    assert change.angles.meta.origin is DataOrigin.DEVICE_RESPONSE
+    assert tuple(joint.angle_raw for joint in change.joints) == (2,) * 6
+    latest = store.view(captured_at=3.0, monotonic_now=3.0)
+    assert latest.angles is not None
+    assert latest.angles.raw == (3,) * 6
+
+
+def test_snapshot_change_keeps_joint_projection_on_the_same_revision() -> None:
+    store, _capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.ANGLES, raw=(7,) * 6),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+
+    change = store.wait_for_change(
+        connection_generation=previous.connection_generation,
+        snapshot_sequence=previous.snapshot_sequence,
+        timeout_s=0.01,
+    )
+
+    assert change is not None
+    assert change.angles is not None
+    assert tuple(joint.angle_raw for joint in change.joints) == change.angles.raw
+
+
+def test_aged_change_preserves_filtered_revision_and_ages_every_channel() -> None:
+    store, _capabilities = make_store(model="l6")
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    store.publish(
+        SamplePayload(semantic=TelemetrySemantic.CURRENTS, raw=(7,) * 6),
+        generation=1,
+        collected_at=1.0,
+        collected_monotonic=1.0,
+    )
+    store.publish(
+        SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(2,) * 6,
+            origin=DataOrigin.DEVICE_RESPONSE,
+        ),
+        generation=1,
+        collected_at=2.0,
+        collected_monotonic=2.0,
+    )
+    store.publish(
+        SamplePayload(
+            semantic=TelemetrySemantic.ANGLES,
+            raw=(3,) * 6,
+            origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+        ),
+        generation=1,
+        collected_at=2.01,
+        collected_monotonic=2.01,
+    )
+
+    change = store.wait_for_aged_change(
+        connection_generation=previous.connection_generation,
+        snapshot_sequence=previous.snapshot_sequence,
+        timeout_s=0.01,
+        captured_at=lambda: 2.02,
+        monotonic_now=lambda: 2.02,
+        wake_on_command_feedback=False,
+    )
+
+    assert change is not None
+    assert change.angles is not None
+    assert change.angles.raw == (2,) * 6
+    assert change.angles.meta.origin is DataOrigin.DEVICE_RESPONSE
+    assert change.angles.meta.age_s == pytest.approx(0.02)
+    assert not change.angles.meta.stale
+    assert change.currents is not None
+    assert change.currents.meta.age_s == pytest.approx(1.02)
+    assert change.currents.meta.stale
+    assert tuple(joint.angle_raw for joint in change.joints) == (2,) * 6
+
+
+def test_snapshot_change_reports_generation_device_info_and_invalidation() -> None:
+    store, capabilities = make_store()
+    previous = store.view(captured_at=1.0, monotonic_now=1.0)
+    store.invalidate(generation=1, captured_at=2.0)
+
+    invalidated = store.wait_for_change(
+        connection_generation=previous.connection_generation,
+        snapshot_sequence=previous.snapshot_sequence,
+        timeout_s=0.01,
+    )
+
+    assert invalidated is not None
+    assert invalidated.connection_generation == 1
+    store.begin_generation(capabilities, generation=2, captured_at=3.0)
+    device_info = DeviceInfo(
+        model=capabilities.model,
+        serial_number="CHANGE-TEST",
+        pcb_version=None,
+        firmware_version=VersionField(raw=(2, 4, 5), text="2.4.5"),
+        mechanical_version=None,
+        product_code=None,
+        sensor_variant=None,
+        side=capabilities.side,
+        raw_identity=b"CHANGE-TEST",
+        meta=SampleMeta.unavailable(),
+    )
+    store.publish_device_info(
+        device_info,
+        generation=2,
+        collected_at=3.0,
+        collected_monotonic=3.0,
+    )
+    store.commit_generation(generation=2)
+    committed = store.wait_for_change(
+        connection_generation=invalidated.connection_generation,
+        snapshot_sequence=invalidated.snapshot_sequence,
+        timeout_s=0.01,
+    )
+    assert committed is not None
+    assert committed.connection_generation == 2
+    before_info = committed
+    store.publish_device_info(
+        device_info,
+        generation=2,
+        collected_at=4.0,
+        collected_monotonic=4.0,
+    )
+    info_change = store.wait_for_change(
+        connection_generation=before_info.connection_generation,
+        snapshot_sequence=before_info.snapshot_sequence,
+        timeout_s=0.01,
+    )
+    assert info_change is not None
+    assert info_change.device_info is not None
+    assert info_change.device_info.meta.sequence == 2
 
 
 def test_angle_publication_keeps_raw_and_derives_declared_representations() -> None:

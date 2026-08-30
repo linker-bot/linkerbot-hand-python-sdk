@@ -80,6 +80,7 @@ _PUBLIC_METHODS = (
     "calibrate",
     "save_parameters",
     "get_snapshot",
+    "wait_for_snapshot",
     "get_health",
     "get_capabilities",
     "recover",
@@ -165,6 +166,7 @@ class FakeRuntime:
         self.submissions: list[tuple[CommandSemantic, tuple[int | float, ...]]] = []
         self.polling_plans: list[PollingPlan] = []
         self.operations: list[str] = []
+        self.snapshot_wait_options: list[bool] = []
         self._opened = False
         self._close_pending = False
         self._polling_plan: PollingPlan | None = None
@@ -252,6 +254,19 @@ class FakeRuntime:
         return self.capabilities
 
     def get_snapshot(self):
+        return self.snapshot
+
+    def wait_for_snapshot(
+        self,
+        previous: HandSnapshot,
+        timeout: float,
+        *,
+        wake_on_command_feedback: bool = True,
+    ):
+        assert isinstance(previous, HandSnapshot)
+        assert timeout > 0
+        assert isinstance(wake_on_command_feedback, bool)
+        self.snapshot_wait_options.append(wake_on_command_feedback)
         return self.snapshot
 
     def get_health(self):
@@ -362,6 +377,32 @@ def test_only_one_device_facade_and_no_submit_aliases_are_public() -> None:
     assert hasattr(HandDevice, "set_percent_angles")
     assert hasattr(HandDevice, "get_angles")
     assert hasattr(HandDevice, "get_snapshot")
+    assert hasattr(HandDevice, "wait_for_snapshot")
+
+
+def test_wait_for_snapshot_is_one_explicit_cache_only_blocking_route() -> None:
+    factory = RuntimeFactory()
+    hand = make_device(runtime_factory=factory).open()
+    previous = hand.get_snapshot()
+
+    current = hand.wait_for_snapshot(previous, timeout=0.1)
+
+    assert current is previous
+    hand.wait_for_snapshot(
+        previous,
+        timeout=0.1,
+        wake_on_command_feedback=False,
+    )
+    assert factory.runtime is not None
+    assert factory.runtime.snapshot_wait_options == [True, False]
+    with pytest.raises(ValidationError, match="previous"):
+        hand.wait_for_snapshot(object(), timeout=0.1)  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValidationError, match="wake_on_command_feedback"):
+        hand.wait_for_snapshot(
+            previous,
+            timeout=0.1,
+            wake_on_command_feedback=1,  # ty: ignore[invalid-argument-type]
+        )
 
 
 def test_value_validation_happens_before_closed_state_rejection() -> None:
