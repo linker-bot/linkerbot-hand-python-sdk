@@ -91,6 +91,29 @@ def test_acknowledged_command_reports_every_real_delivery_stage() -> None:
         hand.close()
 
 
+def test_command_dispatch_does_not_build_transport_health_snapshots() -> None:
+    hand, _state, transport = make_hand()
+    health_calls = 0
+    original_get_health = transport.get_health
+
+    def counted_get_health():
+        nonlocal health_calls
+        health_calls += 1
+        return original_get_health()
+
+    transport.get_health = counted_get_health  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        calls_after_open = health_calls
+
+        handle = hand.set_angles((10,) * 6)
+
+        assert handle.wait(timeout=1) is CommandStage.DISPATCHED
+        assert health_calls == calls_after_open
+    finally:
+        hand.close()
+
+
 def test_staged_operation_dispatches_only_after_the_final_stage_send() -> None:
     hand, state, transport = make_hand(capabilities=get_declared_capabilities("l30"))
     backend = transport.backends["fake-hand"]

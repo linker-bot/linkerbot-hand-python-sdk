@@ -9,6 +9,7 @@ import pytest
 
 from linkerbot_hand import TelemetrySemantic
 from linkerbot_hand.api import (
+    AngleFeedbackPolicy,
     CommandStage,
     DataOrigin,
     DeviceConfig,
@@ -18,6 +19,8 @@ from linkerbot_hand.api import (
     HandSide,
     IdentityMismatchError,
     PollingPlan,
+    ProtocolError,
+    TimeoutError,
     TransportError,
     UnsupportedFirmwareError,
     ValidationError,
@@ -246,8 +249,8 @@ def test_l6_optional_current_query_degrades_without_disconnecting() -> None:
             channel for channel in health.channels if channel.channel == "currents"
         )
         assert current_health.requested_hz == 0
-        assert current_health.timeouts == 1
-        assert transport.script.read_counts[0x36] == current_count == 1
+        assert current_health.timeouts == 3
+        assert transport.script.read_counts[0x36] == current_count == 3
         assert transport.script.read_counts[0x01] > angle_count
 
         with pytest.raises(UnsupportedFirmwareError, match="currents"):
@@ -259,7 +262,7 @@ def test_l6_optional_current_query_degrades_without_disconnecting() -> None:
 
 
 @pytest.mark.parametrize("response", (b"\x36", b"\x36\x01"))
-def test_l6_malformed_optional_current_reply_degrades_once(
+def test_l6_malformed_optional_current_reply_degrades_after_three_failures(
     response: bytes,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -268,12 +271,16 @@ def test_l6_malformed_optional_current_reply_degrades_once(
     hand.open()
     try:
         with caplog.at_level("WARNING", logger="linkerbot_hand.runtime._device_actor"):
+            with pytest.raises(ProtocolError):
+                hand.get_currents(timeout=0.2)
+            with pytest.raises(ProtocolError):
+                hand.get_currents(timeout=0.2)
             with pytest.raises(UnsupportedFirmwareError, match="currents"):
                 hand.get_currents(timeout=0.2)
             with pytest.raises(UnsupportedFirmwareError, match="currents"):
                 hand.get_currents(timeout=0.2)
 
-        assert transport.script.read_counts[0x36] == 1
+        assert transport.script.read_counts[0x36] == 3
         warnings = [
             record
             for record in caplog.records
@@ -281,6 +288,31 @@ def test_l6_malformed_optional_current_reply_degrades_once(
         ]
         assert len(warnings) == 1
         assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_successful_optional_read_clears_consecutive_failure_count() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    hand.open()
+    try:
+        transport.script.unsupported_queries.add(0x36)
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                hand.get_currents(timeout=0.2)
+
+        transport.script.unsupported_queries.clear()
+        assert hand.get_currents(timeout=0.2).raw == (1, 2, 3, 4, 5, 6)
+
+        transport.script.unsupported_queries.add(0x36)
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                hand.get_currents(timeout=0.2)
+        assert not hand.get_capabilities().firmware_unsupported_telemetry
+
+        with pytest.raises(UnsupportedFirmwareError, match="currents"):
+            hand.get_currents(timeout=0.2)
+        assert transport.script.read_counts[0x36] == 6
     finally:
         hand.close()
 
@@ -320,9 +352,19 @@ def test_l6_recovery_reprobes_runtime_firmware_capabilities() -> None:
         )
 
         transport.script.unsupported_queries.clear()
+        reads_before_recovery = transport.script.read_counts[0x36]
         hand.recover(timeout=1)
+
+        def recovered_current_sample_is_valid() -> bool:
+            currents = hand.get_snapshot().currents
+            return (
+                transport.script.read_counts[0x36] > reads_before_recovery
+                and currents is not None
+                and currents.meta.valid
+            )
+
         wait_until(
-            lambda: transport.script.read_counts[0x36] >= 2,
+            recovered_current_sample_is_valid,
             timeout_s=1,
         )
 
@@ -432,6 +474,10 @@ def test_o6_optional_stall_query_degrades_without_disconnecting() -> None:
     transport.script.unsupported_queries.add(0xC5)
     hand.open()
     try:
+        with pytest.raises(TimeoutError):
+            hand.get_stall_thresholds(timeout=0.2)
+        with pytest.raises(TimeoutError):
+            hand.get_stall_thresholds(timeout=0.2)
         with pytest.raises(UnsupportedFirmwareError, match="stall_thresholds"):
             hand.get_stall_thresholds(timeout=0.2)
 
@@ -441,7 +487,7 @@ def test_o6_optional_stall_query_degrades_without_disconnecting() -> None:
         )
         with pytest.raises(UnsupportedFirmwareError, match="stall_thresholds"):
             hand.get_stall_thresholds(timeout=0.2)
-        assert transport.script.read_counts[0xC5] == 1
+        assert transport.script.read_counts[0xC5] == 3
     finally:
         hand.close()
 
@@ -451,6 +497,10 @@ def test_o6_optional_tactile_query_degrades_without_disconnecting() -> None:
     transport.script.unsupported_queries.add(0xA4)
     hand.open()
     try:
+        with pytest.raises(TimeoutError):
+            hand.get_force(timeout=0.3)
+        with pytest.raises(TimeoutError):
+            hand.get_force(timeout=0.3)
         with pytest.raises(UnsupportedFirmwareError, match="force"):
             hand.get_force(timeout=0.3)
 
@@ -460,7 +510,7 @@ def test_o6_optional_tactile_query_degrades_without_disconnecting() -> None:
         )
         with pytest.raises(UnsupportedFirmwareError, match="force"):
             hand.get_force(timeout=0.3)
-        assert transport.script.read_counts[0xA4] == 5
+        assert transport.script.read_counts[0xA4] == 3
     finally:
         hand.close()
 
@@ -589,6 +639,115 @@ def test_angle_and_full_tactile_polling_publish_complete_samples(
         time.sleep(0.05)
         assert transport.script.read_counts == counts_after_stop
     finally:
+        hand.close()
+
+
+def test_l6_tactile_yields_between_complete_fingers_for_one_angle_target() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    original_send = transport.send
+    submitted = False
+    angle_handle = None
+
+    def send(message: can.Message):
+        nonlocal submitted, angle_handle
+        if bytes(message.data) == b"\xb1\xc6" and not submitted:
+            submitted = True
+            angle_handle = hand.set_angles((42,) * 6)
+        return original_send(message)
+
+    transport.send = send  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        force = hand.get_force(timeout=1)
+
+        assert angle_handle is not None
+        assert angle_handle.wait(timeout=1) is CommandStage.DISPATCHED
+        payloads = transport.script.sent_payloads
+        first_finger = payloads.index(b"\xb1\xc6")
+        second_finger = payloads.index(b"\xb2\xc6", first_finger + 1)
+        angle_command = payloads.index(bytes((0x01, 42, 42, 42, 42, 42, 42)))
+        assert first_finger < angle_command < second_finger
+        assert len(force.tactile) == 5
+    finally:
+        transport.send = original_send  # ty: ignore[invalid-assignment]
+        hand.close()
+
+
+def test_o6_tactile_yields_for_due_angle_command_and_poll_between_fingers() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    original_send = transport.send
+    polling_started = False
+    angle_handle = None
+
+    def send(message: can.Message):
+        nonlocal polling_started, angle_handle
+        if bytes(message.data) == b"\xb1\xa4" and not polling_started:
+            polling_started = True
+            hand.start_polling(
+                PollingPlan(
+                    angles_hz=100,
+                    angle_feedback=AngleFeedbackPolicy.QUERY_ONLY,
+                )
+            )
+            angle_handle = hand.set_angles((43,) * 6)
+        return original_send(message)
+
+    transport.send = send  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        force = hand.get_force(timeout=1)
+
+        payloads = transport.script.sent_payloads
+        first_finger = payloads.index(b"\xb1\xa4")
+        second_finger = payloads.index(b"\xb2\xa4", first_finger + 1)
+        angle_query = payloads.index(b"\x01", first_finger + 1)
+        angle_command = payloads.index(bytes((0x01, 43, 43, 43, 43, 43, 43)))
+        assert angle_handle is not None
+        assert angle_handle.wait(timeout=1) is CommandStage.DISPATCHED
+        assert first_finger < angle_command < second_finger
+        assert first_finger < angle_query < second_finger
+        assert len(force.tactile) == 5
+    finally:
+        if polling_started:
+            hand.stop_polling()
+        transport.send = original_send  # ty: ignore[invalid-assignment]
+        hand.close()
+
+
+def test_o6_tactile_waits_at_boundary_for_imminent_rate_limited_target() -> None:
+    hand, transport = _make_hand(
+        "O6",
+        HandSide.RIGHT,
+        config=DeviceConfig(command_rate_hz=500),
+    )
+    first = None
+    second = None
+    original_send = transport.send
+
+    def send(message: can.Message):
+        nonlocal second
+        if bytes(message.data) == b"\xb1\xa4" and second is None:
+            second = hand.set_angles((45,) * 6)
+        return original_send(message)
+
+    transport.send = send  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        first = hand.set_angles((44,) * 6)
+        assert first.wait(timeout=1) is CommandStage.DISPATCHED
+
+        force = hand.get_force(timeout=1)
+
+        assert second is not None
+        assert second.wait(timeout=1) is CommandStage.DISPATCHED
+        payloads = transport.script.sent_payloads
+        first_finger = payloads.index(b"\xb1\xa4")
+        second_finger = payloads.index(b"\xb2\xa4", first_finger + 1)
+        second_angle = payloads.index(bytes((0x01, 45, 45, 45, 45, 45, 45)))
+        assert first_finger < second_angle < second_finger
+        assert len(force.tactile) == 5
+    finally:
+        transport.send = original_send  # ty: ignore[invalid-assignment]
         hand.close()
 
 

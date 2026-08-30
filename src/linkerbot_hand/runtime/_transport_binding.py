@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from typing import cast
 
 from linkerbot_transport import (
@@ -144,6 +144,7 @@ class TransportBinding:
         route_keys: tuple[Hashable, ...],
         *,
         queue_capacity: int,
+        on_available: Callable[[], None] | None = None,
     ):
         """Register one generation-bound inbox for exact receive routes."""
 
@@ -151,6 +152,7 @@ class TransportBinding:
             return self._require_transport_locked().subscribe_routes(
                 route_keys,
                 queue_capacity=queue_capacity,
+                on_available=on_available,
             )
 
     def submit(
@@ -173,7 +175,7 @@ class TransportBinding:
         with self._lock:
             generation = self._require_submission_locked()
             if latest_family is not None:
-                return ARBITERS.submit_latest(
+                receipt = ARBITERS.submit_latest(
                     self._key,
                     batch,
                     endpoint_id=endpoint_id,
@@ -182,14 +184,21 @@ class TransportBinding:
                     priority=priority,
                     deadline_at_s=deadline_at_s,
                 )
-            return ARBITERS.submit_fifo(
-                self._key,
-                batch,
-                endpoint_id=endpoint_id,
-                expected_generation=generation,
-                priority=priority,
-                deadline_at_s=deadline_at_s,
-            )
+            else:
+                receipt = ARBITERS.submit_fifo(
+                    self._key,
+                    batch,
+                    endpoint_id=endpoint_id,
+                    expected_generation=generation,
+                    priority=priority,
+                    deadline_at_s=deadline_at_s,
+                )
+        ARBITERS.drain(
+            self._key,
+            endpoint_id=endpoint_id,
+            expected_generation=generation,
+        )
+        return receipt
 
     def replace_latest_if_pending(
         self,
@@ -210,7 +219,7 @@ class TransportBinding:
         batch = MessageBatch(messages, request_interval_s)
         with self._lock:
             generation = self._require_submission_locked()
-            return ARBITERS.replace_latest_if_pending(
+            receipt = ARBITERS.replace_latest_if_pending(
                 self._key,
                 batch,
                 endpoint_id=endpoint_id,
@@ -219,6 +228,13 @@ class TransportBinding:
                 priority=priority,
                 deadline_at_s=deadline_at_s,
             )
+        if receipt is not None:
+            ARBITERS.drain(
+                self._key,
+                endpoint_id=endpoint_id,
+                expected_generation=generation,
+            )
+        return receipt
 
     def get_health(self) -> TransportHealth:
         """Return the transport's cached zero-I/O health snapshot."""
@@ -245,16 +261,11 @@ class TransportBinding:
         return self._lease.transport
 
     def _require_submission_locked(self) -> int:
-        transport = self._require_transport_locked()
+        self._require_transport_locked()
         if not self._accepting:
             raise DeviceNotReadyError("device endpoint is not accepting sends")
         generation = self._transport_generation
-        health = transport.get_health()
-        if (
-            generation is None
-            or generation != health.generation
-            or not health.connected
-        ):
+        if generation is None:
             self._accepting = False
             raise DeviceNotReadyError("device endpoint transport generation ended")
         return generation

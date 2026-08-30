@@ -128,19 +128,49 @@ class PollScheduler:
                     tuple(POLL_CHANNELS.values()).index(item[0]),
                 ),
             )
-            periods = (
-                math.floor(max(0.0, now - state.next_deadline_s) / state.period_s) + 1
-            )
-            state.next_deadline_s += periods * state.period_s
-            if (
-                semantic is TelemetrySemantic.ANGLES
-                and self._angle_feedback_policy_locked()
-                is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
-            ):
-                state.missed_deadlines += periods
+            return self._advance_due_locked(semantic, state, now)
+
+    def take_due_channel(
+        self,
+        semantic: TelemetrySemantic,
+        *,
+        now: float,
+    ) -> TelemetrySemantic | None:
+        """Take one named channel only when its deadline is due.
+
+        This is used at protocol-safe stage boundaries where only one telemetry
+        family may run. Deadlines for unrelated channels remain untouched for
+        the main actor loop.
+        """
+
+        if not isinstance(semantic, TelemetrySemantic):
+            raise ValidationError("semantic must be TelemetrySemantic")
+        _validate_time(now)
+        with self._lock:
+            state = self._states.get(semantic)
+            if state is None or state.next_deadline_s > now + _DEADLINE_EPSILON_S:
                 return None
-            state.missed_deadlines += max(0, periods - 1)
-            return semantic
+            return self._advance_due_locked(semantic, state, now)
+
+    def _advance_due_locked(
+        self,
+        semantic: TelemetrySemantic,
+        state: _PollState,
+        now: float,
+    ) -> TelemetrySemantic | None:
+        """Advance one due state while ``_lock`` is held."""
+
+        periods = math.floor(max(0.0, now - state.next_deadline_s) / state.period_s) + 1
+        state.next_deadline_s += periods * state.period_s
+        if (
+            semantic is TelemetrySemantic.ANGLES
+            and self._angle_feedback_policy_locked()
+            is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
+        ):
+            state.missed_deadlines += periods
+            return None
+        state.missed_deadlines += max(0, periods - 1)
+        return semantic
 
     def mark_completed(
         self,

@@ -115,6 +115,22 @@ def test_staged_transaction_requires_a_response_gate() -> None:
     assert not first.terminal_acknowledges_command
 
 
+def test_stage_yield_requires_a_following_response_gated_stage() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="yield_after_response requires a following transaction stage",
+    ):
+        ProtocolTransaction(
+            key="stage",
+            correlation_key="stage",
+            request_messages=(object(),),
+            response_timeout_s=0.1,
+            estimated_duration_s=0.1,
+            response_consumer=lambda _message: ResponseProgress(matched=False),
+            yield_after_response=True,
+        )
+
+
 def test_response_wait_and_command_ack_are_independent_contracts() -> None:
     echo = ProtocolTransaction(
         key="angle-echo",

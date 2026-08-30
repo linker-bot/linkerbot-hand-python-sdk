@@ -136,6 +136,7 @@ class ProtocolTransaction:
     request_interval_s: float = 0.0
     late_response_guard_s: float = 0.0
     next_transaction: ProtocolTransaction | None = None
+    yield_after_response: bool = False
     firmware_optional: bool = False
 
     def __post_init__(self) -> None:
@@ -158,6 +159,8 @@ class ProtocolTransaction:
             raise ValidationError("response_acknowledges_command must be bool")
         if not isinstance(self.firmware_optional, bool):
             raise ValidationError("firmware_optional must be bool")
+        if not isinstance(self.yield_after_response, bool):
+            raise ValidationError("yield_after_response must be bool")
         if self.response_acknowledges_command and self.response_consumer is None:
             raise ValidationError("an ACK transaction must await a response")
         if not isinstance(self.dispatch_publications, tuple) or any(
@@ -175,6 +178,10 @@ class ProtocolTransaction:
                 raise ValidationError(
                     "a staged transaction must await a response before its next stage"
                 )
+        elif self.yield_after_response:
+            raise ValidationError(
+                "yield_after_response requires a following transaction stage"
+            )
 
     @property
     def expects_response(self) -> bool:

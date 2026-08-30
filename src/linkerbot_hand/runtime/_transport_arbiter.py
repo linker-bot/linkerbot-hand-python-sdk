@@ -13,6 +13,7 @@ from linkerbot_transport import (
     SharedTransportPool,
     TransmitArbiter,
     TransmitHealth,
+    TransmitMode,
     TransportHealth,
 )
 from linkerbot_transport.errors import (
@@ -42,6 +43,7 @@ class MessageTransport(Protocol):
         route_keys: tuple[Hashable, ...],
         *,
         queue_capacity: int | None = None,
+        on_available: Callable[[], None] | None = None,
     ) -> object: ...
 
     def get_health(self) -> TransportHealth: ...
@@ -68,6 +70,7 @@ class _ArbiterEntry:
     transport: MessageTransport
     arbiter: TransmitArbiter[MessageBatch]
     endpoints: set[Hashable]
+    generation: int
     monotonic: Callable[[], float]
     wait_interval: Callable[[float], None]
     fifo_capacity: int
@@ -99,6 +102,7 @@ class SharedArbiterRegistry:
         with self._lock:
             entry = self._entries.get(key)
             if entry is None:
+                generation = transport.get_health().generation
                 arbiter = self._make_arbiter(
                     transport,
                     fifo_capacity=fifo_capacity,
@@ -106,11 +110,12 @@ class SharedArbiterRegistry:
                     monotonic=monotonic,
                     wait_interval=wait_interval,
                 )
-                arbiter.open(generation=transport.get_health().generation)
+                arbiter.open(generation=generation)
                 entry = _ArbiterEntry(
                     transport=transport,
                     arbiter=arbiter,
                     endpoints=set(),
+                    generation=generation,
                     monotonic=monotonic,
                     wait_interval=wait_interval,
                     fifo_capacity=fifo_capacity,
@@ -135,7 +140,7 @@ class SharedArbiterRegistry:
                     "device endpoint already has an active runtime"
                 )
             entry.endpoints.add(endpoint_id)
-            return entry.arbiter.get_health().generation
+            return entry.generation
 
     def release(
         self,
@@ -258,6 +263,23 @@ class SharedArbiterRegistry:
                 deadline_at_s=deadline_at_s,
             )
 
+    def drain(
+        self,
+        key: Hashable,
+        *,
+        endpoint_id: Hashable,
+        expected_generation: int,
+    ) -> None:
+        """Let one endpoint actor cooperatively drain the physical writer."""
+
+        with self._lock:
+            entry = self._require_entry(key)
+            if endpoint_id not in entry.endpoints:
+                raise DeviceNotReadyError("device endpoint lease is not active")
+            self._require_generation(entry, expected_generation)
+            arbiter = entry.arbiter
+        arbiter.drain()
+
     def recover(
         self,
         key: Hashable,
@@ -334,6 +356,7 @@ class SharedArbiterRegistry:
                     arbiter.close()
                     raise DeviceNotReadyError("shared TX arbiter generation changed")
                 entry.arbiter = arbiter
+                entry.generation = current_generation
                 entry.recovering = False
             return current_generation
 
@@ -360,14 +383,7 @@ class SharedArbiterRegistry:
     def _require_generation(entry: _ArbiterEntry, expected_generation: int) -> None:
         if entry.recovering:
             raise DeviceNotReadyError("shared TX arbiter is recovering")
-        transport_health = entry.transport.get_health()
-        arbiter_health = entry.arbiter.get_health()
-        if (
-            not transport_health.connected
-            or not arbiter_health.running
-            or transport_health.generation != expected_generation
-            or arbiter_health.generation != expected_generation
-        ):
+        if entry.generation != expected_generation:
             raise DeviceNotReadyError("transport is not ready for this generation")
 
     @staticmethod
@@ -381,12 +397,19 @@ class SharedArbiterRegistry:
     ) -> TransmitArbiter[MessageBatch]:
         def dispatch(batch: MessageBatch) -> SendReceipt:
             sent_frames = 0
+            dispatched_generation: int | None = None
             try:
                 for index, message in enumerate(batch.messages):
                     result = transport.send(message).result()
                     if result.outcome is not SendOutcome.DISPATCHED:
                         raise TransportError(
                             f"downstream batch frame ended as {result.outcome.value}"
+                        )
+                    if dispatched_generation is None:
+                        dispatched_generation = result.generation
+                    elif result.generation != dispatched_generation:
+                        raise TransportError(
+                            "transport generation changed within one atomic batch"
                         )
                     sent_frames += 1
                     if batch.request_interval_s > 0 and index + 1 < len(batch.messages):
@@ -398,7 +421,9 @@ class SharedArbiterRegistry:
                     cause=error,
                 ) from error
             return SendReceipt.completed(
-                generation=transport.get_health().generation,
+                generation=0
+                if dispatched_generation is None
+                else dispatched_generation,
                 monotonic=monotonic,
             )
 
@@ -407,6 +432,7 @@ class SharedArbiterRegistry:
             fifo_capacity=fifo_capacity,
             join_timeout_s=join_timeout_s,
             monotonic=monotonic,
+            mode=TransmitMode.CALLER,
         )
 
 

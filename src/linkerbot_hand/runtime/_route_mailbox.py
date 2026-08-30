@@ -1,24 +1,21 @@
-"""Bounded receive-route mailbox isolated from the device actor loop."""
+"""Direct actor access to one bounded transport receive route."""
 
 from __future__ import annotations
 
 import threading
-from collections import deque
 from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol, cast
 
 from linkerbot_transport.errors import ClosedError as TransportClosedError
-from linkerbot_transport.errors import TimeoutError as TransportTimeoutError
 
-from ..api.errors import ProtocolError, TimeoutError
-from ._clock import RuntimeClock
+from ..api.errors import ProtocolError
 from ._transport_binding import TransportBinding
 
 
 @dataclass(frozen=True, slots=True)
 class InboundMessage:
-    """Message and monotonic receive time copied from a transport route."""
+    """Message and monotonic receive time read from a transport route."""
 
     message: object
     received_at_s: float
@@ -30,13 +27,20 @@ class _RoutedMessage(Protocol):
 
 
 class _RouteSubscription(Protocol):
-    def receive(self, timeout_s: float | None = None) -> _RoutedMessage: ...
+    def try_receive(self) -> _RoutedMessage | None: ...
+
+    def get_health(self) -> _RouteHealth: ...
 
     def close(self) -> None: ...
 
 
+class _RouteHealth(Protocol):
+    active: bool
+    queue_depth: int
+
+
 class RouteMailbox:
-    """Copy one exact-route group into a bounded actor-owned inbox."""
+    """Expose a transport route directly to its single owning actor."""
 
     def __init__(
         self,
@@ -45,67 +49,51 @@ class RouteMailbox:
         route_keys: tuple[Hashable, ...],
         route_capacity: int,
         mailbox_capacity: int,
-        model: str,
-        clock: RuntimeClock,
         wake: threading.Event,
     ) -> None:
         self._binding = binding
         self._route_keys = route_keys
-        self._route_capacity = route_capacity
-        self._mailbox_capacity = mailbox_capacity
-        self._model = model
-        self._clock = clock
+        self._route_capacity = min(route_capacity, mailbox_capacity)
         self._wake = wake
         self._control_lock = threading.Lock()
         self._data_lock = threading.Lock()
         self._route: _RouteSubscription | None = None
-        self._thread: threading.Thread | None = None
-        self._receiver_stop = threading.Event()
-        self._actor_stop = threading.Event()
-        self._inbound: deque[InboundMessage] = deque()
+        self._closing = False
         self._failure: BaseException | None = None
 
     def reset(self) -> None:
-        """Prepare an empty inbox after the prior receiver has stopped."""
+        """Prepare an empty route after the prior subscription has stopped."""
 
         with self._control_lock:
-            if self._thread is not None and self._thread.is_alive():
-                raise ProtocolError("cannot reset a running route receiver")
-            self._receiver_stop = threading.Event()
+            if self._route is not None:
+                raise ProtocolError("cannot reset an active receive route")
+            self._closing = False
         with self._data_lock:
-            self._inbound.clear()
             self._failure = None
 
-    def start(self, *, actor_stop: threading.Event) -> None:
-        """Subscribe to the route group and start its copy thread once."""
+    def start(self) -> None:
+        """Subscribe once and wake the actor when the route becomes available."""
 
         route = cast(
             _RouteSubscription,
             self._binding.subscribe_routes(
                 self._route_keys,
                 queue_capacity=self._route_capacity,
+                on_available=self._wake.set,
             ),
         )
         with self._control_lock:
-            if self._thread is not None and self._thread.is_alive():
+            if self._route is not None:
                 route.close()
-                raise ProtocolError("route receiver is already running")
-            self._actor_stop = actor_stop
+                raise ProtocolError("receive route is already active")
+            self._closing = False
             self._route = route
-            thread = threading.Thread(
-                target=self._receive_loop,
-                args=(route, self._receiver_stop, actor_stop),
-                name=f"LinkerbotHand.{self._model}.route",
-                daemon=False,
-            )
-            self._thread = thread
-            thread.start()
 
     def close(self) -> None:
         """Stop route admission and wake the actor without waiting."""
 
-        self._receiver_stop.set()
         with self._control_lock:
+            self._closing = True
             route = self._route
             self._route = None
         if route is not None:
@@ -113,29 +101,31 @@ class RouteMailbox:
         self._wake.set()
 
     def join(self, *, deadline_s: float) -> None:
-        """Join the receiver within the caller's absolute deadline."""
-
-        with self._control_lock:
-            thread = self._thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=max(0.0, deadline_s - self._clock.monotonic()))
-            if thread.is_alive():
-                raise TimeoutError("device route receiver did not stop in time")
-        with self._control_lock:
-            if self._thread is thread:
-                self._thread = None
+        """Retain the former bounded-join surface; no copy thread remains."""
 
     def stop(self, *, deadline_s: float) -> None:
-        """Close route admission and boundedly join its receiver."""
+        """Close route admission; there is no receiver thread to join."""
 
         self.close()
-        self.join(deadline_s=deadline_s)
 
     def pop(self) -> InboundMessage | None:
         """Return the next routed message without blocking."""
 
-        with self._data_lock:
-            return None if not self._inbound else self._inbound.popleft()
+        with self._control_lock:
+            route = self._route
+        if route is None:
+            return None
+        try:
+            routed = route.try_receive()
+        except TransportClosedError as error:
+            self._set_error_if_unexpected(route, error)
+            return None
+        except Exception as error:  # noqa: BLE001 - actor observes route failure
+            self._set_error_if_unexpected(route, error)
+            return None
+        if routed is None:
+            return None
+        return InboundMessage(routed.message, routed.received_at_s)
 
     def error(self) -> BaseException | None:
         """Return the receiver's terminal error, if one occurred."""
@@ -146,38 +136,19 @@ class RouteMailbox:
     def has_pending(self) -> bool:
         """Return whether a routed message is waiting without removing it."""
 
-        with self._data_lock:
-            return bool(self._inbound)
+        with self._control_lock:
+            route = self._route
+        return route is not None and route.get_health().queue_depth > 0
 
-    def _receive_loop(
+    def _set_error_if_unexpected(
         self,
         route: _RouteSubscription,
-        receiver_stop: threading.Event,
-        actor_stop: threading.Event,
+        error: BaseException,
     ) -> None:
-        while not receiver_stop.is_set() and not actor_stop.is_set():
-            try:
-                routed = route.receive(timeout_s=0.05)
-            except TransportTimeoutError:
-                continue
-            except TransportClosedError as error:
-                if receiver_stop.is_set() or actor_stop.is_set():
-                    return
-                self._set_error(error)
-                return
-            except Exception as error:  # noqa: BLE001 - receiver thread boundary
-                self._set_error(error)
-                return
-            inbound = InboundMessage(routed.message, routed.received_at_s)
-            with self._data_lock:
-                if len(self._inbound) >= self._mailbox_capacity:
-                    self._failure = ProtocolError(
-                        "device actor receive mailbox overflowed"
-                    )
-                    self._wake.set()
-                    return
-                self._inbound.append(inbound)
-            self._wake.set()
+        with self._control_lock:
+            expected = self._closing or self._route is not route
+        if not expected:
+            self._set_error(error)
 
     def _set_error(self, error: BaseException) -> None:
         with self._data_lock:

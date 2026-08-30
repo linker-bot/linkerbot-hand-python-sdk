@@ -283,7 +283,7 @@ def test_recovery_never_replaces_an_arbiter_whose_claimed_send_did_not_drain() -
     try:
         with pytest.raises(TimeoutError, match="stop in time"):
             hand.recover(timeout=0.5)
-        assert stale.stage is CommandStage.FAILED
+        assert stale.stage is CommandStage.ACCEPTED
         assert len(transport.dispatchers) == 1
 
         with pytest.raises(TimeoutError, match="stop in time"):
@@ -291,7 +291,7 @@ def test_recovery_never_replaces_an_arbiter_whose_claimed_send_did_not_drain() -
         assert len(transport.dispatchers) == 1
 
         transport.command_gate.set()
-        wait_until(lambda: len(transport.sent) > 0)
+        assert stale.wait(timeout=1) is CommandStage.DISPATCHED
         hand.recover(timeout=0.5)
 
         assert len(transport.dispatchers) == 2

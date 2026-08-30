@@ -198,6 +198,25 @@ class TransactionCoordinator:
             entry.in_flight = True
             return TransactionClaim(entry.key, entry.requested_by_poll)
 
+    def take(self, key: Hashable) -> TransactionClaim | None:
+        """Claim one specific pending transaction without disturbing FIFO order."""
+
+        _validate_key(key)
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None or entry.in_flight:
+                return None
+            entry.in_flight = True
+            return TransactionClaim(entry.key, entry.requested_by_poll)
+
+    def has_pending(self, key: Hashable) -> bool:
+        """Return whether one specific transaction can currently be claimed."""
+
+        _validate_key(key)
+        with self._lock:
+            entry = self._entries.get(key)
+            return entry is not None and not entry.in_flight
+
     def complete(self, key: Hashable, result: object, *, sequence: int) -> None:
         """Complete callers predating the sample and retain later callers."""
 

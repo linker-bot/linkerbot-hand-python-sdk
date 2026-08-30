@@ -77,6 +77,18 @@ def test_poll_response_time_does_not_reduce_the_requested_frequency() -> None:
     assert scheduler.take_due(now=0.1) is TelemetrySemantic.ANGLES
 
 
+def test_named_due_take_does_not_advance_unrelated_channels() -> None:
+    scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
+    scheduler.replace(PollingPlan(angles_hz=100, temperature_hz=10), now=0.0)
+
+    assert (
+        scheduler.take_due_channel(TelemetrySemantic.ANGLES, now=0.0)
+        is TelemetrySemantic.ANGLES
+    )
+    assert scheduler.take_due_channel(TelemetrySemantic.ANGLES, now=0.0) is None
+    assert scheduler.take_due(now=0.0) is TelemetrySemantic.TEMPERATURES
+
+
 def test_active_read_satisfies_the_next_poll_without_creating_backlog() -> None:
     scheduler = PollScheduler(get_declared_capabilities("l6", side="left"))
     scheduler.replace(PollingPlan(angles_hz=10), now=0.0)

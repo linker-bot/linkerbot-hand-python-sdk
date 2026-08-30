@@ -40,6 +40,8 @@ from .snapshot_store import SnapshotStore
 from .transactions import DEVICE_INFO_KEY, TransactionClaim, TransactionCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+_FIRMWARE_OPTIONAL_FAILURE_THRESHOLD = 3
+_MAX_INTERSTAGE_ANGLE_TRANSACTIONS = 4
 
 
 @dataclass(slots=True)
@@ -85,8 +87,6 @@ class DeviceActor:
             route_keys=backend.route_keys,
             route_capacity=config.route_queue_capacity,
             mailbox_capacity=config.mailbox_capacity,
-            model=state.declared.model,
-            clock=clock,
             wake=wake,
         )
         self._initializer = ConnectionInitializer(
@@ -107,6 +107,7 @@ class DeviceActor:
         self._next_command_at = 0.0
         self._prefer_transaction = False
         self._prefer_inbound = False
+        self._firmware_optional_failures: dict[TelemetrySemantic, int] = {}
 
     def start(self) -> OperationTicket:
         """Start one actor generation; initialization remains actor-owned."""
@@ -127,6 +128,7 @@ class DeviceActor:
             self._next_command_at = 0.0
             self._prefer_transaction = False
             self._prefer_inbound = False
+            self._firmware_optional_failures.clear()
             self._thread = threading.Thread(
                 target=self._run,
                 name=f"LinkerbotHand.{self._state.declared.model}.actor",
@@ -158,19 +160,27 @@ class DeviceActor:
             else:
                 prepare_transport = False
         if prepare_transport:
+            drain_failure: HandError | None = None
             try:
                 # Make queued transport work unreachable before its public handle
-                # can become FAILED. The actor repeats the abort during recovery,
-                # so a bounded drain timeout is resolved by that authoritative path.
+                # can become FAILED. A bounded drain failure is returned to the
+                # caller instead of scheduling a delayed, unobserved recovery.
                 self._binding.stop_admission_and_drain()
             except Exception as error:  # noqa: BLE001 - recovery preparation boundary
-                self._metrics.record_error(self._classify(error, "recover"))
+                drain_failure = self._classify(error, "recover")
+                self._metrics.record_error(drain_failure)
+        else:
+            drain_failure = None
         self._commands.fail_pending(not_ready)
         self._transactions.fail_all(not_ready)
         with self._control_lock:
             if prepare_transport:
                 self._performing_recovery = False
-            self._recovery.due_at_s = self._clock.monotonic()
+            if drain_failure is None:
+                self._recovery.due_at_s = self._clock.monotonic()
+            else:
+                ticket.fail(drain_failure)
+                self._recovery.due_at_s = None
         self._wake.set()
         return ticket
 
@@ -214,7 +224,7 @@ class DeviceActor:
         if initial is None:
             return
         try:
-            self._mailbox.start(actor_stop=self._stop)
+            self._mailbox.start()
             runner = self._make_runner()
             self._initializer.initialize(
                 runner,
@@ -513,6 +523,12 @@ class DeviceActor:
                 publish_generation=self._state.generation(),
                 latest_family=None,
                 priority=80,
+                on_stage_boundary=lambda next_stage_duration_s: (
+                    self._dispatch_interstage_angle_work(
+                        runner,
+                        next_stage_duration_s=next_stage_duration_s,
+                    )
+                ),
             )
             published = next(
                 (
@@ -528,6 +544,8 @@ class DeviceActor:
                 )
             sequence = self._snapshot_store.sequence(semantic)
             self._transactions.complete(semantic, published, sequence=sequence)
+            if transaction.firmware_optional:
+                self._firmware_optional_failures.pop(semantic, None)
             self._polling.mark_completed(
                 semantic,
                 now=self._clock.monotonic(),
@@ -542,7 +560,20 @@ class DeviceActor:
                 and isinstance(classified, (TimeoutError, ProtocolError))
                 and _sent_frames(error, 0) > 0
             ):
-                classified = self._disable_firmware_unsupported_read(claim.key, error)
+                failures = self._firmware_optional_failures.get(claim.key, 0) + 1
+                self._firmware_optional_failures[claim.key] = failures
+                if failures >= _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD:
+                    classified = self._disable_firmware_unsupported_read(
+                        claim.key,
+                        error,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "%s optional query failed %d/%d; keeping it enabled",
+                        claim.key.value,
+                        failures,
+                        _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD,
+                    )
             self._transactions.fail(claim.key, classified)
             if poll_in_flight and isinstance(claim.key, TelemetrySemantic):
                 self._polling.mark_timeout(claim.key)
@@ -558,6 +589,113 @@ class DeviceActor:
             if poll_in_flight:
                 self._polling.finish_poll()
 
+    def _dispatch_interstage_angle_work(
+        self,
+        runner: TransactionRunner,
+        *,
+        next_stage_duration_s: float,
+    ) -> None:
+        """Dispatch bounded due angle work at one protocol-safe boundary.
+
+        One command and one active query usually share a deadline.  Two
+        symmetric pairs absorb ordinary phase drift around a tactile-finger
+        boundary, while the hard bound prevents angle traffic from starving
+        the next finger stage. If an already queued target becomes eligible
+        before that stage is expected to finish, preserve the configured
+        command interval by waiting at the safe boundary instead of delaying
+        it behind another multi-frame response.
+        """
+
+        dispatched = 0
+        while dispatched < _MAX_INTERSTAGE_ANGLE_TRANSACTIONS:
+            if self._dispatch_one_interstage_angle_transaction(runner):
+                dispatched += 1
+                continue
+            if not self._wait_for_imminent_interstage_angle_command(
+                runner,
+                next_stage_duration_s=next_stage_duration_s,
+            ):
+                return
+
+    def _wait_for_imminent_interstage_angle_command(
+        self,
+        runner: TransactionRunner,
+        *,
+        next_stage_duration_s: float,
+    ) -> bool:
+        """Wait for one queued target due before the next protocol boundary."""
+
+        now = self._clock.monotonic()
+        horizon = now + next_stage_duration_s
+        while self._commands.has_pending(CommandFamily.ANGLE_TARGET):
+            runner.raise_if_interrupted()
+            now = self._clock.monotonic()
+            if now >= self._next_command_at:
+                return True
+            if self._next_command_at > horizon:
+                return False
+            self._wake.clear()
+            if not self._commands.has_pending(CommandFamily.ANGLE_TARGET):
+                return False
+            self._clock.wait(self._wake, self._next_command_at - now)
+        return False
+
+    def _dispatch_one_interstage_angle_transaction(
+        self,
+        runner: TransactionRunner,
+    ) -> bool:
+        """Dispatch one due angle transaction and report whether work ran."""
+
+        runner.raise_if_interrupted()
+        now = self._clock.monotonic()
+        command_ready = now >= self._next_command_at and self._commands.has_pending(
+            CommandFamily.ANGLE_TARGET
+        )
+        command_fulfills_due_sample = (
+            command_ready
+            and self._polling.angle_command_can_fulfill_feedback
+            and (
+                self._transactions.cancel_pending_poll(TelemetrySemantic.ANGLES)
+                or self._polling.is_due(TelemetrySemantic.ANGLES, now=now)
+            )
+        )
+        if command_fulfills_due_sample:
+            command = self._commands.take_latest(CommandFamily.ANGLE_TARGET)
+            if command is not None:
+                self._prefer_transaction = True
+                self._prefer_inbound = True
+                self._next_command_at = now + 1.0 / self._config.command_rate_hz
+                self._execute_command(runner, command)
+                return True
+
+        due = self._polling.take_due_channel(TelemetrySemantic.ANGLES, now=now)
+        if due is not None:
+            self._transactions.request_poll(due)
+        transaction_ready = self._transactions.has_pending(TelemetrySemantic.ANGLES)
+        if transaction_ready and (not command_ready or self._prefer_transaction):
+            claim = self._transactions.take(TelemetrySemantic.ANGLES)
+            if claim is not None:
+                self._prefer_transaction = False
+                self._prefer_inbound = True
+                self._execute_read(runner, claim)
+                return True
+        if command_ready:
+            command = self._commands.take_latest(CommandFamily.ANGLE_TARGET)
+            if command is not None:
+                self._prefer_transaction = True
+                self._prefer_inbound = True
+                self._next_command_at = now + 1.0 / self._config.command_rate_hz
+                self._execute_command(runner, command)
+                return True
+        if transaction_ready:
+            claim = self._transactions.take(TelemetrySemantic.ANGLES)
+            if claim is not None:
+                self._prefer_transaction = False
+                self._prefer_inbound = True
+                self._execute_read(runner, claim)
+                return True
+        return False
+
     def _disable_firmware_unsupported_read(
         self,
         semantic: TelemetrySemantic,
@@ -566,6 +704,7 @@ class DeviceActor:
         """Disable one optional query without ending the connection generation."""
 
         capabilities = self._state.mark_firmware_unsupported_telemetry(semantic)
+        self._firmware_optional_failures.pop(semantic, None)
         self._polling.disable_firmware_unsupported(semantic, capabilities)
         error = UnsupportedFirmwareError(
             f"{capabilities.model} firmware "
@@ -624,8 +763,9 @@ class DeviceActor:
             )
             self._binding.recover()
             self._mailbox.reset()
-            self._mailbox.start(actor_stop=self._stop)
+            self._mailbox.start()
             runner = self._make_runner()
+            self._firmware_optional_failures.clear()
             self._initializer.initialize(
                 runner,
                 recovery=True,

@@ -40,73 +40,44 @@ def _requests(transaction) -> tuple[bytes, ...]:
     return tuple(result)
 
 
-@pytest.mark.parametrize(
-    (
-        "backend",
-        "capabilities",
-        "selector",
-        "rows",
-        "columns",
-        "side",
-        "request_interval_s",
-    ),
-    (
-        (
-            L6ProtocolBackend(HandSide.LEFT),
-            get_declared_capabilities("l6", side="left"),
-            0xC6,
-            12,
-            6,
-            HandSide.LEFT,
-            0,
-        ),
-        (
-            O6ProtocolBackend(HandSide.RIGHT),
-            get_declared_capabilities("o6", side="right"),
-            0xA4,
-            10,
-            4,
-            HandSide.RIGHT,
-            0.002,
-        ),
-    ),
-)
 @pytest.mark.parametrize("nibble_markers", (False, True))
-def test_tactile_transaction_pipelines_and_atomically_assembles_all_fingers(
-    backend,
-    capabilities,
-    selector: int,
-    rows: int,
-    columns: int,
-    side: HandSide,
-    request_interval_s: float,
+def test_o6_tactile_transaction_gates_each_finger_and_assembles_atomically(
     nibble_markers: bool,
 ) -> None:
+    backend = O6ProtocolBackend(HandSide.RIGHT)
+    capabilities = get_declared_capabilities("o6", side="right")
+    selector = 0xA4
+    rows = 10
+    columns = 4
+    side = HandSide.RIGHT
     transaction = backend.read_transaction(TelemetrySemantic.FORCE, capabilities)
-    assert _requests(transaction) == tuple(
-        bytes((opcode, selector)) for opcode in _FINGERS
-    )
-    assert transaction.request_interval_s == request_interval_s
     assert transaction.firmware_optional
 
     progress = None
-    frames = [
-        _frame(
-            side,
-            opcode,
-            row << 4 if nibble_markers else row,
-            bytes(
-                (finger_index * rows + row + column) & 0xFF for column in range(columns)
-            ),
-        )
-        for finger_index, opcode in enumerate(_FINGERS)
-        for row in range(rows)
-    ]
-    for frame in reversed(frames):
-        progress = transaction.consume(frame)
-        if frame is not frames[0]:
-            assert progress.result is None
+    stage = transaction
+    for finger_index, opcode in enumerate(_FINGERS):
+        assert stage is not None
+        assert _requests(stage) == (bytes((opcode, selector)),)
+        assert stage.request_interval_s == 0
+        assert stage.yield_after_response is (opcode != _FINGERS[-1])
+        for row in reversed(range(rows)):
+            progress = stage.consume(
+                _frame(
+                    side,
+                    opcode,
+                    row << 4 if nibble_markers else row,
+                    bytes(
+                        (finger_index * rows + row + column) & 0xFF
+                        for column in range(columns)
+                    ),
+                )
+            )
+            assert progress.complete is (row == 0)
+            if opcode != _FINGERS[-1] or row != 0:
+                assert progress.result is None
+        stage = stage.next_transaction
 
+    assert stage is None
     assert progress is not None and progress.complete
     assert isinstance(progress.result, SamplePayload)
     assert progress.result.semantic is TelemetrySemantic.FORCE
@@ -114,6 +85,48 @@ def test_tactile_transaction_pipelines_and_atomically_assembles_all_fingers(
     first = progress.result.tactile[0]
     assert (first.rows, first.columns) == (rows, columns)
     assert first.raw[0] == tuple(range(columns))
+    assert progress.result.tactile[-1].name == "pinky"
+
+
+@pytest.mark.parametrize("nibble_markers", (False, True))
+def test_l6_tactile_transaction_waits_for_each_finger_before_requesting_next(
+    nibble_markers: bool,
+) -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+    transaction = L6ProtocolBackend(HandSide.LEFT).read_transaction(
+        TelemetrySemantic.FORCE,
+        capabilities,
+    )
+    assert transaction.firmware_optional
+
+    progress = None
+    stage = transaction
+    for finger_index, opcode in enumerate(_FINGERS):
+        assert stage is not None
+        assert _requests(stage) == (bytes((opcode, 0xC6)),)
+        assert stage.request_interval_s == 0
+        assert stage.yield_after_response is (opcode != _FINGERS[-1])
+        for row in reversed(range(12)):
+            progress = stage.consume(
+                _frame(
+                    HandSide.LEFT,
+                    opcode,
+                    row << 4 if nibble_markers else row,
+                    bytes(
+                        (finger_index * 12 + row + column) & 0xFF for column in range(6)
+                    ),
+                )
+            )
+            assert progress.complete is (row == 0)
+            if opcode != _FINGERS[-1] or row != 0:
+                assert progress.result is None
+        stage = stage.next_transaction
+
+    assert stage is None
+    assert progress is not None and progress.complete
+    assert isinstance(progress.result, SamplePayload)
+    assert len(progress.result.tactile) == 5
+    assert progress.result.tactile[0].raw[0] == tuple(range(6))
     assert progress.result.tactile[-1].name == "pinky"
 
 

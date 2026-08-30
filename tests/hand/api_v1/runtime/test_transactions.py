@@ -104,6 +104,25 @@ def test_poll_joins_an_inflight_active_read_without_a_second_claim() -> None:
     assert waiter.wait() == (1, 2)
 
 
+def test_specific_pending_transaction_can_be_claimed_without_reordering_fifo() -> None:
+    coordinator, _clock, _wake = make_coordinator()
+    coordinator.activate()
+    coordinator.request_poll(TelemetrySemantic.CURRENTS)
+    coordinator.request_poll(TelemetrySemantic.ANGLES)
+
+    assert coordinator.has_pending(TelemetrySemantic.CURRENTS)
+    assert coordinator.has_pending(TelemetrySemantic.ANGLES)
+    angle_claim = coordinator.take(TelemetrySemantic.ANGLES)
+    assert angle_claim is not None
+    assert angle_claim.key is TelemetrySemantic.ANGLES
+    assert not coordinator.has_pending(TelemetrySemantic.ANGLES)
+    assert coordinator.take(TelemetrySemantic.ANGLES) is None
+
+    first_fifo_claim = coordinator.take_next()
+    assert first_fifo_claim is not None
+    assert first_fifo_claim.key is TelemetrySemantic.CURRENTS
+
+
 def test_caller_joining_after_publication_waits_for_next_transaction() -> None:
     coordinator, _clock, _wake = make_coordinator()
     coordinator.activate()

@@ -119,6 +119,7 @@ class TransactionRunner:
         priority: int,
         deadline_at_s: float | None = None,
         on_dispatched: Callable[[float, int], None] | None = None,
+        on_stage_boundary: Callable[[float], None] | None = None,
     ) -> TransactionOutcome:
         """Execute one transaction without allowing another correlation conflict."""
 
@@ -130,7 +131,11 @@ class TransactionRunner:
             priority=priority,
             deadline_at_s=deadline_at_s,
         )
-        return self.complete(pending, on_dispatched=on_dispatched)
+        return self.complete(
+            pending,
+            on_dispatched=on_dispatched,
+            on_stage_boundary=on_stage_boundary,
+        )
 
     def begin(
         self,
@@ -208,6 +213,7 @@ class TransactionRunner:
         pending: PendingTransaction,
         *,
         on_dispatched: Callable[[float, int], None] | None = None,
+        on_stage_boundary: Callable[[float], None] | None = None,
     ) -> TransactionOutcome:
         """Finish every response-gated stage and publish canonical samples."""
 
@@ -260,6 +266,13 @@ class TransactionRunner:
                     publications,
                     sent_frames,
                 )
+
+            if transaction.yield_after_response and on_stage_boundary is not None:
+                try:
+                    on_stage_boundary(next_transaction.estimated_duration_s)
+                except BaseException as error:
+                    _record_sent_frames(error, sent_frames)
+                    raise
 
             try:
                 current = self.begin(
