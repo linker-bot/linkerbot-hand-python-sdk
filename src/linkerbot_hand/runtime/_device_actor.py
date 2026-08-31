@@ -108,6 +108,7 @@ class DeviceActor:
         self._prefer_transaction = False
         self._prefer_inbound = False
         self._firmware_optional_failures: dict[TelemetrySemantic, int] = {}
+        self._verified_firmware_optional: set[TelemetrySemantic] = set()
 
     def start(self) -> OperationTicket:
         """Start one actor generation; initialization remains actor-owned."""
@@ -129,6 +130,7 @@ class DeviceActor:
             self._prefer_transaction = False
             self._prefer_inbound = False
             self._firmware_optional_failures.clear()
+            self._verified_firmware_optional.clear()
             self._thread = threading.Thread(
                 target=self._run,
                 name=f"LinkerbotHand.{self._state.declared.model}.actor",
@@ -546,6 +548,7 @@ class DeviceActor:
             self._transactions.complete(semantic, published, sequence=sequence)
             if transaction.firmware_optional:
                 self._firmware_optional_failures.pop(semantic, None)
+                self._verified_firmware_optional.add(semantic)
             self._polling.mark_completed(
                 semantic,
                 now=self._clock.monotonic(),
@@ -559,6 +562,7 @@ class DeviceActor:
                 and transaction.firmware_optional
                 and isinstance(classified, (TimeoutError, ProtocolError))
                 and _sent_frames(error, 0) > 0
+                and claim.key not in self._verified_firmware_optional
             ):
                 failures = self._firmware_optional_failures.get(claim.key, 0) + 1
                 self._firmware_optional_failures[claim.key] = failures
@@ -766,6 +770,7 @@ class DeviceActor:
             self._mailbox.start()
             runner = self._make_runner()
             self._firmware_optional_failures.clear()
+            self._verified_firmware_optional.clear()
             self._initializer.initialize(
                 runner,
                 recovery=True,

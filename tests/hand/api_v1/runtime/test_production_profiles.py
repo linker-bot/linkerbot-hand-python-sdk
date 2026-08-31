@@ -292,7 +292,7 @@ def test_l6_malformed_optional_current_reply_degrades_after_three_failures(
         hand.close()
 
 
-def test_successful_optional_read_clears_consecutive_failure_count() -> None:
+def test_successful_optional_read_confirms_support_for_connection_generation() -> None:
     hand, transport = _make_hand("L6", HandSide.LEFT)
     hand.open()
     try:
@@ -305,14 +305,58 @@ def test_successful_optional_read_clears_consecutive_failure_count() -> None:
         assert hand.get_currents(timeout=0.2).raw == (1, 2, 3, 4, 5, 6)
 
         transport.script.unsupported_queries.add(0x36)
-        for _ in range(2):
+        for _ in range(3):
             with pytest.raises(TimeoutError):
                 hand.get_currents(timeout=0.2)
         assert not hand.get_capabilities().firmware_unsupported_telemetry
 
+        transport.script.unsupported_queries.clear()
+        assert hand.get_currents(timeout=0.2).raw == (1, 2, 3, 4, 5, 6)
+        assert transport.script.read_counts[0x36] == 7
+    finally:
+        hand.close()
+
+
+def test_verified_optional_read_is_not_later_downgraded_to_unsupported() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    hand.open()
+    try:
+        assert len(hand.get_force(timeout=0.3).tactile) == 5
+
+        transport.script.unsupported_queries.add(0xA4)
+        for _ in range(3):
+            with pytest.raises(TimeoutError):
+                hand.get_force(timeout=0.3)
+
+        assert not hand.get_capabilities().firmware_unsupported_telemetry
+
+        transport.script.unsupported_queries.clear()
+        assert len(hand.get_force(timeout=0.3).tactile) == 5
+        assert transport.script.read_counts[0xA4] == 13
+    finally:
+        hand.close()
+
+
+def test_recovery_rechecks_previously_verified_optional_read() -> None:
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    hand.open()
+    try:
+        assert hand.get_currents(timeout=0.2).raw == (1, 2, 3, 4, 5, 6)
+        generation = hand.get_health().connection_generation
+
+        transport.script.unsupported_queries.add(0x36)
+        hand.recover(timeout=1)
+
+        assert hand.get_health().connection_generation == generation + 1
+        with pytest.raises(TimeoutError):
+            hand.get_currents(timeout=0.2)
+        with pytest.raises(TimeoutError):
+            hand.get_currents(timeout=0.2)
         with pytest.raises(UnsupportedFirmwareError, match="currents"):
             hand.get_currents(timeout=0.2)
-        assert transport.script.read_counts[0x36] == 6
+        assert hand.get_capabilities().firmware_unsupported_telemetry == (
+            TelemetrySemantic.CURRENTS,
+        )
     finally:
         hand.close()
 
