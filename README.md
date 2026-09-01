@@ -31,7 +31,7 @@ L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号�
 python -m pip install \
   --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
   --extra-index-url https://pypi.org/simple \
-  linkerbot-hand
+  'linkerbot-hand==1.0.0'
 ```
 
 从源码开发安装：

@@ -39,7 +39,7 @@ Install from the Linkerbot Gitea Python package index:
 python -m pip install \
   --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
   --extra-index-url https://pypi.org/simple \
-  linkerbot-hand
+  'linkerbot-hand==1.0.0'
 ```
 
 For source development:

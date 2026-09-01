@@ -28,7 +28,8 @@ def test_transport_dependency_requests_only_can_backends() -> None:
 
     assert requirement.extras == {"can", "canfd"}
     assert requirement.marker is None
-    assert Version("1.0.0rc2") in requirement.specifier
+    assert Version("1.0.0") in requirement.specifier
+    assert Version("1.0.0rc2") not in requirement.specifier
     assert Version("1.0.0rc1") not in requirement.specifier
     assert Version("0.1.3") not in requirement.specifier
     assert Version("0.2.0") not in requirement.specifier
