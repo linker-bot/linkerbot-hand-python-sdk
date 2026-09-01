@@ -214,6 +214,10 @@ python -m build
 - [协议原值、percent 与角度方向](./docs/zh/src/reference/angle-coordinates.md)
 - [破坏性迁移说明](./docs/zh/src/reference/hand-migration.md)
 - [逐型号接口、单位与协议说明](./docs/zh/src/reference/models/README.md)
+- [版本变更记录](./CHANGELOG.md)
+
+所有面向用户的功能、行为、接口、依赖或文档变更，都必须在同一个 PR 中更新
+`CHANGELOG.md` 的“未发布”章节。
 
 本仓库只包含 Hand SDK。机械臂、运动学和 Pinocchio 属于独立 Arm SDK；ROS 2 消息、
 Lifecycle、QoS 和 topic 映射属于 `linkerbot-hand-ros`。

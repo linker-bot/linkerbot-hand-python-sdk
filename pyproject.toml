@@ -13,6 +13,7 @@ dependencies = [
 
 [project.urls]
 Documentation = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand/src/branch/main/docs/zh/src/reference"
+Changelog = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand/src/branch/main/CHANGELOG.md"
 Repository = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand"
 
 [build-system]

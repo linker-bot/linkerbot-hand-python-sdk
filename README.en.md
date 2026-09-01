@@ -215,3 +215,7 @@ python -m build
 The repository contains only the Hand SDK. Arm control, kinematics, and
 Pinocchio belong to the separate Arm SDK. ROS 2 messages, Lifecycle, QoS, and
 topic mapping belong to `linkerbot-hand-ros`.
+
+Release history is maintained in [CHANGELOG.md](CHANGELOG.md). Every pull
+request that changes user-facing behavior, APIs, dependencies, or
+documentation must update its `Unreleased` section.
