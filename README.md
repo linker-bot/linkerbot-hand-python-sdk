@@ -23,25 +23,58 @@ L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号�
 - SDK 是设备周期查询的唯一所有者，ROS 或应用只提交 `PollingPlan`。
 - 核心包不依赖 NumPy、SciPy、ROS、机械臂或旧聚合 SDK。
 
-## 安装
+## 快速启动
 
-从 Linkerbot Gitea PyPI 安装：
+Hand SDK 的唯一直接运行依赖是 `linkerbot-transport`；transport 的 `[all]` extra 会安装
+CAN/CAN FD 所需的 `python-can`。Hand 不依赖 ROS、机械臂、运动学或聚合 SDK。以下命令
+适用于 Ubuntu，创建独立环境、显式安装两层 Linkerbot 包并完成无硬件验证：
 
 ```bash
+sudo apt update
+sudo apt install -y python3-venv can-utils
+
+python3 -m venv ~/venvs/linkerbot-hand-1.0.0
+source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+python -m pip install --upgrade pip
 python -m pip install \
   --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
   --extra-index-url https://pypi.org/simple \
+  'linkerbot-transport[all]==1.0.0' \
   'linkerbot-hand==1.0.0'
+
+python - <<'PY'
+from importlib.metadata import version
+
+from linkerbot_hand import HandDevice, SUPPORTED_MODELS
+from linkerbot_transport.can import CANTransport
+
+print("linkerbot-transport", version("linkerbot-transport"))
+print("linkerbot-hand", version("linkerbot-hand"))
+print("models", ", ".join(SUPPORTED_MODELS))
+
+transport = CANTransport("can0")
+hand = HandDevice(model="l6", side="left", transport=transport)
+print("lifecycle", hand.get_health().connection_state.value)
+hand.close()
+PY
 ```
 
-从源码开发安装：
+预期最后四行包含两个 `1.0.0` 版本、七个支持型号和 `lifecycle closed`。构造 transport
+和 `HandDevice` 不会打开 `can0`、创建线程或产生设备 I/O，因此该验证不要求连接实物。
+新终端继续使用时先执行：
+
+```bash
+source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+```
+
+只有开发尚未发布的源码时才使用 editable 安装：
 
 ```bash
 python -m pip install -e .
 ```
 
-运行依赖只有 `linkerbot-transport` 及其 CAN/CAN FD backend。Python 要求
-`>=3.10`。
+Python 要求 `>=3.10`。`linkerbot-hand` 已声明对 transport 的运行依赖；快速启动仍显式
+列出两者，是为了让首次安装的依赖版本和排障边界清晰可见。
 
 ## SocketCAN 准备
 

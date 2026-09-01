@@ -31,27 +31,64 @@ The complete Chinese API reference is under
 - The core package does not depend on NumPy, SciPy, ROS, the Arm SDK, or the
   former aggregate SDK.
 
-## Installation
+## Quick Start
 
-Install from the Linkerbot Gitea Python package index:
+The Hand SDK's only direct runtime dependency is `linkerbot-transport`; the
+transport `[all]` extra installs `python-can` for the CAN and CAN FD backends.
+Hand does not depend on ROS, an Arm SDK, kinematics, or an aggregate SDK. On
+Ubuntu, the following commands create an isolated environment, install both
+Linkerbot layers explicitly, and perform a hardware-free verification:
 
 ```bash
+sudo apt update
+sudo apt install -y python3-venv can-utils
+
+python3 -m venv ~/venvs/linkerbot-hand-1.0.0
+source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+python -m pip install --upgrade pip
 python -m pip install \
   --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
   --extra-index-url https://pypi.org/simple \
+  'linkerbot-transport[all]==1.0.0' \
   'linkerbot-hand==1.0.0'
+
+python - <<'PY'
+from importlib.metadata import version
+
+from linkerbot_hand import HandDevice, SUPPORTED_MODELS
+from linkerbot_transport.can import CANTransport
+
+print("linkerbot-transport", version("linkerbot-transport"))
+print("linkerbot-hand", version("linkerbot-hand"))
+print("models", ", ".join(SUPPORTED_MODELS))
+
+transport = CANTransport("can0")
+hand = HandDevice(model="l6", side="left", transport=transport)
+print("lifecycle", hand.get_health().connection_state.value)
+hand.close()
+PY
 ```
 
-For source development:
+The final four lines should show both `1.0.0` versions, all seven supported
+models, and `lifecycle closed`. Constructing the transport and `HandDevice`
+does not open `can0`, start a thread, or perform device I/O, so no hardware is
+required. In each new terminal, reactivate the environment first:
+
+```bash
+source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+```
+
+Use an editable install only when developing unreleased source:
 
 ```bash
 python -m pip install -e .
 ```
 
-Python 3.10 or newer is required. The only runtime dependency is
-`linkerbot-transport` with its CAN and CAN FD backends.
+Python 3.10 or newer is required. `linkerbot-hand` already declares its
+transport dependency; listing both packages explicitly keeps the installed
+versions and troubleshooting boundary visible to first-time users.
 
-## Quick Start
+## First Device
 
 Configure classic SocketCAN at 1 Mbit/s before opening L6, O6, L20Lite, or L25:
 

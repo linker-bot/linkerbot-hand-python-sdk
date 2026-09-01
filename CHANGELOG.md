@@ -8,6 +8,9 @@
 
 ## 未发布
 
+- 新增中英文快速启动流程，显式展示 `linkerbot-transport -> linkerbot-hand` 依赖链、
+  隔离环境安装命令和不产生设备 I/O 的安装后验证。
+
 ## 1.0.0 - 2026-09-01
 
 - 新增显式 `discover_hands()`，只读扫描 active SocketCAN 通道并识别 L6、O6、L20Lite、
