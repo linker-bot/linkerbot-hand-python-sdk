@@ -140,6 +140,50 @@ def test_l30_extended_id_and_big_endian_vectors_match_documented_examples() -> N
     assert decode_i16_response(_single_frame(encoded)) == values
 
 
+def test_l30_backend_preserves_configured_node_and_host_ids() -> None:
+    backend = L30ProtocolBackend(
+        HandSide.NOT_APPLICABLE,
+        node_id=3,
+        host_id=2,
+    )
+
+    transaction = backend.identity_transaction(_capabilities())
+    request = transaction.request_messages[0]
+
+    assert isinstance(request, CANFDMessage)
+    frame = parse_can_id(request.arbitration_id)
+    assert frame.destination_id == 3
+    assert frame.source_id == 2
+    assert any(
+        (route_frame := parse_can_id(route.arbitration_id)).destination_id == 2
+        and route_frame.source_id == 3
+        for route in backend.route_keys
+    )
+
+
+@pytest.mark.parametrize(
+    ("node_id", "host_id", "match"),
+    (
+        (0, 1, "node_id must be within 1..31"),
+        (32, 0, "node_id must be within 1..31"),
+        (1, -1, "host_id must be within 0..31"),
+        (1, 32, "host_id must be within 0..31"),
+        (3, 3, "must be different"),
+    ),
+)
+def test_l30_backend_rejects_invalid_endpoint_ids(
+    node_id: int,
+    host_id: int,
+    match: str,
+) -> None:
+    with pytest.raises(ProtocolError, match=match):
+        L30ProtocolBackend(
+            HandSide.NOT_APPLICABLE,
+            node_id=node_id,
+            host_id=host_id,
+        )
+
+
 def test_l30_identity_is_response_gated_and_keeps_public_side_neutral() -> None:
     result = _consume_identity()
 

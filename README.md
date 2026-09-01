@@ -74,6 +74,24 @@ sudo ip link set can0 up
 
 ## 唯一调用方式
 
+设备型号、左右手或接口未知时，可显式执行只读身份发现：
+
+```python
+from linkerbot_hand import discover_hands
+
+report = discover_hands()
+candidate = report.require_one()
+hand = candidate.create_hand_device()
+```
+
+`discover_hands()` 默认只读取处于 `UP` 状态的 SocketCAN 接口，不修改接口配置；探测只读
+身份，不启动轮询或发送运动、清错、标定命令。多个设备、同地址冲突或身份不完整时不会
+静默选择。O30i 因无法可靠验证左右手会返回部分候选，需要在确认实物后显式传入
+`candidate.create_hand_device(side="left" | "right")`。完整协议顺序和错误处理见
+[自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
+
+已知型号和接口时仍可直接构造统一设备类：
+
 ```python
 from linkerbot_hand import AngleFeedbackPolicy, HandDevice, PollingPlan
 from linkerbot_transport.can import CANTransport
@@ -191,6 +209,7 @@ python -m build
 ## 文档
 
 - [统一 HandDevice API](./docs/zh/src/reference/hand-device.md)
+- [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)
 - [型号能力与查询方式](./docs/zh/src/reference/hand-capabilities.md)
 - [协议原值、percent 与角度方向](./docs/zh/src/reference/angle-coordinates.md)
 - [破坏性迁移说明](./docs/zh/src/reference/hand-migration.md)

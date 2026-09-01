@@ -136,6 +136,40 @@ l30 = HandDevice(
 O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30i uses 1 Mbit/s
 for both nominal and data rates.
 
+## Explicit Discovery
+
+When the channel, model, or side is unknown, identity discovery is an explicit,
+read-only operation:
+
+```python
+from linkerbot_hand import discover_hands
+
+report = discover_hands()
+candidate = report.require_one()
+hand = candidate.create_hand_device()
+```
+
+The default source enumerates active Linux SocketCAN links without changing
+their state or bitrates. Discovery reads identity only; it never starts polling
+or sends motion, fault-clear, calibration, or configuration commands. A CAN FD
+link is probed with classic frames first, and FD probes are skipped if a classic
+hand responds. O20, L30, and O30i then use their own identity protocols rather
+than `0xC0`.
+
+Multiple endpoints, observable same-address collisions, malformed identity, and
+missing required fields are never silently resolved. O30i identity currently
+cannot verify the physical side, so it returns a partial candidate; after
+checking the hardware, create it with an explicit side:
+
+```python
+candidate = report.require_one(allow_partial=True)
+hand = candidate.create_hand_device(side="right")
+```
+
+Probe transports are closed before `discover_hands()` returns. The candidate
+retains a closed transport recipe, and the returned `HandDevice` remains closed
+until `open()` is called.
+
 ## Value Semantics
 
 ```python

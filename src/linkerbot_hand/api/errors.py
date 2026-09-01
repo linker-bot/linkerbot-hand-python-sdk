@@ -24,6 +24,10 @@ class ErrorCode(str, Enum):
     POLLING_PLAN = "polling_plan"
     CLOSED = "closed"
     LIFECYCLE = "lifecycle"
+    DISCOVERY = "discovery"
+    NO_HAND_FOUND = "no_hand_found"
+    AMBIGUOUS_HAND = "ambiguous_hand"
+    INCOMPLETE_IDENTITY = "incomplete_identity"
     INTERNAL = "internal"
 
 

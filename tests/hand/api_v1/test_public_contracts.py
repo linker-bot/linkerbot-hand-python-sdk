@@ -7,6 +7,7 @@ import pytest
 import linkerbot_hand
 import linkerbot_hand.api as hand_api
 import linkerbot_hand.capabilities as hand_capabilities
+import linkerbot_hand.discovery as hand_discovery
 from linkerbot_hand.api.commands import (
     AckSupport,
     CommandFamily,
@@ -49,8 +50,12 @@ def test_public_contract_exports_resolve() -> None:
     assert all(getattr(hand_api, name) is not None for name in hand_api.__all__)
 
 
-def test_top_level_exports_exactly_the_api_and_capability_contracts() -> None:
-    expected = set(hand_api.__all__) | set(hand_capabilities.__all__)
+def test_top_level_exports_exactly_the_public_contract_packages() -> None:
+    expected = (
+        set(hand_api.__all__)
+        | set(hand_capabilities.__all__)
+        | set(hand_discovery.__all__)
+    )
 
     assert set(linkerbot_hand.__all__) == expected
     assert all(getattr(linkerbot_hand, name) is not None for name in expected)

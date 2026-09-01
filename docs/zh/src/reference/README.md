@@ -8,11 +8,12 @@
 
 1. [统一 HandDevice API](./hand-device.md)：构造、生命周期、命令、主动读取、轮询、
    快照、健康状态和错误。
-2. [型号能力](./hand-capabilities.md)：七型号的 transport、关节、命令、状态与可选操作。
-3. [角度与值语义](./angle-coordinates.md)：协议原值、`percent`、方向和物理角度边界。
-4. [经典 CAN](./can.md) / [CAN FD](./canfd.md)：Linux 总线配置和 transport 构造。
-5. [迁移说明](./hand-migration.md)：从已删除的旧型号类和双接口迁移。
-6. [型号协议能力](./models/README.md)：逐型号维护接口、opcode、单位、解释、固件证据和限制。
+2. [自动发现与身份识别](./hand-discovery.md)：显式扫描、协议顺序、候选、歧义和安全边界。
+3. [型号能力](./hand-capabilities.md)：七型号的 transport、关节、命令、状态与可选操作。
+4. [角度与值语义](./angle-coordinates.md)：协议原值、`percent`、方向和物理角度边界。
+5. [经典 CAN](./can.md) / [CAN FD](./canfd.md)：Linux 总线配置和 transport 构造。
+6. [迁移说明](./hand-migration.md)：从已删除的旧型号类和双接口迁移。
+7. [型号协议能力](./models/README.md)：逐型号维护接口、opcode、单位、解释、固件证据和限制。
 
 程序必须以 `hand.get_capabilities()` 返回的当前 profile 为准。文档矩阵用于阅读和评审，
 不能复制到 ROS 或应用中形成另一份 `MODEL_SPECS`。

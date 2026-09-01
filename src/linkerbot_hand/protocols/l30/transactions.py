@@ -51,13 +51,25 @@ _WRITE_ROUTES = (
 
 
 class L30ProtocolBackend:
-    """Stateless L30 profile using the default NodeID 1 and host ID 0."""
+    """Stateless L30 profile for one configured Node ID and host ID."""
 
-    def __init__(self, side: HandSide) -> None:
+    def __init__(
+        self,
+        side: HandSide,
+        *,
+        node_id: int = DEFAULT_NODE_ID,
+        host_id: int = DEFAULT_HOST_ID,
+    ) -> None:
         if side is not HandSide.NOT_APPLICABLE:
             raise ProtocolError("L30 protocol requires NOT_APPLICABLE side")
-        self._node_id = DEFAULT_NODE_ID
-        self._host_id = DEFAULT_HOST_ID
+        if type(node_id) is not int or not 1 <= node_id <= 31:
+            raise ProtocolError("L30 node_id must be within 1..31")
+        if type(host_id) is not int or not 0 <= host_id <= 31:
+            raise ProtocolError("L30 host_id must be within 0..31")
+        if node_id == host_id:
+            raise ProtocolError("L30 node_id and host_id must be different")
+        self._node_id = node_id
+        self._host_id = host_id
         self._endpoint_id = ("l30", self._node_id, self._host_id)
         self._route_keys = tuple(
             response_route(
