@@ -1,7 +1,7 @@
 # linkerbot-hand
 
 `linkerbot-hand` 是 Linkerbot 全系列灵巧手的独立 Python SDK。L6、O6、
-L20Lite、L25、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号差异由
+L20Lite、L20、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号差异由
 `get_capabilities()` 返回，不再公开型号类、manager、`HandSession` 或
 `linkerbot.hand` 兼容入口。
 
@@ -78,7 +78,7 @@ Python 要求 `>=3.10`。`linkerbot-hand` 已声明对 transport 的运行依赖
 
 ## SocketCAN 准备
 
-经典 CAN 型号 L6、O6、L20Lite、L25 使用 1 Mbit/s：
+经典 CAN 型号 L6、O6、L20Lite、L20 使用 1 Mbit/s：
 
 ```bash
 sudo ip link set can0 down

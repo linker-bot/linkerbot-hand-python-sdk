@@ -30,7 +30,8 @@ hand = HandDevice(
 
 已删除：
 
-- `from linkerbot.hand import L6, O6, L20lite, L25, O20, L30, O30i`；
+- 旧版 `from linkerbot.hand import L6, O6, L20lite, L25, O20, L30, O30i` 型号类（其中
+  `L25` 是当前公共型号 `L20` 的历史误命名）；
 - `from linkerbot import L6`；
 - `create_hand_device()`；
 - `HandSession`；

@@ -634,7 +634,7 @@ def test_o6_complete_tactile_transaction_counts_as_one_read() -> None:
         ("L6", HandSide.LEFT, 5, 12, 6, 0xC6),
         ("O6", HandSide.RIGHT, 20, 10, 4, 0xA4),
         ("L20Lite", HandSide.LEFT, 10, 12, 6, 0xC6),
-        ("L25", HandSide.RIGHT, 10, 12, 6, 0xC6),
+        ("L20", HandSide.RIGHT, 10, 12, 6, 0xC6),
     ),
 )
 def test_angle_and_full_tactile_polling_publish_complete_samples(
@@ -676,7 +676,7 @@ def test_angle_and_full_tactile_polling_publish_complete_samples(
         )
         assert snapshot.force.tactile[0].raw[0] == tuple(range(columns))
         assert transport.script.read_counts[selector] >= 5
-        angle_opcode = 0x41 if model == "L25" else 0x01
+        angle_opcode = 0x41 if model == "L20" else 0x01
         assert transport.script.read_counts[angle_opcode] >= 2
 
         counts_after_stop = transport.script.read_counts.copy()
@@ -799,7 +799,7 @@ def test_o6_tactile_waits_at_boundary_for_imminent_rate_limited_target() -> None
     ("model", "side", "joint_count", "expected_angles"),
     (
         ("L20Lite", HandSide.LEFT, 10, tuple(range(10, 20))),
-        ("L25", HandSide.RIGHT, 16, tuple(range(10, 26))),
+        ("L20", HandSide.RIGHT, 16, tuple(range(10, 26))),
     ),
 )
 def test_extended_classic_profiles_open_and_control_multi_frame_objects(

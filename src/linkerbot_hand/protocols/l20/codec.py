@@ -1,4 +1,4 @@
-"""L25 per-finger classic CAN object layouts."""
+"""L20 per-finger classic CAN object layouts."""
 
 from ...capabilities.types import CommandSemantic, TelemetrySemantic
 from ..common.classic_layout import ClassicFrameLayout, ClassicObjectLayout

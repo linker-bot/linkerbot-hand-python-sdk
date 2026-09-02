@@ -1,4 +1,4 @@
-"""L25 protocol backend."""
+"""L20 protocol backend."""
 
 from ...api.enums import HandSide
 from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
@@ -13,16 +13,16 @@ from .codec import (
     CONFIG_TELEMETRY,
     TELEMETRY_LAYOUTS,
 )
-from .identity import l25_identity_transaction
+from .identity import l20_identity_transaction
 
 
-class L25ProtocolBackend(ClassicMultiAxisBackend):
-    """Stateless transaction profile for one L25 endpoint."""
+class L20ProtocolBackend(ClassicMultiAxisBackend):
+    """Stateless transaction profile for one L20 endpoint."""
 
     def __init__(self, side: HandSide) -> None:
         super().__init__(
             route=classic_route(side),
-            identity_transaction=l25_identity_transaction,
+            identity_transaction=l20_identity_transaction,
             command_layouts=COMMAND_LAYOUTS,
             telemetry_layouts=TELEMETRY_LAYOUTS,
             baseline=BASELINE_SEMANTICS,
@@ -51,4 +51,4 @@ class L25ProtocolBackend(ClassicMultiAxisBackend):
         return super().read_transaction(semantic, capabilities)
 
 
-__all__ = ["L25ProtocolBackend"]
+__all__ = ["L20ProtocolBackend"]

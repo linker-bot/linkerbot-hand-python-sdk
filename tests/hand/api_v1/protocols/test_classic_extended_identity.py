@@ -1,4 +1,4 @@
-"""L20Lite/L25 classic CAN identity-profile tests."""
+"""L20Lite/L20 classic CAN identity-profile tests."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from linkerbot_hand.api.errors import IdentityMismatchError
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.protocols import IdentityResult
 from linkerbot_hand.protocols.common.classic_can import classic_route
+from linkerbot_hand.protocols.l20 import l20_identity_transaction
 from linkerbot_hand.protocols.l20lite import l20lite_identity_transaction
-from linkerbot_hand.protocols.l25 import l25_identity_transaction
 
 
 def _message(side: HandSide, data: bytes) -> can.Message:
@@ -44,7 +44,7 @@ def _frames(side: HandSide, product_code: str) -> tuple[can.Message, ...]:
             "LHT10-07-098-L-A-1-C",
             l20lite_identity_transaction,
         ),
-        ("l25", HandSide.RIGHT, "LHG20-010-001-R-Z-1-A", l25_identity_transaction),
+        ("l20", HandSide.RIGHT, "LHG20-010-001-R-Z-1-A", l20_identity_transaction),
     ),
 )
 def test_extended_classic_identity_verifies_all_common_fields(
@@ -72,9 +72,29 @@ def test_extended_classic_identity_verifies_all_common_fields(
     assert result.fingerprint == product_code
 
 
-def test_l25_identity_rejects_a_different_factory_family() -> None:
-    transaction = l25_identity_transaction(
-        get_declared_capabilities("l25", side="left")
+@pytest.mark.parametrize("factory_prefix", ("L20", "L25", "LHL25", "LHG20"))
+def test_l20_identity_accepts_historical_factory_prefixes_and_reports_l20(
+    factory_prefix: str,
+) -> None:
+    product_code = f"{factory_prefix}-010-001-L-Z-1-A"
+    transaction = l20_identity_transaction(
+        get_declared_capabilities("l20", side=HandSide.LEFT)
+    )
+
+    progress = None
+    for frame in reversed(_frames(HandSide.LEFT, product_code)):
+        progress = transaction.consume(frame)
+
+    assert progress is not None and progress.complete
+    assert isinstance(progress.result, IdentityResult)
+    assert progress.result.capabilities.model == "L20"
+    assert progress.result.device_info.model == "L20"
+    assert progress.result.device_info.product_code == product_code
+
+
+def test_l20_identity_rejects_a_different_factory_family() -> None:
+    transaction = l20_identity_transaction(
+        get_declared_capabilities("l20", side="left")
     )
 
     with pytest.raises(IdentityMismatchError, match="factory model"):

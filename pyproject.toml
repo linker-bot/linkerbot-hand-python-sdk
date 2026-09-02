@@ -62,7 +62,7 @@ markers = [
   "l6: L6 hand tests",
   "o6: O6 hand tests",
   "l20lite: L20Lite hand tests",
-  "l25: L25 hand tests",
+  "l20: L20 hand tests",
   "l30: L30 hand tests",
   "o20: O20 hand tests",
   "o30i: O30i hand tests",

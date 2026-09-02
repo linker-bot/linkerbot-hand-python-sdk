@@ -231,7 +231,7 @@ def _fd_channel(*, data_bitrate: int = 5_000_000) -> DiscoveryChannel:
         ("L6", HandSide.LEFT),
         ("O6", HandSide.RIGHT),
         ("L20Lite", HandSide.LEFT),
-        ("L25", HandSide.RIGHT),
+        ("L20", HandSide.RIGHT),
     ],
 )
 def test_discovers_every_classic_profile_with_identity_only(
@@ -399,6 +399,23 @@ def test_classic_product_response_without_versions_is_partial() -> None:
     assert candidate.problems[0].code == "identity_timeout"
     with pytest.raises(IncompleteIdentityError):
         candidate.create_hand_device()
+
+
+@pytest.mark.parametrize("factory_prefix", ("L20", "L25", "LHL25", "LHG20"))
+def test_discovery_maps_l20_factory_prefixes_to_public_l20(
+    factory_prefix: str,
+) -> None:
+    script = make_script("L20", HandSide.LEFT)
+    script.product_code = f"{factory_prefix}-010-001-L-Z-1-A"
+    source = _Source(
+        _classic_channel(),
+        {TransportKind.CAN: lambda: ScriptedClassicCANTransport(script)},
+    )
+
+    candidate = discover_hands(_FAST, source=source).require_one()
+
+    assert candidate.model == "L20"
+    assert candidate.create_hand_device().get_capabilities().model == "L20"
 
 
 def test_malformed_classic_product_response_returns_partial_candidate() -> None:

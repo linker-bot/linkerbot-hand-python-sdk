@@ -49,7 +49,7 @@ report = discover_hands(
 
 | 型号 | 线路协议 | 最小身份探针 | 地址范围 |
 | --- | --- | --- | --- |
-| L6、O6、L20Lite、L25 | classic CAN | `0xC0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 左手 `0x28`、右手 `0x27` |
+| L6、O6、L20Lite、L20 | classic CAN | `0xC0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 左手 `0x28`、右手 `0x27` |
 | O20 | CAN FD | DeviceInfo 寄存器 `0x00` | Device ID `1/2` |
 | L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
 | O30i | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 请求 `0x001`、响应 `0x401` |

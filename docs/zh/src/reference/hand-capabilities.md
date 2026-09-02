@@ -54,7 +54,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
 | L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | 无 |
-| L25 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | clear_faults |
+| L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
 | O30i | 必填 | CAN FD 1M/1M | 20 | angles, speeds, accelerations, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, effort_limits, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
@@ -63,7 +63,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 会抛出 `ValidationError`。
 
 角度命令的 `returns_current_state` 表示写响应是否已被该型号协议验证为当前实际角度。
-L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者不代表不能读取
+L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30i 为 `False`。后者不代表不能读取
 角度，而是写入本身不能代替闭环状态查询。
 
 ## 关节顺序
@@ -74,7 +74,7 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
 | --- | --- |
 | L6 / O6 | thumb_flex, thumb_abd, index, middle, ring, pinky |
 | L20Lite | thumb_flex, thumb_roll, index_flex, middle_flex, ring_flex, pinky_flex, index_abd, ring_abd, pinky_abd, thumb_rotation |
-| L25 | thumb_rotation, thumb_roll, thumb_root, thumb_tip, index_abd, index_root, index_tip, middle_abd, middle_root, middle_tip, ring_abd, ring_root, ring_tip, pinky_abd, pinky_root, pinky_tip |
+| L20 | thumb_rotation, thumb_roll, thumb_root, thumb_tip, index_abd, index_root, index_tip, middle_abd, middle_root, middle_tip, ring_abd, ring_root, ring_tip, pinky_abd, pinky_root, pinky_tip |
 | O20 | thumb_mcp, thumb_ip, thumb_roll, thumb_rotation, index_abd, index_mcp, index_pip, middle_abd, middle_mcp, middle_pip, ring_abd, ring_mcp, ring_pip, pinky_abd, pinky_mcp, pinky_dip |
 | L30 | thumb_root, thumb_tip, thumb_abd, thumb_rotation, ring_abd, ring_tip, ring_root, middle_root, middle_tip, pinky_root, pinky_tip, pinky_abd, middle_abd, index_abd, index_root, index_tip, wrist |
 | O30i | thumb_rotation, thumb_roll, index_abd, middle_abd, ring_abd, pinky_abd, thumb_root1, index_root1, middle_root1, ring_root1, pinky_root1, index_root2, middle_root2, ring_root2, pinky_root2, thumb_tip, index_tip, middle_tip, ring_tip, pinky_tip |
@@ -91,7 +91,7 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
 | L6 | 60 Hz | 5 Hz | 1 Hz | 10 Hz | 5 Hz |
 | O6 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
 | L20Lite | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
-| L25 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
+| L20 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
 | O20 | 30 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | L30 | 60 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | O30i | 30 Hz | 不支持 | 1 Hz | 10 Hz | 5 Hz |
@@ -114,7 +114,7 @@ L6、O6、L20Lite、L25 当前为 `True`；O20、L30、O30i 为 `False`。后者
   `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
   `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
 - L30 使用 `current_limits`，协议值本身以 mA 表示。
-- L20Lite/L25/O20/O30i 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
+- L20Lite/L20/O20/O30i 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
 - 当前七型号没有 profile 声明真实 `torques` 通道，因此
   `set_torques()` / `get_torques()` 会返回 unsupported。
 

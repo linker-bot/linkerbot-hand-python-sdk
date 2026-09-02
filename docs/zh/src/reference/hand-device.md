@@ -21,7 +21,7 @@ hand = HandDevice(
 
 | 参数 | 含义 |
 | --- | --- |
-| `model` | `l6`、`o6`、`l20lite`、`l25`、`o20`、`l30` 或 `o30i`，不区分大小写 |
+| `model` | `l6`、`o6`、`l20lite`、`l20`、`o20`、`l30` 或 `o30i`，不区分大小写 |
 | `side` | 有左右手的型号必须为 `left` 或 `right`；L30 必须省略 |
 | `transport` | 实现 `linkerbot-transport` 消息 transport 契约的对象 |
 | `config` | 可选 `DeviceConfig`；控制队列容量、超时、关闭和恢复策略 |

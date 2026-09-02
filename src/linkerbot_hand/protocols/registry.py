@@ -9,8 +9,8 @@ from ..api.errors import UnsupportedOperationError, ValidationError
 from ..capabilities.types import DeviceCapabilities
 from .base import ProtocolBackend
 from .l6 import L6ProtocolBackend
+from .l20 import L20ProtocolBackend
 from .l20lite import L20LiteProtocolBackend
-from .l25 import L25ProtocolBackend
 from .l30 import L30ProtocolBackend
 from .o6 import O6ProtocolBackend
 from .o20 import O20ProtocolBackend
@@ -22,7 +22,7 @@ _BACKEND_FACTORIES: dict[str, ProtocolBackendFactory] = {
     "L6": L6ProtocolBackend,
     "O6": O6ProtocolBackend,
     "L20Lite": L20LiteProtocolBackend,
-    "L25": L25ProtocolBackend,
+    "L20": L20ProtocolBackend,
     "O20": O20ProtocolBackend,
     "L30": L30ProtocolBackend,
     "O30i": O30iProtocolBackend,
@@ -32,7 +32,7 @@ _TRANSPORT_KINDS = {
     "L6": TransportKind.CAN,
     "O6": TransportKind.CAN,
     "L20Lite": TransportKind.CAN,
-    "L25": TransportKind.CAN,
+    "L20": TransportKind.CAN,
     "O20": TransportKind.CAN_FD,
     "L30": TransportKind.CAN_FD,
     "O30i": TransportKind.CAN_FD,

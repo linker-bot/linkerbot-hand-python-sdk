@@ -32,7 +32,7 @@ _MODEL_CONFIGS = (
     ("l6", "left"),
     ("o6", "right"),
     ("l20lite", "left"),
-    ("l25", "right"),
+    ("l20", "right"),
     ("o20", "left"),
     ("l30", None),
     ("o30i", "right"),

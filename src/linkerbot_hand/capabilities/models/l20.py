@@ -1,4 +1,4 @@
-"""Declared L25 capability profile."""
+"""Declared L20 capability profile."""
 
 from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
 from ..types import (
@@ -70,7 +70,7 @@ _FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 
 
 def declared_capabilities(side: HandSide) -> DeviceCapabilities:
-    """Return immutable, unverified L25 metadata for ``side``."""
+    """Return immutable, unverified L20 metadata for ``side``."""
 
     joints = tuple(
         joint(
@@ -90,7 +90,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
     names = tuple(value.name for value in joints)
     return DeviceCapabilities(
         identity=identity(
-            "L25",
+            "L20",
             side,
             supported_fields=(
                 "serial_number",

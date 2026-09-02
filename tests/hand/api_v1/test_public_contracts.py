@@ -70,7 +70,7 @@ def test_top_level_exports_exactly_the_public_contract_packages() -> None:
         "L6",
         "O6",
         "L20lite",
-        "L25",
+        "L20",
         "O20",
         "L30",
         "O30i",
@@ -108,7 +108,7 @@ def test_angle_command_declares_only_verified_current_state_responses() -> None:
         ("l6", "left"),
         ("o6", "right"),
         ("l20lite", "left"),
-        ("l25", "right"),
+        ("l20", "right"),
     }
     dispatch_or_ack_profiles = {
         ("o20", "right"),

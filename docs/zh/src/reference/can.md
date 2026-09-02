@@ -1,6 +1,6 @@
 # 经典 CAN transport
 
-L6、O6、L20Lite 和 L25 使用经典 CAN，当前 profile 要求 1 Mbit/s。设备协议和生命周期
+L6、O6、L20Lite 和 L20 使用经典 CAN，当前 profile 要求 1 Mbit/s。设备协议和生命周期
 由 `linkerbot-hand` 管理，物理连接、收发、路由和发送回执由
 `linkerbot-transport` 管理。
 

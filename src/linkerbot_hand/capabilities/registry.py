@@ -8,8 +8,8 @@ from ..api.enums import HandSide
 from ..api.errors import ValidationError
 from .models import (
     l6_capabilities,
+    l20_capabilities,
     l20lite_capabilities,
-    l25_capabilities,
     l30_capabilities,
     o6_capabilities,
     o20_capabilities,
@@ -17,14 +17,14 @@ from .models import (
 )
 from .types import DeviceCapabilities
 
-SUPPORTED_MODELS = ("L6", "O6", "L20Lite", "L25", "O20", "L30", "O30i")
+SUPPORTED_MODELS = ("L6", "O6", "L20Lite", "L20", "O20", "L30", "O30i")
 
 _ALIASES = {
     "l6": "L6",
     "o6": "O6",
     "l20lite": "L20Lite",
     "l20-lite": "L20Lite",
-    "l25": "L25",
+    "l20": "L20",
     "o20": "O20",
     "l30": "L30",
     "o30i": "O30i",
@@ -34,7 +34,7 @@ _PROFILE_FACTORIES: dict[str, Callable[[HandSide], DeviceCapabilities]] = {
     "L6": l6_capabilities,
     "O6": o6_capabilities,
     "L20Lite": l20lite_capabilities,
-    "L25": l25_capabilities,
+    "L20": l20_capabilities,
     "O20": o20_capabilities,
     "L30": l30_capabilities,
     "O30i": o30i_capabilities,

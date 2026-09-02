@@ -1,7 +1,7 @@
 # linkerbot-hand
 
 `linkerbot-hand` is the standalone Python SDK for the Linkerbot hand family.
-L6, O6, L20Lite, L25, O20, L30, and O30i all use one `HandDevice` API.
+L6, O6, L20Lite, L20, O20, L30, and O30i all use one `HandDevice` API.
 Model differences are reported by `get_capabilities()`; model classes,
 managers, `HandSession`, and the `linkerbot.hand` compatibility namespace are
 not part of this package.
@@ -90,7 +90,7 @@ versions and troubleshooting boundary visible to first-time users.
 
 ## First Device
 
-Configure classic SocketCAN at 1 Mbit/s before opening L6, O6, L20Lite, or L25:
+Configure classic SocketCAN at 1 Mbit/s before opening L6, O6, L20Lite, or L20:
 
 ```bash
 sudo ip link set can0 down

@@ -1,4 +1,4 @@
-"""L20Lite/L25 classic CAN multi-axis protocol contract tests."""
+"""L20Lite/L20 classic CAN multi-axis protocol contract tests."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
 from linkerbot_hand.protocols import ProtocolTransaction, SamplePayload
 from linkerbot_hand.protocols.common.classic_can import classic_route
+from linkerbot_hand.protocols.l20 import L20ProtocolBackend
 from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
-from linkerbot_hand.protocols.l25 import L25ProtocolBackend
 
 
 def _message(side: HandSide, data: bytes) -> can.Message:
@@ -121,9 +121,9 @@ def test_l20lite_reads_publish_only_complete_out_of_order_objects(
     assert payload.origin is origin
 
 
-def test_l25_reserved_slots_are_zero_filled_and_never_public() -> None:
-    capabilities = get_declared_capabilities("l25", side="right")
-    backend = L25ProtocolBackend(HandSide.RIGHT)
+def test_l20_reserved_slots_are_zero_filled_and_never_public() -> None:
+    capabilities = get_declared_capabilities("l20", side="right")
+    backend = L20ProtocolBackend(HandSide.RIGHT)
     values = tuple(range(16))
     command = backend.command_transaction(CommandSemantic.ANGLES, values, capabilities)
 
@@ -156,9 +156,9 @@ def test_l25_reserved_slots_are_zero_filled_and_never_public() -> None:
     assert payload.raw == values
 
 
-def test_l25_config_reads_and_clear_faults_have_exact_semantics() -> None:
-    capabilities = get_declared_capabilities("l25", side="right")
-    backend = L25ProtocolBackend(HandSide.RIGHT)
+def test_l20_config_reads_and_clear_faults_have_exact_semantics() -> None:
+    capabilities = get_declared_capabilities("l20", side="right")
+    backend = L20ProtocolBackend(HandSide.RIGHT)
     speed = backend.read_transaction(TelemetrySemantic.CONFIGURED_SPEEDS, capabilities)
     clear = backend.operation_transaction("clear_faults", capabilities)
 

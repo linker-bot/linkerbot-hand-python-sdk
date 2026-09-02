@@ -7,8 +7,8 @@ import pytest
 from linkerbot_hand.api import HandSide, ValidationError
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.protocols.l6 import L6ProtocolBackend
+from linkerbot_hand.protocols.l20 import L20ProtocolBackend
 from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
-from linkerbot_hand.protocols.l25 import L25ProtocolBackend
 from linkerbot_hand.protocols.l30 import L30ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 from linkerbot_hand.protocols.o20 import O20ProtocolBackend
@@ -26,8 +26,8 @@ from linkerbot_transport import CANRouteKey
         ("o6", "right", O6ProtocolBackend, 0x27),
         ("l20lite", "left", L20LiteProtocolBackend, 0x28),
         ("l20lite", "right", L20LiteProtocolBackend, 0x27),
-        ("l25", "left", L25ProtocolBackend, 0x28),
-        ("l25", "right", L25ProtocolBackend, 0x27),
+        ("l20", "left", L20ProtocolBackend, 0x28),
+        ("l20", "right", L20ProtocolBackend, 0x27),
     ),
 )
 def test_registry_selects_model_and_side_without_io(

@@ -35,7 +35,7 @@ class ClassicCANDeviceScript:
     dropped_command_responses: set[int] = field(default_factory=set)
 
     def __post_init__(self) -> None:
-        if self.model not in {"L6", "O6", "L20Lite", "L25"}:
+        if self.model not in {"L6", "O6", "L20Lite", "L20"}:
             raise ValueError("unsupported classic hand script model")
         for opcode, values in _default_readings(self.model).items():
             self.readings.setdefault(opcode, values)
@@ -110,7 +110,7 @@ class ClassicCANDeviceScript:
             return self._tactile_frames(data[0])
         if len(data) > 1 and data[0] in self.readings:
             self.command_payloads.append(data)
-            if self.model == "L25" and data[0] in range(0x59, 0x5E):
+            if self.model == "L20" and data[0] in range(0x59, 0x5E):
                 self.readings[data[0]] = (0,) * 6
             else:
                 self.readings[data[0]] = tuple(data[1:])
@@ -204,7 +204,7 @@ def make_script(model: str, side: HandSide) -> ClassicCANDeviceScript:
             product_code=f"LHT10-07-098-{side_code}-A-1-C",
             firmware=(2, 5, 1),
         )
-    if model == "L25":
+    if model == "L20":
         return ClassicCANDeviceScript(
             model=model,
             side=side,
@@ -256,7 +256,7 @@ def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
             0x35: (0,) * 5,
             0x36: (0,) * 5,
         }
-    if model == "L25":
+    if model == "L20":
         layouts = {
             0x41: (10, 11, 12, 0, 0, 13),
             0x42: (14, 0, 15, 0, 0, 16),
