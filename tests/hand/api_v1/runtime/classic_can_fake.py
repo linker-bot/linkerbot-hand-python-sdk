@@ -208,7 +208,7 @@ def make_script(model: str, side: HandSide) -> ClassicCANDeviceScript:
         return ClassicCANDeviceScript(
             model=model,
             side=side,
-            product_code=f"LHG20-010-001-{side_code}-Z-1-A",
+            product_code=f"LHT20-10-499-{side_code}-B-1-D",
             firmware=(3, 0, 2),
         )
     raise ValueError("unsupported classic hand script model")

@@ -54,6 +54,10 @@ report = discover_hands(
 | L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
 | O30i | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 请求 `0x001`、响应 `0x401` |
 
+L20 对外始终报告公共型号 `L20`。发现和身份校验接受常见的 `LHT20-...` 产品编号（例如
+`LHT20-10-499-L-B-1-D`），并继续兼容已部署设备上的 `L20-...`、`L25-...`、
+`LHL25-...` 和 `LHG20-...` 编号；这些线级前缀不是可传给 `HandDevice` 的型号别名。
+
 已知 nominal bitrate 不是 1 Mbit/s 的接口不会发送 Linkerbot 身份探针；元数据无法提供
 bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送 classic 探针。CAN FD
 接口先通过 classic 帧检查 `0x27/0x28`；

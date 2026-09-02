@@ -72,11 +72,19 @@ def test_extended_classic_identity_verifies_all_common_fields(
     assert result.fingerprint == product_code
 
 
-@pytest.mark.parametrize("factory_prefix", ("L20", "L25", "LHL25", "LHG20"))
-def test_l20_identity_accepts_historical_factory_prefixes_and_reports_l20(
-    factory_prefix: str,
+@pytest.mark.parametrize(
+    "product_code",
+    (
+        "L20-010-001-L-Z-1-A",
+        "LHT20-10-499-L-B-1-D",
+        "L25-010-001-L-Z-1-A",
+        "LHL25-010-001-L-Z-1-A",
+        "LHG20-010-001-L-Z-1-A",
+    ),
+)
+def test_l20_identity_accepts_known_factory_product_codes_and_reports_l20(
+    product_code: str,
 ) -> None:
-    product_code = f"{factory_prefix}-010-001-L-Z-1-A"
     transaction = l20_identity_transaction(
         get_declared_capabilities("l20", side=HandSide.LEFT)
     )

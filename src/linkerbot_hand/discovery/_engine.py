@@ -70,9 +70,10 @@ _CLASSIC_MODELS = {
     "LHL6": "L6",
     "LHO6": "O6",
     "LHT10": "L20Lite",
-    # L25/LHL25 are historical factory prefixes; LHG20 is the deployed
-    # product-code prefix.  All three map to the public L20 profile.
+    # LHT20 is the current factory prefix. L25/LHL25 and LHG20 occur on
+    # deployed devices; every wire identifier maps to the public L20 profile.
     "L20": "L20",
+    "LHT20": "L20",
     "L25": "L20",
     "LHL25": "L20",
     "LHG20": "L20",

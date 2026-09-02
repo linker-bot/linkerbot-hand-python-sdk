@@ -401,12 +401,21 @@ def test_classic_product_response_without_versions_is_partial() -> None:
         candidate.create_hand_device()
 
 
-@pytest.mark.parametrize("factory_prefix", ("L20", "L25", "LHL25", "LHG20"))
-def test_discovery_maps_l20_factory_prefixes_to_public_l20(
-    factory_prefix: str,
+@pytest.mark.parametrize(
+    "product_code",
+    (
+        "L20-010-001-L-Z-1-A",
+        "LHT20-10-499-L-B-1-D",
+        "L25-010-001-L-Z-1-A",
+        "LHL25-010-001-L-Z-1-A",
+        "LHG20-010-001-L-Z-1-A",
+    ),
+)
+def test_discovery_maps_l20_factory_product_codes_to_public_l20(
+    product_code: str,
 ) -> None:
     script = make_script("L20", HandSide.LEFT)
-    script.product_code = f"{factory_prefix}-010-001-L-Z-1-A"
+    script.product_code = product_code
     source = _Source(
         _classic_channel(),
         {TransportKind.CAN: lambda: ScriptedClassicCANTransport(script)},
@@ -415,6 +424,8 @@ def test_discovery_maps_l20_factory_prefixes_to_public_l20(
     candidate = discover_hands(_FAST, source=source).require_one()
 
     assert candidate.model == "L20"
+    assert candidate.device_info is not None
+    assert candidate.device_info.product_code == product_code
     assert candidate.create_hand_device().get_capabilities().model == "L20"
 
 

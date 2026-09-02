@@ -16,7 +16,7 @@ def l20_identity_transaction(
         # These are factory identifiers found in deployed devices.  They are
         # deliberately kept as wire-level aliases while the public model is
         # normalized to L20.
-        factory_models=("L20", "L25", "LHL25", "LHG20"),
+        factory_models=("L20", "LHT20", "L25", "LHL25", "LHG20"),
     )
 
 
