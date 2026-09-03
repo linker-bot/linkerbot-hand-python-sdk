@@ -1,4 +1,4 @@
-"""Declared O30i profile exposing only twenty installed protocol slots."""
+"""Declared O30 profile exposing only twenty installed protocol slots."""
 
 from ...api.commands import AckSupport
 from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
@@ -58,7 +58,7 @@ _JOINT_SPECS = (
 
 
 def declared_capabilities(side: HandSide) -> DeviceCapabilities:
-    """Return immutable, unverified O30i metadata for ``side``."""
+    """Return immutable, unverified O30 metadata for ``side``."""
 
     joints = tuple(
         joint(
@@ -95,13 +95,14 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
     )
     return DeviceCapabilities(
         identity=identity(
-            "O30i",
+            "O30",
             side,
             supported_fields=(
                 "serial_number",
                 "pcb_version",
                 "firmware_version",
                 "mechanical_version",
+                "product_code",
                 "sensor_variant",
             ),
         ),

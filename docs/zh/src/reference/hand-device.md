@@ -21,7 +21,7 @@ hand = HandDevice(
 
 | 参数 | 含义 |
 | --- | --- |
-| `model` | `l6`、`o6`、`l20lite`、`l20`、`o20`、`l30` 或 `o30i`，不区分大小写 |
+| `model` | `l6`、`o6`、`l20lite`、`l20`、`o20`、`l30` 或 `o30`，不区分大小写 |
 | `side` | 有左右手的型号必须为 `left` 或 `right`；L30 必须省略 |
 | `transport` | 实现 `linkerbot-transport` 消息 transport 契约的对象 |
 | `config` | 可选 `DeviceConfig`；控制队列容量、超时、关闭和恢复策略 |
@@ -177,7 +177,7 @@ hand.start_polling(
 
 角度设置返回当前角度是一类跨型号事件，不是 O6 或 L6 特例，但并非每份已确认协议都提供
 这种返回。例如 L30 批量位置写明确无应答，O20 目标位置寄存器写也不能假设会返回当前
-位置；O30i 的写响应是 ACK/对象结果，闭环实际位置仍须读取 `MI 0x01`。因此每个型号的
+位置；O30 的写响应是 ACK/对象结果，闭环实际位置仍须读取 `MI 0x01`。因此每个型号的
 command capability 必须用 `returns_current_state` 明确声明，协议 profile 负责关联和完整
 解码；公共 runtime 只消费已经验证并标记为 `DEVICE_COMMAND_FEEDBACK` 的当前角度样本，
 不假设 O6 的 `0x01 + 6 byte` 格式，也不把目标值回显或 ACK 冒充当前状态。

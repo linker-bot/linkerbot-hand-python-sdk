@@ -73,7 +73,7 @@ def test_top_level_exports_exactly_the_public_contract_packages() -> None:
         "L20",
         "O20",
         "L30",
-        "O30i",
+        "O30",
         "create_hand_device",
     ),
 )
@@ -113,7 +113,7 @@ def test_angle_command_declares_only_verified_current_state_responses() -> None:
     dispatch_or_ack_profiles = {
         ("o20", "right"),
         ("l30", None),
-        ("o30i", "right"),
+        ("o30", "right"),
     }
 
     for model, side in response_profiles:

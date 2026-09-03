@@ -1,4 +1,4 @@
-"""O30i actual-state and set-point V25 read transactions."""
+"""O30 actual-state and set-point V25 read transactions."""
 
 from __future__ import annotations
 
@@ -88,14 +88,12 @@ def read_transaction(
 
     telemetry = capabilities.telemetry_channel(semantic)
     if telemetry is None or not telemetry.device_queried:
-        raise UnsupportedOperationError(
-            f"O30i has no active query for {semantic.value}"
-        )
+        raise UnsupportedOperationError(f"O30 has no active query for {semantic.value}")
     try:
         profile = _READ_OBJECTS[semantic]
     except KeyError as error:
         raise UnsupportedOperationError(
-            f"O30i has no protocol read for {semantic.value}"
+            f"O30 has no protocol read for {semantic.value}"
         ) from error
     assembler = HOPRangeAssembler(
         profile.main_index,
@@ -126,7 +124,7 @@ def read_transaction(
 
     return ProtocolTransaction(
         key=("read", semantic),
-        correlation_key=("o30i_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", RESPONSE_ID),
         request_messages=(
             build_read_message(
                 profile.main_index,

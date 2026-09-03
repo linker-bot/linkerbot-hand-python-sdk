@@ -33,7 +33,7 @@ from .classic_can_fake import (
 )
 from .l30_canfd_fake import L30DeviceScript, ScriptedL30Transport
 from .o20_canfd_fake import O20DeviceScript, ScriptedO20Transport
-from .o30i_canfd_fake import O30iDeviceScript, ScriptedO30iTransport
+from .o30_canfd_fake import O30DeviceScript, ScriptedO30Transport
 
 
 def _make_hand(
@@ -69,12 +69,12 @@ def _make_l30_hand() -> tuple[HandDevice, ScriptedL30Transport]:
     return hand, transport
 
 
-def _make_o30i_hand(
+def _make_o30_hand(
     side: HandSide = HandSide.RIGHT,
-) -> tuple[HandDevice, ScriptedO30iTransport]:
-    script = O30iDeviceScript()
-    transport = ScriptedO30iTransport(script)
-    hand = HandDevice(model="O30i", side=side.value, transport=transport)
+) -> tuple[HandDevice, ScriptedO30Transport]:
+    script = O30DeviceScript()
+    transport = ScriptedO30Transport(script)
+    hand = HandDevice(model="O30", side=side.value, transport=transport)
     return hand, transport
 
 
@@ -1060,8 +1060,8 @@ def test_l30_recovery_rejects_a_replacement_device_identity() -> None:
         hand.close()
 
 
-def test_o30i_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
-    hand, transport = _make_o30i_hand()
+def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
+    hand, transport = _make_o30_hand()
     assert transport.dispatchers == []
 
     hand.open()
@@ -1071,7 +1071,10 @@ def test_o30i_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         assert capabilities.identity.verified
         assert capabilities.identity.firmware == "1.1.0"
         assert snapshot.device_info is not None
-        assert snapshot.device_info.serial_number == "DEVICE-UID-O30I"
+        assert capabilities.model == "O30"
+        assert capabilities.identity.product_code == "O30"
+        assert snapshot.device_info.serial_number == "DEVICE-UID-O30"
+        assert snapshot.device_info.product_code == "O30"
         assert snapshot.angles is not None
         assert snapshot.angles.raw == tuple(range(20))
         assert snapshot.faults is not None and snapshot.faults.raw == (0,) * 20
@@ -1131,8 +1134,20 @@ def test_o30i_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         hand.close()
 
 
-def test_o30i_polling_stops_without_trailing_queries() -> None:
-    hand, transport = _make_o30i_hand(HandSide.LEFT)
+@pytest.mark.parametrize("model", ("O30", "o30", "O30i", "o30i"))
+def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
+    script = O30DeviceScript(product_model="O30i-20-001-R-B")
+    transport = ScriptedO30Transport(script)
+    hand = HandDevice(model=model, side="right", transport=transport)
+    hand.open()
+    try:
+        assert hand.get_capabilities().model == "O30"
+    finally:
+        hand.close()
+
+
+def test_o30_polling_stops_without_trailing_queries() -> None:
+    hand, transport = _make_o30_hand(HandSide.LEFT)
     hand.open()
     try:
         initial = hand.get_snapshot().angles
@@ -1161,8 +1176,8 @@ def test_o30i_polling_stops_without_trailing_queries() -> None:
         hand.close()
 
 
-def test_o30i_recovery_rejects_a_replacement_device_uid() -> None:
-    hand, transport = _make_o30i_hand()
+def test_o30_recovery_rejects_a_replacement_device_uid() -> None:
+    hand, transport = _make_o30_hand()
     hand.open()
     try:
         transport.current_dispatcher.disconnect()

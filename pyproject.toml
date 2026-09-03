@@ -65,7 +65,7 @@ markers = [
   "l20: L20 hand tests",
   "l30: L30 hand tests",
   "o20: O20 hand tests",
-  "o30i: O30i hand tests",
+  "o30: O30 hand tests",
   "canfd: CAN FD communication tests",
   "lifecycle: connection and lifecycle tests",
   "control: angle, speed and torque control tests",

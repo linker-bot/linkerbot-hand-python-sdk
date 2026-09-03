@@ -14,7 +14,7 @@ from .l20lite import L20LiteProtocolBackend
 from .l30 import L30ProtocolBackend
 from .o6 import O6ProtocolBackend
 from .o20 import O20ProtocolBackend
-from .o30i import O30iProtocolBackend
+from .o30 import O30ProtocolBackend
 
 ProtocolBackendFactory = Callable[[HandSide], ProtocolBackend]
 
@@ -25,7 +25,7 @@ _BACKEND_FACTORIES: dict[str, ProtocolBackendFactory] = {
     "L20": L20ProtocolBackend,
     "O20": O20ProtocolBackend,
     "L30": L30ProtocolBackend,
-    "O30i": O30iProtocolBackend,
+    "O30": O30ProtocolBackend,
 }
 
 _TRANSPORT_KINDS = {
@@ -35,7 +35,7 @@ _TRANSPORT_KINDS = {
     "L20": TransportKind.CAN,
     "O20": TransportKind.CAN_FD,
     "L30": TransportKind.CAN_FD,
-    "O30i": TransportKind.CAN_FD,
+    "O30": TransportKind.CAN_FD,
 }
 
 

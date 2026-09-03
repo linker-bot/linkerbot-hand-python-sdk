@@ -1,12 +1,12 @@
 # CAN FD transport
 
-O20、L30 和 O30i 使用 CAN FD。当前 capability：
+O20、L30 和 O30 使用 CAN FD。当前 capability：
 
 | 型号 | 仲裁速率 | 数据速率 | side |
 | --- | ---: | ---: | --- |
 | O20 | 1 Mbit/s | 5 Mbit/s | 必填 |
 | L30 | 1 Mbit/s | 5 Mbit/s | 不适用，禁止传入 |
-| O30i | 1 Mbit/s | 1 Mbit/s | 必填 |
+| O30 | 1 Mbit/s | 1 Mbit/s | 必填 |
 
 协议 profile 负责 CAN ID、标准/扩展帧、FD 和 BRS 标志。应用只选择物理 transport，
 不再传旧型号类的 `frame_type`、`node_id`、`host_id` 或 manager 参数。
@@ -31,7 +31,7 @@ sudo ip link set can0 type can \
 sudo ip link set can0 up
 ```
 
-O30i：
+O30：
 
 ```bash
 sudo ip link set can0 down
@@ -83,11 +83,11 @@ hand = HandDevice(
 )
 ```
 
-O30i：
+O30：
 
 ```python
 hand = HandDevice(
-    model="o30i",
+    model="o30",
     side="right",
     transport=SocketCANFDTransport(
         "can0",
@@ -102,7 +102,7 @@ transport 和 `HandDevice` 构造都不触碰网络接口。默认
 `CAP_NET_ADMIN` 时才启用自动配置。
 
 同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。按当前
-capability，应把 O30i 1M/1M 与 O20/L30 1M/5M 视为不同物理总线配置，除非硬件和
+capability，应把 O30 1M/1M 与 O20/L30 1M/5M 视为不同物理总线配置，除非硬件和
 transport 团队完成兼容验证。
 
 ## 厂商 CAN FD backend

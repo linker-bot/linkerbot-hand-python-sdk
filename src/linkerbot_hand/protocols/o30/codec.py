@@ -1,4 +1,4 @@
-"""O30i object indices and public-20-to-V25 value mapping."""
+"""O30 object indices and public-20-to-V25 value mapping."""
 
 from __future__ import annotations
 
@@ -53,11 +53,11 @@ def encode_v25(values: tuple[RawNumber, ...]) -> bytes:
         type(value) is not int for value in values
     ):
         raise ProtocolError(
-            f"O30i vector must contain {PUBLIC_JOINT_COUNT} integer values"
+            f"O30 vector must contain {PUBLIC_JOINT_COUNT} integer values"
         )
     normalized = tuple(int(value) for value in values)
     if any(value < 0 or value > 0xFF for value in normalized):
-        raise ProtocolError("O30i vector values must be within 0..255")
+        raise ProtocolError("O30 vector values must be within 0..255")
     slots = bytearray(WIRE_SLOT_COUNT)
     for public_index, wire_slot in enumerate(JOINT_SLOT_INDICES):
         slots[wire_slot] = normalized[public_index]
@@ -68,7 +68,7 @@ def decode_v25(data: bytes) -> tuple[int, ...]:
     """Project one exact V25 object onto the twenty installed joints."""
 
     if not isinstance(data, bytes) or len(data) != WIRE_SLOT_COUNT:
-        raise ProtocolError(f"O30i V25 response must contain {WIRE_SLOT_COUNT} bytes")
+        raise ProtocolError(f"O30 V25 response must contain {WIRE_SLOT_COUNT} bytes")
     return tuple(data[wire_slot] for wire_slot in JOINT_SLOT_INDICES)
 
 

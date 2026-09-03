@@ -1,12 +1,12 @@
-"""Scripted O30i HOP endpoint for unified runtime integration tests."""
+"""Scripted O30 HOP endpoint for unified runtime integration tests."""
 
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
 
-from linkerbot_hand.protocols.o30i import codec
-from linkerbot_hand.protocols.o30i.framing import (
+from linkerbot_hand.protocols.o30 import codec
+from linkerbot_hand.protocols.o30.framing import (
     ERROR_MAIN_INDEX,
     FRAME_TYPE,
     MAIN_INDEX_MASK,
@@ -31,10 +31,11 @@ _WRITABLE_OBJECTS = {
 
 
 @dataclass(slots=True)
-class O30iDeviceScript:
-    """Deterministic O30i behavior using real HOP CAN FD messages."""
+class O30DeviceScript:
+    """Deterministic O30 behavior using real HOP CAN FD messages."""
 
-    device_uid: str = "DEVICE-UID-O30I"
+    device_uid: str = "DEVICE-UID-O30"
+    product_model: str = "O30"
     protocol_version: str = "0.0.3"
     application_version: str = "1.1.0"
     sensor_variant: str = "NO_SENSOR"
@@ -128,7 +129,7 @@ class O30iDeviceScript:
         if main_index == codec.MI_PRODUCT_INFO:
             data = bytearray(225)
             fields = (
-                (0x00, 0x10, "O30i"),
+                (0x00, 0x10, self.product_model),
                 (0x39, 0x20, self.device_uid),
                 (0x59, 0x08, "HOP"),
                 (0x61, 0x08, self.protocol_version),
@@ -167,10 +168,10 @@ class O30iDeviceScript:
         )
 
 
-class ScriptedO30iTransport(FakeTransport[CANFDMessage]):
-    """Managed fake exchanging genuine O30i HOP messages."""
+class ScriptedO30Transport(FakeTransport[CANFDMessage]):
+    """Managed fake exchanging genuine O30 HOP messages."""
 
-    def __init__(self, script: O30iDeviceScript) -> None:
+    def __init__(self, script: O30DeviceScript) -> None:
         super().__init__(route_key_of=_route_key)
         self.script = script
 
@@ -186,4 +187,4 @@ def _route_key(message: CANFDMessage) -> CANRouteKey:
     return CANRouteKey(message.arbitration_id, message.is_extended_id)
 
 
-__all__ = ["O30iDeviceScript", "ScriptedO30iTransport"]
+__all__ = ["O30DeviceScript", "ScriptedO30Transport"]

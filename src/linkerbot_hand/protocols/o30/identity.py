@@ -1,4 +1,4 @@
-"""Response-gated O30i identity and firmware-profile verification."""
+"""Response-gated O30 identity and firmware-profile verification."""
 
 from __future__ import annotations
 
@@ -41,13 +41,13 @@ _FIELDS = (
 )
 
 
-def o30i_identity_transaction(
+def o30_identity_transaction(
     capabilities: DeviceCapabilities,
 ) -> ProtocolTransaction:
     """Read identity as bounded single-frame fields and select the HOP profile."""
 
-    if capabilities.model != "O30i":
-        raise ProtocolError("O30i identity transaction requires O30i capabilities")
+    if capabilities.model != "O30":
+        raise ProtocolError("O30 identity transaction requires O30 capabilities")
     values: dict[str, tuple[str, bytes]] = {}
     return _field_transaction(0, capabilities, values)
 
@@ -83,8 +83,8 @@ def _field_transaction(
         return ResponseProgress(matched=True, complete=True, result=result)
 
     return ProtocolTransaction(
-        key=("identity", "o30i", field.name),
-        correlation_key=("o30i_hop", RESPONSE_ID),
+        key=("identity", "o30", field.name),
+        correlation_key=("o30_hop", RESPONSE_ID),
         request_messages=(
             build_read_message(
                 field.main_index,
@@ -117,7 +117,7 @@ def _identity_result(
         mechanical_revision=mechanical.text,
         sensor_variant=text["sensor_variant"],
         serial_number=text["device_uid"],
-        product_code=None,
+        product_code=text["product_model"],
     )
     verified = replace(declared, identity=verified_identity)
     raw_identity = b"".join(raw[field.name] for field in _FIELDS)
@@ -127,7 +127,7 @@ def _identity_result(
         pcb_version=hardware,
         firmware_version=firmware,
         mechanical_version=mechanical,
-        product_code=None,
+        product_code=text["product_model"],
         sensor_variant=text["sensor_variant"],
         side=verified.side,
         raw_identity=raw_identity,
@@ -151,13 +151,16 @@ def _identity_result(
 
 
 def _validate_identity_field(name: str, value: str) -> None:
-    if name == "product_model" and value.casefold() != "o30i":
-        raise IdentityMismatchError(f"expected O30i product model, got {value!r}")
+    normalized = value.casefold()
+    if name == "product_model" and not (
+        normalized in {"o30", "o30i"} or normalized.startswith(("o30-", "o30i-"))
+    ):
+        raise IdentityMismatchError(f"expected O30 product model, got {value!r}")
     if name == "protocol_name" and value.upper() != _EXPECTED_PROTOCOL_NAME:
-        raise UnsupportedFirmwareError(f"O30i protocol {value!r} is unsupported")
+        raise UnsupportedFirmwareError(f"O30 protocol {value!r} is unsupported")
     if name == "protocol_version" and value != _SUPPORTED_PROTOCOL_VERSION:
         raise UnsupportedFirmwareError(
-            f"O30i HOP protocol version {value!r} is unsupported"
+            f"O30 HOP protocol version {value!r} is unsupported"
         )
 
 
@@ -165,9 +168,9 @@ def _decode_required_ascii(data: bytes, name: str) -> str:
     try:
         value = data.split(b"\x00", 1)[0].decode("ascii").strip()
     except UnicodeDecodeError as error:
-        raise ProtocolError(f"O30i {name} is not ASCII") from error
+        raise ProtocolError(f"O30 {name} is not ASCII") from error
     if not value:
-        raise ProtocolError(f"O30i {name} is empty")
+        raise ProtocolError(f"O30 {name} is empty")
     return value
 
 
@@ -186,4 +189,4 @@ def _version(raw: bytes, text: str) -> VersionField:
     return VersionField(raw=raw, text=text)
 
 
-__all__ = ["o30i_identity_transaction"]
+__all__ = ["o30_identity_transaction"]

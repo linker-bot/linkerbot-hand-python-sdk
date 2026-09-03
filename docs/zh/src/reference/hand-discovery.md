@@ -52,7 +52,7 @@ report = discover_hands(
 | L6、O6、L20Lite、L20 | classic CAN | `0xC0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 左手 `0x28`、右手 `0x27` |
 | O20 | CAN FD | DeviceInfo 寄存器 `0x00` | Device ID `1/2` |
 | L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
-| O30i | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 请求 `0x001`、响应 `0x401` |
+| O30 | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 请求 `0x001`、响应 `0x401` |
 
 L20 对外始终报告公共型号 `L20`。发现和身份校验接受常见的 `LHT20-...` 产品编号（例如
 `LHT20-10-499-L-B-1-D`），并继续兼容已部署设备上的 `L20-...`、`L25-...`、
@@ -65,7 +65,7 @@ bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送
 “设备使用 FD 帧”不是同一件事，而且向包含经典 CAN 节点的总线发送 FD 帧可能触发错误。
 
 只有接口当前配置与型号声明匹配时才发送对应 FD 探针：O20/L30 使用 1 Mbit/s nominal、
-5 Mbit/s data，O30i 使用 1 Mbit/s nominal/data。发现不为尝试另一协议而重新配置接口。
+5 Mbit/s data，O30 使用 1 Mbit/s nominal/data。发现不为尝试另一协议而重新配置接口。
 
 ## 安全边界
 
@@ -97,7 +97,7 @@ L30 的能力映射不按左右手分叉，因此 `candidate.side` 为 `NOT_APPL
 - `address_collision`：同一地址收到重复或冲突身份响应；
 - `missing_side`：协议没有给出可验证左右手。
 
-O30i 当前会完整返回型号、UID、协议、硬件、固件、机械和传感器身份，但协议读数不能可靠
+O30 当前会完整返回型号、UID、协议、硬件、固件、机械和传感器身份，但协议读数不能可靠
 验证左右手，因此候选保持 `side=None`。用户确认实物后必须显式解析：
 
 ```python

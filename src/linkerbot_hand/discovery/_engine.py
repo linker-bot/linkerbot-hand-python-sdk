@@ -38,17 +38,17 @@ from ..protocols.o20.codec import (
     read_route as o20_read_route,
 )
 from ..protocols.o20.identity import o20_identity_transaction
-from ..protocols.o30i.codec import MI_PRODUCT_INFO
-from ..protocols.o30i.framing import (
-    build_read_message as build_o30i_read,
+from ..protocols.o30.codec import MI_PRODUCT_INFO
+from ..protocols.o30.framing import (
+    build_read_message as build_o30_read,
 )
-from ..protocols.o30i.framing import (
+from ..protocols.o30.framing import (
     matching_response_frame,
 )
-from ..protocols.o30i.framing import (
-    response_route as o30i_response_route,
+from ..protocols.o30.framing import (
+    response_route as o30_response_route,
 )
-from ..protocols.o30i.identity import o30i_identity_transaction
+from ..protocols.o30.identity import o30_identity_transaction
 from ..protocols.registry import create_protocol_backend
 from .contracts import (
     DiscoveryAddress,
@@ -417,8 +417,8 @@ def _probe_can_fd(
 ) -> None:
     compatible_o20 = _channel_matches_model(channel, "O20", HandSide.LEFT)
     compatible_l30 = _channel_matches_model(channel, "L30", None)
-    compatible_o30i = _channel_matches_model(channel, "O30i", HandSide.LEFT)
-    if not any((compatible_o20, compatible_l30, compatible_o30i)):
+    compatible_o30 = _channel_matches_model(channel, "O30", HandSide.LEFT)
+    if not any((compatible_o20, compatible_l30, compatible_o30)):
         return
     transport: object | None = None
     try:
@@ -428,8 +428,8 @@ def _probe_can_fd(
             _probe_o20(source, channel, transport, config, candidates)
         if compatible_l30:
             _probe_l30(source, channel, transport, config, candidates, failures)
-        if compatible_o30i:
-            _probe_o30i(source, channel, transport, config, candidates, failures)
+        if compatible_o30:
+            _probe_o30(source, channel, transport, config, candidates, failures)
     except Exception as error:  # noqa: BLE001 - discovery source boundary
         _record_failure(
             failures,
@@ -706,7 +706,7 @@ def _probe_l30(
             )
 
 
-def _probe_o30i(
+def _probe_o30(
     source: DiscoverySource,
     channel: DiscoveryChannel,
     transport: object,
@@ -714,11 +714,11 @@ def _probe_o30i(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
-    route = o30i_response_route()
+    route = o30_response_route()
     messages = _collect(
         transport,
         (route,),
-        (build_o30i_read(MI_PRODUCT_INFO, sub_index=0, length=0x10),),
+        (build_o30_read(MI_PRODUCT_INFO, sub_index=0, length=0x10),),
         config,
     )
     matching: list[object] = []
@@ -740,7 +740,7 @@ def _probe_o30i(
         return
     spec = _transport_spec(source, channel, TransportKind.CAN_FD)
     address = DiscoveryAddress(
-        scheme="o30i_hop_endpoint",
+        scheme="o30_hop_endpoint",
         request_id=0x001,
         response_id=route.arbitration_id,
         is_extended_id=False,
@@ -752,7 +752,7 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=_problem_from_error(malformed),
             )
@@ -765,24 +765,24 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=DiscoveryProblem(
                     "address_collision",
-                    "multiple O30i product responses used the fixed HOP endpoint",
+                    "multiple O30 product responses used the fixed HOP endpoint",
                 ),
             )
         )
         return
-    provisional = get_declared_capabilities("O30i", side=HandSide.LEFT)
-    transaction = o30i_identity_transaction(provisional)
+    provisional = get_declared_capabilities("O30", side=HandSide.LEFT)
+    transaction = o30_identity_transaction(provisional)
     try:
         progress = transaction.consume(matching[0])
         if not progress.matched or not progress.complete:
-            raise ProtocolError("O30i product-model probe response was incomplete")
+            raise ProtocolError("O30 product-model probe response was incomplete")
         next_transaction = transaction.next_transaction
         if next_transaction is None:
-            raise ProtocolError("O30i identity omitted required fields")
+            raise ProtocolError("O30 identity omitted required fields")
         result = _execute_identity(
             transport,
             (route,),
@@ -792,7 +792,7 @@ def _probe_o30i(
     except _NoResponse:
         problem = DiscoveryProblem(
             "identity_timeout",
-            "O30i product model responded but complete identity timed out",
+            "O30 product model responded but complete identity timed out",
         )
         candidates.append(
             _partial_candidate(
@@ -800,7 +800,7 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=problem,
             )
@@ -812,7 +812,7 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=_problem_from_error(wrapped.error),
             )
@@ -820,7 +820,7 @@ def _probe_o30i(
     except _TransportProbeError as wrapped:
         _record_failure(
             failures,
-            operation="verify_o30i_identity",
+            operation="verify_o30_identity",
             error=wrapped.error,
             channel=channel,
             wire_protocol=TransportKind.CAN_FD,
@@ -831,11 +831,11 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=DiscoveryProblem(
                     "transport_error",
-                    "transport failed during complete O30i identity verification",
+                    "transport failed during complete O30 identity verification",
                 ),
             )
         )
@@ -846,7 +846,7 @@ def _probe_o30i(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30i",
+                model="O30",
                 side=None,
                 problem=_problem_from_error(error),
             )
@@ -863,7 +863,7 @@ def _probe_o30i(
                 problems=(
                     DiscoveryProblem(
                         "missing_side",
-                        "O30i HOP identity does not provide a verified hand side",
+                        "O30 HOP identity does not provide a verified hand side",
                     ),
                 ),
             )

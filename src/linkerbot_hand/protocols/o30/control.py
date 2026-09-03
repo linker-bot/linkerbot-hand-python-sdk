@@ -1,4 +1,4 @@
-"""ACK-gated O30i V25 command transactions."""
+"""ACK-gated O30 V25 command transactions."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def command_transaction(
         main_index = _COMMAND_OBJECTS[semantic]
     except KeyError as error:
         raise UnsupportedOperationError(
-            f"O30i has no protocol command for {semantic.value}"
+            f"O30 has no protocol command for {semantic.value}"
         ) from error
     raw = _validated_values(values, semantic, capabilities)
     payload = encode_v25(raw)
@@ -68,7 +68,7 @@ def command_transaction(
 
     return ProtocolTransaction(
         key=("command", semantic),
-        correlation_key=("o30i_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", RESPONSE_ID),
         request_messages=(
             build_write_message(main_index, sub_index=0, payload=payload),
         ),
@@ -87,18 +87,18 @@ def _validated_values(
 ) -> tuple[RawNumber, ...]:
     command = capabilities.command(semantic)
     if command is None:
-        raise UnsupportedOperationError(f"O30i does not support {semantic.value}")
+        raise UnsupportedOperationError(f"O30 does not support {semantic.value}")
     if len(values) != len(command.channels) or any(
         type(value) is not int for value in values
     ):
         raise ProtocolError(
-            f"O30i {semantic.value} must contain {len(command.channels)} integers"
+            f"O30 {semantic.value} must contain {len(command.channels)} integers"
         )
     if any(
         not command.range_for(index).contains(value)
         for index, value in enumerate(values)
     ):
-        raise ProtocolError(f"O30i {semantic.value} exceed declared ranges")
+        raise ProtocolError(f"O30 {semantic.value} exceed declared ranges")
     return values
 
 

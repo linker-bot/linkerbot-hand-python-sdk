@@ -1,7 +1,7 @@
 # linkerbot-hand
 
 `linkerbot-hand` 是 Linkerbot 全系列灵巧手的独立 Python SDK。L6、O6、
-L20Lite、L20、O20、L30 和 O30i 共用唯一的 `HandDevice` 接口；型号差异由
+L20Lite、L20、O20、L30 和 O30 共用唯一的 `HandDevice` 接口；型号差异由
 `get_capabilities()` 返回，不再公开型号类、manager、`HandSession` 或
 `linkerbot.hand` 兼容入口。
 
@@ -94,7 +94,7 @@ sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
 sudo ip link set can0 up
 ```
 
-O30i 使用 1 Mbit/s 仲裁速率和数据速率：
+O30 使用 1 Mbit/s 仲裁速率和数据速率：
 
 ```bash
 sudo ip link set can0 down
@@ -119,7 +119,7 @@ hand = candidate.create_hand_device()
 
 `discover_hands()` 默认只读取处于 `UP` 状态的 SocketCAN 接口，不修改接口配置；探测只读
 身份，不启动轮询或发送运动、清错、标定命令。多个设备、同地址冲突或身份不完整时不会
-静默选择。O30i 因无法可靠验证左右手会返回部分候选，需要在确认实物后显式传入
+静默选择。O30 因无法可靠验证左右手会返回部分候选，需要在确认实物后显式传入
 `candidate.create_hand_device(side="left" | "right")`。完整协议顺序和错误处理见
 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
 

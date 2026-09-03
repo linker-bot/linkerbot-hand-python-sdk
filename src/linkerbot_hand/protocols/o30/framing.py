@@ -1,4 +1,4 @@
-"""Transport-neutral HOP framing for the O30i CAN FD endpoint."""
+"""Transport-neutral HOP framing for the O30 CAN FD endpoint."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class HOPFrame:
 
 
 def response_route() -> CANRouteKey:
-    """Return the single standard-ID route consumed by an O30i endpoint."""
+    """Return the single standard-ID route consumed by an O30 endpoint."""
 
     return CANRouteKey(RESPONSE_ID, False)
 
@@ -94,12 +94,12 @@ def decode_frame(data: bytes) -> HOPFrame:
     """Decode one response fragment using EDL instead of padded DLC length."""
 
     if not isinstance(data, bytes) or len(data) < 3:
-        raise ProtocolError("O30i HOP response is shorter than its header")
+        raise ProtocolError("O30 HOP response is shorter than its header")
     control, sub_index, effective_length = data[:3]
     required = 3 + effective_length
     if len(data) < required:
         raise ProtocolError(
-            f"O30i HOP response declares {effective_length} payload bytes but "
+            f"O30 HOP response declares {effective_length} payload bytes but "
             f"contains {max(0, len(data) - 3)}"
         )
     return HOPFrame(

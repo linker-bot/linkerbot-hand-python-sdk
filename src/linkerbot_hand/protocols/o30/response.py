@@ -40,24 +40,24 @@ class HOPRangeAssembler:
             and self._main_index != ERROR_MAIN_INDEX
         ):
             if len(frame.payload) != 1:
-                raise ProtocolError("O30i HOP error response must contain one byte")
+                raise ProtocolError("O30 HOP error response must contain one byte")
             code = frame.payload[0]
             description = _DEVICE_ERROR_MESSAGES.get(code, "unknown device error")
             raise DeviceFaultError(
-                f"O30i HOP error 0x{code:02X} at index "
+                f"O30 HOP error 0x{code:02X} at index "
                 f"0x{frame.sub_index:02X}: {description}"
             )
         if frame.main_index != self._main_index or frame.rts != self._rts:
             return False, None
         if not frame.payload:
-            raise ProtocolError("O30i HOP response fragment is empty")
+            raise ProtocolError("O30 HOP response fragment is empty")
         start = frame.sub_index - self._sub_index
         end = start + len(frame.payload)
         if start < 0 or end > self._length:
             return False, None
         for offset, value in enumerate(frame.payload, start=start):
             if self._received[offset] and self._buffer[offset] != value:
-                raise ProtocolError("O30i HOP duplicate fragment conflicts")
+                raise ProtocolError("O30 HOP duplicate fragment conflicts")
             self._buffer[offset] = value
             self._received[offset] = 1
         if not all(self._received):

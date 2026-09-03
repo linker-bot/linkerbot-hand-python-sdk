@@ -37,7 +37,7 @@ from linkerbot_hand.conversion.percent import (
         ("l20", 16),
         ("o20", 16),
         ("l30", 17),
-        ("o30i", 20),
+        ("o30", 20),
     ],
 )
 def test_all_declared_profiles_expose_ordered_joint_layout(
@@ -68,7 +68,7 @@ def test_supported_model_names_are_canonical_and_stable() -> None:
         "L20",
         "O20",
         "L30",
-        "O30i",
+        "O30",
     )
 
 
@@ -92,7 +92,7 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     o6 = get_declared_capabilities("o6", side="right")
     o20 = get_declared_capabilities("o20", side="left")
     l30 = get_declared_capabilities("l30")
-    o30i = get_declared_capabilities("o30i", side="right")
+    o30 = get_declared_capabilities("o30", side="right")
 
     l6_speed = l6.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
     assert l6_speed is not None
@@ -107,11 +107,11 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     assert not l30_configured.device_queried
     assert l30_configured.read_mode.value == "command_cache"
     assert l30.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is not None
-    o30i_measured = o30i.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS)
-    o30i_configured = o30i.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
-    assert o30i_measured is not None and o30i_measured.device_measured
-    assert o30i_configured is not None and not o30i_configured.device_measured
-    assert o30i_measured.device_queried and o30i_configured.device_queried
+    o30_measured = o30.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS)
+    o30_configured = o30.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS)
+    assert o30_measured is not None and o30_measured.device_measured
+    assert o30_configured is not None and not o30_configured.device_measured
+    assert o30_measured.device_queried and o30_configured.device_queried
 
 
 def test_limit_semantics_do_not_claim_true_torque() -> None:
@@ -135,8 +135,8 @@ def test_limit_semantics_do_not_claim_true_torque() -> None:
     assert "6.5 mA/count" in (l30_current.raw_scale_note or "")
 
 
-def test_o30i_stall_contract_maps_only_installed_channels() -> None:
-    capabilities = get_declared_capabilities("o30i", side="right")
+def test_o30_stall_contract_maps_only_installed_channels() -> None:
+    capabilities = get_declared_capabilities("o30", side="right")
     stall = capabilities.stall_protection
 
     assert stall is not None
@@ -151,8 +151,8 @@ def test_o30i_stall_contract_maps_only_installed_channels() -> None:
     assert stall.hold_current.raw_encoding == "u8_v25_object"
 
 
-def test_o30i_capability_declares_compact_hop_transport_contract() -> None:
-    capabilities = get_declared_capabilities("o30i", side="left")
+def test_o30_capability_declares_compact_hop_transport_contract() -> None:
+    capabilities = get_declared_capabilities("o30", side="left")
 
     assert all(
         command.raw_encoding == "u8_v25_object" for command in capabilities.commands
@@ -164,8 +164,8 @@ def test_o30i_capability_declares_compact_hop_transport_contract() -> None:
     assert "BRS disabled" in capabilities.transport.addressing_note
 
 
-def test_o30i_writes_declare_matchable_hop_response_ack() -> None:
-    capabilities = get_declared_capabilities("o30i", side="right")
+def test_o30_writes_declare_matchable_hop_response_ack() -> None:
+    capabilities = get_declared_capabilities("o30", side="right")
 
     assert capabilities.commands
     assert all(

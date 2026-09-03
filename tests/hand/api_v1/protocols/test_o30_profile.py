@@ -1,4 +1,4 @@
-"""O30i compact HOP profile and transaction tests."""
+"""O30 compact HOP profile and transaction tests."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from linkerbot_hand.api import (
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
 from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
 from linkerbot_hand.protocols import IdentityResult, SamplePayload
-from linkerbot_hand.protocols.o30i import O30iProtocolBackend
-from linkerbot_hand.protocols.o30i.codec import (
+from linkerbot_hand.protocols.o30 import O30ProtocolBackend
+from linkerbot_hand.protocols.o30.codec import (
     JOINT_SLOT_INDICES,
     MI_POSITION,
     MI_SPEED,
@@ -24,7 +24,7 @@ from linkerbot_hand.protocols.o30i.codec import (
     decode_v25,
     encode_v25,
 )
-from linkerbot_hand.protocols.o30i.framing import (
+from linkerbot_hand.protocols.o30.framing import (
     FRAME_TYPE,
     REQUEST_ID,
     RESPONSE_ID,
@@ -36,7 +36,7 @@ from linkerbot_transport.canfd import CANFDMessage
 
 
 def _capabilities(side: str = "right"):
-    return get_declared_capabilities("o30i", side=side)
+    return get_declared_capabilities("o30", side=side)
 
 
 def _response(
@@ -58,8 +58,8 @@ def _response(
 
 def _identity_values(**overrides: str) -> dict[tuple[int, int, int], str]:
     values = {
-        (0x41, 0x00, 0x10): "O30i",
-        (0x41, 0x39, 0x20): "DEVICE-UID-O30I",
+        (0x41, 0x00, 0x10): "O30",
+        (0x41, 0x39, 0x20): "DEVICE-UID-O30",
         (0x41, 0x59, 0x08): "HOP",
         (0x41, 0x61, 0x08): "0.0.3",
         (0x41, 0x69, 0x08): "V1.2.0",
@@ -83,7 +83,7 @@ def _identity_values(**overrides: str) -> dict[tuple[int, int, int], str]:
 
 
 def _consume_identity(**overrides: str) -> IdentityResult:
-    current = O30iProtocolBackend(HandSide.RIGHT).identity_transaction(_capabilities())
+    current = O30ProtocolBackend(HandSide.RIGHT).identity_transaction(_capabilities())
     values = _identity_values(**overrides)
     while True:
         request = current.request_messages[0]
@@ -107,7 +107,7 @@ def _consume_identity(**overrides: str) -> IdentityResult:
         current = current.next_transaction
 
 
-def test_o30i_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
+def test_o30_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
     read = build_read_message(MI_POSITION, sub_index=0, length=25)
     write = build_write_message(MI_POSITION, sub_index=0, payload=bytes(25))
 
@@ -124,7 +124,7 @@ def test_o30i_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
         decode_frame(b"\x01\x00\x02\x10")
 
 
-def test_o30i_v25_mapping_keeps_every_uninstalled_slot_zero() -> None:
+def test_o30_v25_mapping_keeps_every_uninstalled_slot_zero() -> None:
     values = tuple(range(20))
     encoded = encode_v25(values)
 
@@ -134,23 +134,25 @@ def test_o30i_v25_mapping_keeps_every_uninstalled_slot_zero() -> None:
     assert tuple(encoded[index] for index in JOINT_SLOT_INDICES) == values
 
 
-def test_o30i_identity_uses_single_field_reads_and_verifies_profile() -> None:
+def test_o30_identity_uses_single_field_reads_and_verifies_profile() -> None:
     result = _consume_identity()
 
     assert result.capabilities.identity.verified
     assert result.capabilities.identity.firmware == "1.1.0"
     assert result.capabilities.identity.hardware_revision == "V1.2.0"
     assert result.capabilities.identity.sensor_variant == "NO_SENSOR"
-    assert result.device_info.serial_number == "DEVICE-UID-O30I"
+    assert result.capabilities.model == "O30"
+    assert result.capabilities.identity.product_code == "O30"
+    assert result.device_info.serial_number == "DEVICE-UID-O30"
     assert result.device_info.pcb_version is not None
     assert result.device_info.pcb_version.major == 1
     assert result.device_info.mechanical_version is not None
     assert result.device_info.mechanical_version.text == "M1.0.0"
-    assert result.device_info.product_code is None
+    assert result.device_info.product_code == "O30"
     assert result.device_info.side is HandSide.RIGHT
     assert result.fingerprint == (
-        "O30i",
-        "DEVICE-UID-O30I",
+        "O30",
+        "DEVICE-UID-O30",
         "HOP",
         "0.0.3",
         "V1.2.0",
@@ -160,16 +162,36 @@ def test_o30i_identity_uses_single_field_reads_and_verifies_profile() -> None:
     )
 
 
-def test_o30i_identity_rejects_wrong_model_and_protocol_version() -> None:
-    with pytest.raises(IdentityMismatchError, match="expected O30i"):
+@pytest.mark.parametrize(
+    "product_model",
+    (
+        "O30",
+        "o30",
+        "O30-01-R",
+        "O30i",
+        "o30i",
+        "O30i-20-001-R-B",
+        "o30i-20-001-R-B",
+    ),
+)
+def test_o30_identity_accepts_product_model_prefix(product_model: str) -> None:
+    result = _consume_identity(product_model=product_model)
+
+    assert result.capabilities.model == "O30"
+    assert result.capabilities.identity.product_code == product_model
+    assert result.device_info.product_code == product_model
+
+
+def test_o30_identity_rejects_wrong_model_and_protocol_version() -> None:
+    with pytest.raises(IdentityMismatchError, match="expected O30"):
         _consume_identity(product_model="O20")
     with pytest.raises(UnsupportedFirmwareError, match="version"):
         _consume_identity(protocol_version="0.0.4")
 
 
-def test_o30i_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
+def test_o30_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
     values = tuple(range(20))
-    transaction = O30iProtocolBackend(HandSide.RIGHT).command_transaction(
+    transaction = O30ProtocolBackend(HandSide.RIGHT).command_transaction(
         CommandSemantic.ANGLES,
         values,
         _capabilities(),
@@ -188,8 +210,8 @@ def test_o30i_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
     assert acknowledged.result is None
 
 
-def test_o30i_device_error_object_has_stable_fault_classification() -> None:
-    transaction = O30iProtocolBackend(HandSide.RIGHT).read_transaction(
+def test_o30_device_error_object_has_stable_fault_classification() -> None:
+    transaction = O30ProtocolBackend(HandSide.RIGHT).read_transaction(
         TelemetrySemantic.ANGLES,
         _capabilities(),
     )
@@ -198,8 +220,8 @@ def test_o30i_device_error_object_has_stable_fault_classification() -> None:
         transaction.consume(_response(0x4F, 0x01, b"\x40"))
 
 
-def test_o30i_read_assembles_offsets_and_distinguishes_actual_from_setpoint() -> None:
-    backend = O30iProtocolBackend(HandSide.RIGHT)
+def test_o30_read_assembles_offsets_and_distinguishes_actual_from_setpoint() -> None:
+    backend = O30ProtocolBackend(HandSide.RIGHT)
     actual = backend.read_transaction(
         TelemetrySemantic.MEASURED_SPEEDS, _capabilities()
     )
@@ -226,8 +248,8 @@ def test_o30i_read_assembles_offsets_and_distinguishes_actual_from_setpoint() ->
     assert configured.result.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
 
 
-def test_o30i_stall_objects_map_only_twenty_public_channels() -> None:
-    backend = O30iProtocolBackend(HandSide.LEFT)
+def test_o30_stall_objects_map_only_twenty_public_channels() -> None:
+    backend = O30ProtocolBackend(HandSide.LEFT)
     capabilities = _capabilities("left")
     cases = (
         (CommandSemantic.STALL_DETECTION_TIMES, 0x09),
@@ -246,8 +268,8 @@ def test_o30i_stall_objects_map_only_twenty_public_channels() -> None:
         assert decode_v25(message.data[3:]) == (7,) * 20
 
 
-def test_o30i_duplicate_fragment_conflict_fails_transaction() -> None:
-    transaction = O30iProtocolBackend(HandSide.RIGHT).read_transaction(
+def test_o30_duplicate_fragment_conflict_fails_transaction() -> None:
+    transaction = O30ProtocolBackend(HandSide.RIGHT).read_transaction(
         TelemetrySemantic.ANGLES,
         _capabilities(),
     )

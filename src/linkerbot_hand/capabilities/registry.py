@@ -13,11 +13,11 @@ from .models import (
     l30_capabilities,
     o6_capabilities,
     o20_capabilities,
-    o30i_capabilities,
+    o30_capabilities,
 )
 from .types import DeviceCapabilities
 
-SUPPORTED_MODELS = ("L6", "O6", "L20Lite", "L20", "O20", "L30", "O30i")
+SUPPORTED_MODELS = ("L6", "O6", "L20Lite", "L20", "O20", "L30", "O30")
 
 _ALIASES = {
     "l6": "L6",
@@ -27,7 +27,10 @@ _ALIASES = {
     "l20": "L20",
     "o20": "O20",
     "l30": "L30",
-    "o30i": "O30i",
+    "o30": "O30",
+    # O30i was the historical product-code prefix.  Keep accepting it as an
+    # input alias while exposing only the canonical O30 model publicly.
+    "o30i": "O30",
 }
 
 _PROFILE_FACTORIES: dict[str, Callable[[HandSide], DeviceCapabilities]] = {
@@ -37,7 +40,7 @@ _PROFILE_FACTORIES: dict[str, Callable[[HandSide], DeviceCapabilities]] = {
     "L20": l20_capabilities,
     "O20": o20_capabilities,
     "L30": l30_capabilities,
-    "O30i": o30i_capabilities,
+    "O30": o30_capabilities,
 }
 
 

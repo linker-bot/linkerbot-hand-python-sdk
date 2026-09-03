@@ -12,7 +12,7 @@ from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
 from linkerbot_hand.protocols.l30 import L30ProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 from linkerbot_hand.protocols.o20 import O20ProtocolBackend
-from linkerbot_hand.protocols.o30i import O30iProtocolBackend
+from linkerbot_hand.protocols.o30 import O30ProtocolBackend
 from linkerbot_hand.protocols.registry import create_protocol_backend
 from linkerbot_transport import CANRouteKey
 
@@ -59,13 +59,13 @@ def test_registry_selects_o20_can_fd_routes_without_io() -> None:
     assert all(route.is_extended_id for route in backend.route_keys)
 
 
-def test_registry_selects_o30i_standard_can_fd_route_without_io() -> None:
-    capabilities = get_declared_capabilities("o30i", side=HandSide.RIGHT)
+def test_registry_selects_o30_standard_can_fd_route_without_io() -> None:
+    capabilities = get_declared_capabilities("o30", side=HandSide.RIGHT)
 
     backend = create_protocol_backend(capabilities)
 
-    assert isinstance(backend, O30iProtocolBackend)
-    assert backend.endpoint_id == ("o30i", 0x001, 0x401)
+    assert isinstance(backend, O30ProtocolBackend)
+    assert backend.endpoint_id == ("o30", 0x001, 0x401)
     assert backend.route_keys == (CANRouteKey(0x401, False),)
 
 

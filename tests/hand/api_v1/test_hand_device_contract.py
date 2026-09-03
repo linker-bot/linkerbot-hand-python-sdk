@@ -35,7 +35,7 @@ _MODEL_CONFIGS = (
     ("l20", "right"),
     ("o20", "left"),
     ("l30", None),
-    ("o30i", "right"),
+    ("o30", "right"),
 )
 
 _PUBLIC_METHODS = (

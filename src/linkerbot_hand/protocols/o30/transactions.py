@@ -1,4 +1,4 @@
-"""O30i protocol backend for the unified device runtime."""
+"""O30 protocol backend for the unified device runtime."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from ...capabilities.types import (
 from ..base import ProtocolTransaction, SamplePayload
 from .control import command_transaction
 from .framing import REQUEST_ID, RESPONSE_ID, response_route
-from .identity import o30i_identity_transaction
+from .identity import o30_identity_transaction
 from .telemetry import read_transaction
 
 _BASELINE = (
@@ -27,14 +27,14 @@ _BASELINE = (
 )
 
 
-class O30iProtocolBackend:
-    """Stateless O30i HOP profile using request 0x001 and response 0x401."""
+class O30ProtocolBackend:
+    """Stateless O30 HOP profile using request 0x001 and response 0x401."""
 
     def __init__(self, side: HandSide) -> None:
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
-            raise ProtocolError("O30i protocol requires a left or right side")
+            raise ProtocolError("O30 protocol requires a left or right side")
         self._side = side
-        self._endpoint_id = ("o30i", REQUEST_ID, RESPONSE_ID)
+        self._endpoint_id = ("o30", REQUEST_ID, RESPONSE_ID)
         self._route_keys = (response_route(),)
 
     @property
@@ -56,8 +56,8 @@ class O30iProtocolBackend:
         """Build the response-gated field-wise identity read."""
 
         if capabilities.side is not self._side:
-            raise ProtocolError("O30i capability side changed after backend creation")
-        return o30i_identity_transaction(capabilities)
+            raise ProtocolError("O30 capability side changed after backend creation")
+        return o30_identity_transaction(capabilities)
 
     def baseline_semantics(
         self,
@@ -69,7 +69,7 @@ class O30iProtocolBackend:
             telemetry = capabilities.telemetry_channel(semantic)
             if telemetry is None or not telemetry.device_queried:
                 raise ProtocolError(
-                    f"O30i baseline semantic {semantic.value} is not queryable"
+                    f"O30 baseline semantic {semantic.value} is not queryable"
                 )
         return _BASELINE
 
@@ -97,10 +97,10 @@ class O30iProtocolBackend:
         operation: str,
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Reject operations not represented by a verified O30i object."""
+        """Reject operations not represented by a verified O30 object."""
 
         del capabilities
-        raise UnsupportedOperationError(f"O30i does not support {operation}")
+        raise UnsupportedOperationError(f"O30 does not support {operation}")
 
     def decode_report(
         self,
@@ -113,4 +113,4 @@ class O30iProtocolBackend:
         return ()
 
 
-__all__ = ["O30iProtocolBackend"]
+__all__ = ["O30ProtocolBackend"]

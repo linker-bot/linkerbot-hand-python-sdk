@@ -57,13 +57,13 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
-| O30i | 必填 | CAN FD 1M/1M | 20 | angles, speeds, accelerations, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, effort_limits, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
+| O30 | 必填 | CAN FD 1M/1M | 20 | angles, speeds, accelerations, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, effort_limits, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
 
 `L30` 的 side 为 `NOT_APPLICABLE`，不是 unknown。向 L30 构造传 `left` 或 `right`
 会抛出 `ValidationError`。
 
 角度命令的 `returns_current_state` 表示写响应是否已被该型号协议验证为当前实际角度。
-L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30i 为 `False`。后者不代表不能读取
+L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30 为 `False`。后者不代表不能读取
 角度，而是写入本身不能代替闭环状态查询。
 
 ## 关节顺序
@@ -77,10 +77,10 @@ L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30i 为 `False`。后者
 | L20 | thumb_rotation, thumb_roll, thumb_root, thumb_tip, index_abd, index_root, index_tip, middle_abd, middle_root, middle_tip, ring_abd, ring_root, ring_tip, pinky_abd, pinky_root, pinky_tip |
 | O20 | thumb_mcp, thumb_ip, thumb_roll, thumb_rotation, index_abd, index_mcp, index_pip, middle_abd, middle_mcp, middle_pip, ring_abd, ring_mcp, ring_pip, pinky_abd, pinky_mcp, pinky_dip |
 | L30 | thumb_root, thumb_tip, thumb_abd, thumb_rotation, ring_abd, ring_tip, ring_root, middle_root, middle_tip, pinky_root, pinky_tip, pinky_abd, middle_abd, index_abd, index_root, index_tip, wrist |
-| O30i | thumb_rotation, thumb_roll, index_abd, middle_abd, ring_abd, pinky_abd, thumb_root1, index_root1, middle_root1, ring_root1, pinky_root1, index_root2, middle_root2, ring_root2, pinky_root2, thumb_tip, index_tip, middle_tip, ring_tip, pinky_tip |
+| O30 | thumb_rotation, thumb_roll, index_abd, middle_abd, ring_abd, pinky_abd, thumb_root1, index_root1, middle_root1, ring_root1, pinky_root1, index_root2, middle_root2, ring_root2, pinky_root2, thumb_tip, index_tip, middle_tip, ring_tip, pinky_tip |
 
 不要按关节数猜顺序，也不要把线上 reserved slot 暴露为公共关节。O20 公共接口只有 16 个
-实际自由度；O30i 的 36 槽协议对象由 profile 映射为 20 个安装关节。
+实际自由度；O30 的 36 槽协议对象由 profile 映射为 20 个安装关节。
 
 ## 推荐轮询频率
 
@@ -94,14 +94,14 @@ L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30i 为 `False`。后者
 | L20 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
 | O20 | 30 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | L30 | 60 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
-| O30i | 30 Hz | 不支持 | 1 Hz | 10 Hz | 5 Hz |
+| O30 | 30 Hz | 不支持 | 1 Hz | 10 Hz | 5 Hz |
 
-设备实测速度推荐频率为 O20/L30/O30i 30 Hz。配置速度不是实测速度：
+设备实测速度推荐频率为 O20/L30/O30 30 Hz。配置速度不是实测速度：
 
 - L6 设置速度后由设备回显配置值，来源为 `DEVICE_CONFIG_RESPONSE`；协议未明确支持只发
   `0x05` 主动查询，因此该通道是 `COMMAND_RESPONSE`，不是实测速度，也不是主机推测缓存。
 - O6 查询返回配置参数，发布到 `configured_speeds`。
-- O20、L30、O30i 提供独立 `measured_speeds`。
+- O20、L30、O30 提供独立 `measured_speeds`。
 
 运行时会在 health 中报告 requested/achieved Hz、missed deadlines 和 timeout。推荐值不是
 实机稳定上限；上限必须在相同工作量和总线配置下测试。
@@ -114,7 +114,7 @@ L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30i 为 `False`。后者
   `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
   `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
 - L30 使用 `current_limits`，协议值本身以 mA 表示。
-- L20Lite/L20/O20/O30i 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
+- L20Lite/L20/O20/O30 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
 - 当前七型号没有 profile 声明真实 `torques` 通道，因此
   `set_torques()` / `get_torques()` 会返回 unsupported。
 

@@ -53,9 +53,9 @@ from tests.hand.api_v1.runtime.o20_canfd_fake import (
     O20DeviceScript,
     ScriptedO20Transport,
 )
-from tests.hand.api_v1.runtime.o30i_canfd_fake import (
-    O30iDeviceScript,
-    ScriptedO30iTransport,
+from tests.hand.api_v1.runtime.o30_canfd_fake import (
+    O30DeviceScript,
+    ScriptedO30Transport,
 )
 
 _FAST = DiscoveryConfig(
@@ -531,25 +531,44 @@ def test_l30_default_profile_is_verified_from_existing_protocol_script() -> None
     assert len(script.sent_messages) == 2
 
 
-def test_o30i_identity_requires_explicit_side_resolution() -> None:
-    script = O30iDeviceScript()
+def test_o30_identity_requires_explicit_side_resolution() -> None:
+    script = O30DeviceScript()
     source = _Source(
         _fd_channel(data_bitrate=1_000_000),
         {
             TransportKind.CAN: _empty_transport,
-            TransportKind.CAN_FD: lambda: ScriptedO30iTransport(script),
+            TransportKind.CAN_FD: lambda: ScriptedO30Transport(script),
         },
     )
 
     report = discover_hands(_FAST, source=source)
     candidate = report.require_one(allow_partial=True)
 
-    assert candidate.model == "O30i"
+    assert candidate.model == "O30"
     assert candidate.side is None
     assert candidate.identity.firmware_version is not None
     assert candidate.problems[0].code == "missing_side"
     with pytest.raises(IncompleteIdentityError):
         report.require_one()
+
+
+@pytest.mark.parametrize("product_model", ("O30-20-001-R-B", "O30i-20-001-R-B"))
+def test_o30_legacy_product_prefix_is_discovered(product_model: str) -> None:
+    script = O30DeviceScript(product_model=product_model)
+    source = _Source(
+        _fd_channel(data_bitrate=1_000_000),
+        {
+            TransportKind.CAN: _empty_transport,
+            TransportKind.CAN_FD: lambda: ScriptedO30Transport(script),
+        },
+    )
+
+    report = discover_hands(_FAST, source=source)
+    candidate = report.require_one(allow_partial=True)
+
+    assert candidate.model == "O30"
+    assert candidate.side is None
+    assert candidate.problems[0].code == "missing_side"
     with pytest.raises(IncompleteIdentityError):
         candidate.create_hand_device()
     hand = candidate.create_hand_device(side="right")

@@ -1,7 +1,7 @@
 # linkerbot-hand
 
 `linkerbot-hand` is the standalone Python SDK for the Linkerbot hand family.
-L6, O6, L20Lite, L20, O20, L30, and O30i all use one `HandDevice` API.
+L6, O6, L20Lite, L20, O20, L30, and O30 all use one `HandDevice` API.
 Model differences are reported by `get_capabilities()`; model classes,
 managers, `HandSession`, and the `linkerbot.hand` compatibility namespace are
 not part of this package.
@@ -170,7 +170,7 @@ l30 = HandDevice(
 )
 ```
 
-O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30i uses 1 Mbit/s
+O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30 uses 1 Mbit/s
 for both nominal and data rates.
 
 ## Explicit Discovery
@@ -190,11 +190,11 @@ The default source enumerates active Linux SocketCAN links without changing
 their state or bitrates. Discovery reads identity only; it never starts polling
 or sends motion, fault-clear, calibration, or configuration commands. A CAN FD
 link is probed with classic frames first, and FD probes are skipped if a classic
-hand responds. O20, L30, and O30i then use their own identity protocols rather
+hand responds. O20, L30, and O30 then use their own identity protocols rather
 than `0xC0`.
 
 Multiple endpoints, observable same-address collisions, malformed identity, and
-missing required fields are never silently resolved. O30i identity currently
+missing required fields are never silently resolved. O30 identity currently
 cannot verify the physical side, so it returns a partial candidate; after
 checking the hardware, create it with an explicit side:
 
