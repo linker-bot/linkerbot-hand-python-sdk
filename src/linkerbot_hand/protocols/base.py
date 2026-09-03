@@ -10,7 +10,12 @@ from typing import Protocol, runtime_checkable
 from ..api.device_info import DeviceInfo
 from ..api.enums import DataOrigin
 from ..api.errors import ValidationError
-from ..api.readings import RawNumber, TactileMatrix
+from ..api.readings import (
+    JointFaultStatus,
+    RawNumber,
+    TactileMatrix,
+    TactileSensorSample,
+)
 from ..capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -42,6 +47,8 @@ class SamplePayload:
     semantic: TelemetrySemantic
     raw: tuple[RawNumber, ...] = ()
     tactile: tuple[TactileMatrix, ...] = ()
+    sensors: tuple[TactileSensorSample, ...] = ()
+    fault_statuses: tuple[JointFaultStatus, ...] = ()
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
     within_declared_range: bool = True
 
@@ -59,13 +66,29 @@ class SamplePayload:
             not isinstance(value, TactileMatrix) for value in self.tactile
         ):
             raise ValidationError("tactile must contain TactileMatrix values")
+        if not isinstance(self.sensors, tuple) or any(
+            not isinstance(value, TactileSensorSample) for value in self.sensors
+        ):
+            raise ValidationError("sensors must contain TactileSensorSample values")
+        if not isinstance(self.fault_statuses, tuple) or any(
+            not isinstance(value, JointFaultStatus) for value in self.fault_statuses
+        ):
+            raise ValidationError("fault_statuses must contain JointFaultStatus values")
         if not isinstance(self.origin, DataOrigin) or self.origin is DataOrigin.NONE:
             raise ValidationError("a payload must have a concrete data origin")
         if not isinstance(self.within_declared_range, bool):
             raise ValidationError("within_declared_range must be bool")
-        if self.semantic is not TelemetrySemantic.FORCE and self.tactile:
-            raise ValidationError("tactile matrices are only valid for force payloads")
-        if not self.raw and not self.tactile:
+        if self.semantic is not TelemetrySemantic.FORCE and (
+            self.tactile or self.sensors
+        ):
+            raise ValidationError("tactile data is only valid for force payloads")
+        if self.semantic is not TelemetrySemantic.FAULTS and self.fault_statuses:
+            raise ValidationError(
+                "decoded fault statuses are only valid for fault payloads"
+            )
+        if self.fault_statuses and len(self.fault_statuses) != len(self.raw):
+            raise ValidationError("decoded fault statuses must match raw values")
+        if not self.raw and not self.tactile and not self.sensors:
             raise ValidationError("a sample payload cannot be empty")
 
 
@@ -119,6 +142,7 @@ class ResponseProgress:
 
 
 ResponseConsumer = Callable[[object], ResponseProgress]
+NextTransactionFactory = Callable[[], "ProtocolTransaction | None"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +160,7 @@ class ProtocolTransaction:
     request_interval_s: float = 0.0
     late_response_guard_s: float = 0.0
     next_transaction: ProtocolTransaction | None = None
+    next_transaction_factory: NextTransactionFactory | None = None
     yield_after_response: bool = False
     firmware_optional: bool = False
 
@@ -178,7 +203,25 @@ class ProtocolTransaction:
                 raise ValidationError(
                     "a staged transaction must await a response before its next stage"
                 )
-        elif self.yield_after_response:
+        if (
+            self.next_transaction is not None
+            and self.next_transaction_factory is not None
+        ):
+            raise ValidationError(
+                "a transaction cannot define both next_transaction and "
+                "next_transaction_factory"
+            )
+        if self.next_transaction_factory is not None:
+            if not callable(self.next_transaction_factory):
+                raise ValidationError(
+                    "next_transaction_factory must be callable or None"
+                )
+            if self.response_consumer is None:
+                raise ValidationError(
+                    "a dynamic staged transaction must await a response before "
+                    "its next stage"
+                )
+        elif self.next_transaction is None and self.yield_after_response:
             raise ValidationError(
                 "yield_after_response requires a following transaction stage"
             )
@@ -193,15 +236,43 @@ class ProtocolTransaction:
     def terminal_expects_response(self) -> bool:
         """Return whether the final response-gated stage expects a reply."""
 
+        # A dynamic stage is intentionally unresolved until the current
+        # response has been decoded.  The current stage is response-gated, so
+        # returning its value is the only sound answer without invoking user
+        # codec state from this metadata property.
+        if self.next_transaction_factory is not None:
+            return self.expects_response
         transaction = self
         while transaction.next_transaction is not None:
             transaction = transaction.next_transaction
         return transaction.expects_response
 
     @property
+    def has_dynamic_next_transaction(self) -> bool:
+        """Return whether the next stage is selected after this response."""
+
+        return self.next_transaction_factory is not None
+
+    def build_next_transaction(self) -> ProtocolTransaction | None:
+        """Resolve a dynamic next stage at the response boundary."""
+
+        if self.next_transaction_factory is None:
+            return self.next_transaction
+        next_transaction = self.next_transaction_factory()
+        if next_transaction is not None and not isinstance(
+            next_transaction, ProtocolTransaction
+        ):
+            raise ValidationError(
+                "next_transaction_factory must return ProtocolTransaction or None"
+            )
+        return next_transaction
+
+    @property
     def terminal_acknowledges_command(self) -> bool:
         """Return whether the final stage carries a protocol command ACK."""
 
+        if self.next_transaction_factory is not None:
+            return self.response_acknowledges_command
         transaction = self
         while transaction.next_transaction is not None:
             transaction = transaction.next_transaction
@@ -280,6 +351,7 @@ class ProtocolBackend(Protocol):
 
 __all__ = [
     "IdentityResult",
+    "NextTransactionFactory",
     "ProtocolBackend",
     "ProtocolTransaction",
     "ResponseProgress",

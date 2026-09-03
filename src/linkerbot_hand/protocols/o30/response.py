@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from ...api.errors import DeviceFaultError, ProtocolError
+from ...api.errors import (
+    DeviceFaultError,
+    ProtocolError,
+    UnsupportedFirmwareError,
+)
 from .framing import ERROR_MAIN_INDEX, matching_response_frame
 
 _DEVICE_ERROR_MESSAGES = {
@@ -21,11 +25,15 @@ class HOPRangeAssembler:
         sub_index: int,
         length: int,
         rts: bool,
+        object_unavailable_is_unsupported: bool = False,
     ) -> None:
         self._main_index = main_index
         self._sub_index = sub_index
         self._length = length
         self._rts = rts
+        self._object_unavailable_is_unsupported = (
+            object_unavailable_is_unsupported
+        )
         self._buffer = bytearray(length)
         self._received = bytearray(length)
 
@@ -43,6 +51,11 @@ class HOPRangeAssembler:
                 raise ProtocolError("O30 HOP error response must contain one byte")
             code = frame.payload[0]
             description = _DEVICE_ERROR_MESSAGES.get(code, "unknown device error")
+            if code == 0x02 and self._object_unavailable_is_unsupported:
+                raise UnsupportedFirmwareError(
+                    f"O30 HOP object 0x{self._main_index:02X}/"
+                    f"0x{self._sub_index:02X} is unavailable: {description}"
+                )
             raise DeviceFaultError(
                 f"O30 HOP error 0x{code:02X} at index "
                 f"0x{frame.sub_index:02X}: {description}"

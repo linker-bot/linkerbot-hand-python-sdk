@@ -18,9 +18,14 @@ from linkerbot_hand.protocols import IdentityResult, SamplePayload
 from linkerbot_hand.protocols.o30 import O30ProtocolBackend
 from linkerbot_hand.protocols.o30.codec import (
     JOINT_SLOT_INDICES,
+    LOGICAL_JOINT_IDS,
+    LOGICAL_SLOT_COUNT,
     MI_POSITION,
     MI_SPEED,
+    PUBLIC_JOINT_LOGICAL_IDS,
     WIRE_SLOT_COUNT,
+    decode_fault_statuses,
+    decode_logical_v36,
     decode_v25,
     encode_v25,
 )
@@ -56,55 +61,97 @@ def _response(
     )
 
 
-def _identity_values(**overrides: str) -> dict[tuple[int, int, int], str]:
+def _identity_object(layout: str, **overrides: str) -> bytes:
     values = {
-        (0x41, 0x00, 0x10): "O30",
-        (0x41, 0x39, 0x20): "DEVICE-UID-O30",
-        (0x41, 0x59, 0x08): "HOP",
-        (0x41, 0x61, 0x08): "0.0.3",
-        (0x41, 0x69, 0x08): "V1.2.0",
-        (0x41, 0x89, 0x08): "1.1.0",
-        (0x41, 0x91, 0x08): "M1.0.0",
-        (0x31, 0x00, 0x20): "NO_SENSOR",
+        "product_model": "O30",
+        "power_supply_range": "12V~24V",
+        "microcontroller_uid": "0029003E594650142035334E",
+        "device_uid": "DEVICE-UID-O30",
+        "protocol_name": "HOP",
+        "protocol_version": "0.0.4",
+        "interface_board_version": "V1.2.0",
+        "adapter_board_version": "V1.1.0",
+        "control_board_version": "V0.9.0",
+        "bootloader_version": "1.0.0",
+        "application_version": "1.2.0",
+        "mechanical_version": "M1.0.0",
+        "build_time": "2026-09-03 13:55:02",
+        "supported_interfaces": "CAN",
+        "reported_side": "RIGHT",
     }
-    names = {
-        "product_model": (0x41, 0x00, 0x10),
-        "device_uid": (0x41, 0x39, 0x20),
-        "protocol_name": (0x41, 0x59, 0x08),
-        "protocol_version": (0x41, 0x61, 0x08),
-        "interface_hardware": (0x41, 0x69, 0x08),
-        "application_version": (0x41, 0x89, 0x08),
-        "mechanical_version": (0x41, 0x91, 0x08),
-        "sensor_variant": (0x31, 0x00, 0x20),
-    }
-    for name, value in overrides.items():
-        values[names[name]] = value
-    return values
+    values.update(overrides)
+    data = bytearray(225 if layout == "deployed" else 249)
+
+    def put(offset: int, length: int, name: str) -> None:
+        encoded = values[name].encode("ascii")
+        data[offset : offset + min(length, len(encoded))] = encoded[:length]
+
+    for offset, length, name in (
+        (0x00, 0x10, "product_model"),
+        (0x10, 0x10, "power_supply_range"),
+        (0x20, 0x19, "microcontroller_uid"),
+        (0x39, 0x20, "device_uid"),
+        (0x59, 0x08, "protocol_name"),
+        (0x61, 0x08, "protocol_version"),
+    ):
+        put(offset, length, name)
+    if layout == "deployed":
+        fields = (
+            (0x69, 0x08, "interface_board_version"),
+            (0x71, 0x08, "adapter_board_version"),
+            (0x79, 0x08, "control_board_version"),
+            (0x81, 0x08, "bootloader_version"),
+            (0x89, 0x08, "application_version"),
+            (0x91, 0x08, "mechanical_version"),
+            (0x99, 0x20, "build_time"),
+            (0xB9, 0x20, "supported_interfaces"),
+            (0xD9, 0x08, "reported_side"),
+        )
+    else:
+        fields = (
+            (0x69, 0x10, "interface_board_version"),
+            (0x79, 0x10, "adapter_board_version"),
+            (0x89, 0x10, "control_board_version"),
+            (0x99, 0x08, "bootloader_version"),
+            (0xA1, 0x08, "application_version"),
+            (0xA9, 0x08, "mechanical_version"),
+            (0xB1, 0x20, "build_time"),
+            (0xD1, 0x20, "supported_interfaces"),
+            (0xF1, 0x08, "reported_side"),
+        )
+    for offset, length, name in fields:
+        put(offset, length, name)
+    return bytes(data)
 
 
-def _consume_identity(**overrides: str) -> IdentityResult:
+def _consume_identity(
+    *,
+    layout: str = "deployed",
+    **overrides: str,
+) -> IdentityResult:
     current = O30ProtocolBackend(HandSide.RIGHT).identity_transaction(_capabilities())
-    values = _identity_values(**overrides)
+    product_info = _identity_object(layout, **overrides)
     while True:
         request = current.request_messages[0]
         assert isinstance(request, CANFDMessage)
         main_index = request.data[0] & 0x7F
         sub_index = request.data[1]
         length = request.data[2]
-        value = values[(main_index, sub_index, length)].encode("ascii")
+        assert main_index == 0x41
         progress = current.consume(
             _response(
                 main_index,
                 sub_index,
-                value.ljust(length, b"\x00"),
+                product_info[sub_index : sub_index + length],
             )
         )
         assert progress.complete
-        if current.next_transaction is None:
+        next_transaction = current.build_next_transaction()
+        if next_transaction is None:
             assert isinstance(progress.result, IdentityResult)
             return progress.result
         assert progress.result is None
-        current = current.next_transaction
+        current = next_transaction
 
 
 def test_o30_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
@@ -134,13 +181,64 @@ def test_o30_v25_mapping_keeps_every_uninstalled_slot_zero() -> None:
     assert tuple(encoded[index] for index in JOINT_SLOT_INDICES) == values
 
 
+def test_o30_logical_joint_ids_are_distinct_from_v25_wire_slots() -> None:
+    logical_object = bytes(range(LOGICAL_SLOT_COUNT))
+
+    assert LOGICAL_JOINT_IDS == (
+        0,
+        1,
+        2,
+        4,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+        16,
+        17,
+        18,
+        19,
+        21,
+        22,
+        23,
+        24,
+    )
+    assert PUBLIC_JOINT_LOGICAL_IDS != JOINT_SLOT_INDICES
+    assert decode_logical_v36(logical_object) == PUBLIC_JOINT_LOGICAL_IDS
+
+
+def test_o30_fault_decoder_preserves_raw_and_names_every_documented_bit() -> None:
+    raw = (0xFF, 0x05, *(0 for _ in range(18)))
+
+    statuses = decode_fault_statuses(raw)
+
+    assert tuple(status.raw for status in statuses) == raw
+    assert statuses[0].hand_layer_stall
+    assert statuses[0].actuator_layer_stall
+    assert statuses[0].over_current
+    assert statuses[0].over_temperature
+    assert statuses[0].reserved_bits == 0x30
+    assert statuses[0].actuator_abnormal
+    assert statuses[0].actuator_offline
+    assert statuses[1].hand_layer_stall
+    assert statuses[1].over_current
+    assert not statuses[1].actuator_offline
+
+
 def test_o30_identity_uses_single_field_reads_and_verifies_profile() -> None:
     result = _consume_identity()
 
     assert result.capabilities.identity.verified
-    assert result.capabilities.identity.firmware == "1.1.0"
+    assert result.capabilities.identity.firmware == "1.2.0"
     assert result.capabilities.identity.hardware_revision == "V1.2.0"
-    assert result.capabilities.identity.sensor_variant == "NO_SENSOR"
+    assert result.capabilities.identity.adapter_board_version == "V1.1.0"
+    assert result.capabilities.identity.control_board_version == "V0.9.0"
+    assert result.capabilities.identity.sensor_variant is None
+    assert result.capabilities.identity.protocol_name == "HOP"
+    assert result.capabilities.identity.protocol_version == "0.0.4"
     assert result.capabilities.model == "O30"
     assert result.capabilities.identity.product_code == "O30"
     assert result.device_info.serial_number == "DEVICE-UID-O30"
@@ -150,16 +248,47 @@ def test_o30_identity_uses_single_field_reads_and_verifies_profile() -> None:
     assert result.device_info.mechanical_version.text == "M1.0.0"
     assert result.device_info.product_code == "O30"
     assert result.device_info.side is HandSide.RIGHT
+    assert result.device_info.reported_side is HandSide.RIGHT
+    assert result.device_info.power_supply_range == "12V~24V"
+    assert result.device_info.microcontroller_uid == "0029003E594650142035334E"
+    assert result.device_info.build_time == "2026-09-03 13:55:02"
+    assert result.device_info.supported_interfaces == "CAN"
     assert result.fingerprint == (
         "O30",
         "DEVICE-UID-O30",
         "HOP",
-        "0.0.3",
+        "0.0.4",
         "V1.2.0",
-        "1.1.0",
+        "V1.1.0",
+        "V0.9.0",
+        "1.0.0",
+        "1.2.0",
         "M1.0.0",
-        "NO_SENSOR",
+        "right",
     )
+
+
+def test_o30_identity_decodes_the_documented_004_layout() -> None:
+    result = _consume_identity(layout="documented")
+
+    assert result.device_info.pcb_version is not None
+    assert result.device_info.pcb_version.text == "V1.2.0"
+    assert result.device_info.adapter_board_version is not None
+    assert result.device_info.adapter_board_version.text == "V1.1.0"
+    assert result.device_info.control_board_version is not None
+    assert result.device_info.control_board_version.text == "V0.9.0"
+    assert result.device_info.bootloader_version is not None
+    assert result.device_info.bootloader_version.text == "1.0.0"
+    assert len(result.device_info.raw_identity or b"") == 249
+
+
+def test_o30_identity_accepts_003_without_requiring_sensor_metadata() -> None:
+    result = _consume_identity(protocol_version="0.0.3", reported_side="")
+
+    assert result.device_info.protocol_version == "0.0.3"
+    assert result.device_info.sensor_variant is None
+    assert result.device_info.reported_side is None
+    assert result.device_info.side is HandSide.RIGHT
 
 
 @pytest.mark.parametrize(
@@ -182,11 +311,14 @@ def test_o30_identity_accepts_product_model_prefix(product_model: str) -> None:
     assert result.device_info.product_code == product_model
 
 
-def test_o30_identity_rejects_wrong_model_and_protocol_version() -> None:
+def test_o30_identity_rejects_wrong_model_and_protocol_name_only() -> None:
     with pytest.raises(IdentityMismatchError, match="expected O30"):
         _consume_identity(product_model="O20")
-    with pytest.raises(UnsupportedFirmwareError, match="version"):
-        _consume_identity(protocol_version="0.0.4")
+    with pytest.raises(UnsupportedFirmwareError, match="protocol"):
+        _consume_identity(protocol_name="OTHER")
+
+    result = _consume_identity(layout="documented", protocol_version="9.9.9")
+    assert result.device_info.protocol_version == "9.9.9"
 
 
 def test_o30_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:

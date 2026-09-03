@@ -2,6 +2,7 @@
 
 from .base import (
     IdentityResult,
+    NextTransactionFactory,
     ProtocolBackend,
     ProtocolTransaction,
     ResponseProgress,
@@ -11,6 +12,7 @@ from .registry import create_protocol_backend
 
 __all__ = [
     "IdentityResult",
+    "NextTransactionFactory",
     "ProtocolBackend",
     "ProtocolTransaction",
     "ResponseProgress",

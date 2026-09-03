@@ -22,6 +22,7 @@ from ._common import (
 )
 
 _RAW_ENCODING = "u8_v25_object"
+_SENSOR_CHANNELS = ("thumb", "index", "middle", "ring", "pinky")
 
 _JOINT_SPECS = (
     (
@@ -100,10 +101,19 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             supported_fields=(
                 "serial_number",
                 "pcb_version",
+                "adapter_board_version",
+                "control_board_version",
+                "bootloader_version",
                 "firmware_version",
                 "mechanical_version",
                 "product_code",
-                "sensor_variant",
+                "protocol_name",
+                "protocol_version",
+                "power_supply_range",
+                "microcontroller_uid",
+                "build_time",
+                "supported_interfaces",
+                "reported_side",
             ),
         ),
         joints=joints,
@@ -248,6 +258,22 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=1,
                 stale_after_s=3,
                 estimated_transaction_s=0.004,
+            ),
+            telemetry(
+                TelemetrySemantic.FORCE,
+                _SENSOR_CHANNELS,
+                "o30_tactile_descriptor",
+                shape=(5,),
+                raw_range=None,
+                raw_unit=None,
+                raw_scale_note=(
+                    "runtime metadata supplies sensor type, unit, shape, descriptor, "
+                    "and exact raw byte stream; no physical conversion"
+                ),
+                unit_confidence=Confidence.DOCUMENTED,
+                recommended_hz=10,
+                stale_after_s=0.3,
+                estimated_transaction_s=0.2,
             ),
             telemetry(
                 TelemetrySemantic.CURRENTS,

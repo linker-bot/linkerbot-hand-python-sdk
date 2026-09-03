@@ -560,24 +560,29 @@ class DeviceActor:
                 isinstance(claim.key, TelemetrySemantic)
                 and transaction is not None
                 and transaction.firmware_optional
-                and isinstance(classified, (TimeoutError, ProtocolError))
                 and _sent_frames(error, 0) > 0
                 and claim.key not in self._verified_firmware_optional
             ):
-                failures = self._firmware_optional_failures.get(claim.key, 0) + 1
-                self._firmware_optional_failures[claim.key] = failures
-                if failures >= _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD:
+                if isinstance(classified, UnsupportedFirmwareError):
                     classified = self._disable_firmware_unsupported_read(
                         claim.key,
-                        error,
+                        classified,
                     )
-                else:
-                    _LOGGER.warning(
-                        "%s optional query failed %d/%d; keeping it enabled",
-                        claim.key.value,
-                        failures,
-                        _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD,
-                    )
+                elif isinstance(classified, (TimeoutError, ProtocolError)):
+                    failures = self._firmware_optional_failures.get(claim.key, 0) + 1
+                    self._firmware_optional_failures[claim.key] = failures
+                    if failures >= _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD:
+                        classified = self._disable_firmware_unsupported_read(
+                            claim.key,
+                            error,
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "%s optional query failed %d/%d; keeping it enabled",
+                            claim.key.value,
+                            failures,
+                            _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD,
+                        )
             self._transactions.fail(claim.key, classified)
             if poll_in_flight and isinstance(claim.key, TelemetrySemantic):
                 self._polling.mark_timeout(claim.key)

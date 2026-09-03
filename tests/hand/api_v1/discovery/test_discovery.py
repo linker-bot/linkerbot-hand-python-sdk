@@ -531,8 +531,29 @@ def test_l30_default_profile_is_verified_from_existing_protocol_script() -> None
     assert len(script.sent_messages) == 2
 
 
-def test_o30_identity_requires_explicit_side_resolution() -> None:
-    script = O30DeviceScript()
+def test_o30_identity_uses_reported_side() -> None:
+    script = O30DeviceScript(reported_side=HandSide.RIGHT)
+    source = _Source(
+        _fd_channel(data_bitrate=1_000_000),
+        {
+            TransportKind.CAN: _empty_transport,
+            TransportKind.CAN_FD: lambda: ScriptedO30Transport(script),
+        },
+    )
+
+    report = discover_hands(_FAST, source=source)
+    candidate = report.require_one()
+
+    assert candidate.model == "O30"
+    assert candidate.side is HandSide.RIGHT
+    assert candidate.reported_side is HandSide.RIGHT
+    assert candidate.status is DiscoveryStatus.VERIFIED
+    assert candidate.identity.firmware_version is not None
+    assert candidate.problems == ()
+
+
+def test_o30_identity_without_any_side_evidence_is_partial() -> None:
+    script = O30DeviceScript(reported_side=None)
     source = _Source(
         _fd_channel(data_bitrate=1_000_000),
         {
@@ -546,7 +567,7 @@ def test_o30_identity_requires_explicit_side_resolution() -> None:
 
     assert candidate.model == "O30"
     assert candidate.side is None
-    assert candidate.identity.firmware_version is not None
+    assert candidate.reported_side is None
     assert candidate.problems[0].code == "missing_side"
     with pytest.raises(IncompleteIdentityError):
         report.require_one()
@@ -554,7 +575,7 @@ def test_o30_identity_requires_explicit_side_resolution() -> None:
 
 @pytest.mark.parametrize("product_model", ("O30-20-001-R-B", "O30i-20-001-R-B"))
 def test_o30_legacy_product_prefix_is_discovered(product_model: str) -> None:
-    script = O30DeviceScript(product_model=product_model)
+    script = O30DeviceScript(product_model=product_model, reported_side=None)
     source = _Source(
         _fd_channel(data_bitrate=1_000_000),
         {
@@ -564,17 +585,17 @@ def test_o30_legacy_product_prefix_is_discovered(product_model: str) -> None:
     )
 
     report = discover_hands(_FAST, source=source)
-    candidate = report.require_one(allow_partial=True)
+    candidate = report.require_one()
 
     assert candidate.model == "O30"
-    assert candidate.side is None
-    assert candidate.problems[0].code == "missing_side"
-    with pytest.raises(IncompleteIdentityError):
-        candidate.create_hand_device()
-    hand = candidate.create_hand_device(side="right")
+    assert candidate.side is HandSide.RIGHT
+    assert candidate.reported_side is HandSide.RIGHT
+    assert candidate.status is DiscoveryStatus.VERIFIED
+    assert candidate.problems == ()
+    hand = candidate.create_hand_device()
     assert hand.get_capabilities().side is HandSide.RIGHT
     assert script.identity_queries == 1
-    assert len(script.sent_messages) == 8
+    assert len(script.sent_messages) == 15
 
 
 @pytest.mark.parametrize(

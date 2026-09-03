@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .enums import DataOrigin
-from .errors import ValidationError
+from .errors import UnsupportedOperationError, ValidationError
 
 RawNumber: TypeAlias = int | float
+TactileValue: TypeAlias = RawNumber | tuple[RawNumber, RawNumber, RawNumber]
 
 
 def _is_finite_number(value: object) -> bool:
@@ -209,13 +210,265 @@ class MotionTimeSample(_RawVectorSample):
 
 
 @dataclass(frozen=True, slots=True)
+class JointFaultStatus:
+    """Decoded O30 joint-fault flags alongside the exact protocol byte."""
+
+    raw: int
+    hand_layer_stall: bool
+    actuator_layer_stall: bool
+    over_current: bool
+    over_temperature: bool
+    actuator_abnormal: bool
+    actuator_offline: bool
+    reserved_bits: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("joint fault raw must be an unsigned byte")
+        for name in (
+            "hand_layer_stall",
+            "actuator_layer_stall",
+            "over_current",
+            "over_temperature",
+            "actuator_abnormal",
+            "actuator_offline",
+        ):
+            if not isinstance(getattr(self, name), bool):
+                raise ValidationError(f"{name} must be bool")
+        if (
+            type(self.reserved_bits) is not int
+            or self.reserved_bits < 0
+            or self.reserved_bits & ~0x30
+        ):
+            raise ValidationError("reserved_bits may contain only fault bits 4 and 5")
+        decoded = (
+            int(self.hand_layer_stall) * 0x01
+            | int(self.actuator_layer_stall) * 0x02
+            | int(self.over_current) * 0x04
+            | int(self.over_temperature) * 0x08
+            | self.reserved_bits
+            | int(self.actuator_abnormal) * 0x40
+            | int(self.actuator_offline) * 0x80
+        )
+        if decoded != self.raw:
+            raise ValidationError("decoded joint fault flags do not match raw")
+
+
+@dataclass(frozen=True, slots=True)
 class FaultSample(_RawVectorSample):
-    """Device fault codes or bitmasks in protocol order."""
+    """Device fault bytes plus optional protocol-specific decoded statuses."""
+
+    statuses: tuple[JointFaultStatus, ...] = ()
 
     def __post_init__(self) -> None:
         _RawVectorSample.__post_init__(self)
         if any(type(value) is not int for value in self.raw):
             raise ValidationError("fault raw values must be integers")
+        if not isinstance(self.statuses, tuple) or any(
+            not isinstance(value, JointFaultStatus) for value in self.statuses
+        ):
+            raise ValidationError("fault statuses must contain JointFaultStatus values")
+        if self.statuses and len(self.statuses) != len(self.raw):
+            raise ValidationError("fault statuses must match raw fault values")
+        if self.statuses and any(
+            status.raw != raw
+            for status, raw in zip(self.statuses, self.raw, strict=True)
+        ):
+            raise ValidationError("fault statuses must preserve raw fault values")
+
+
+@dataclass(frozen=True, slots=True)
+class TactileFieldDescriptor:
+    """One descriptor-defined field in an O30 tactile byte stream."""
+
+    semantic: str
+    data_type: str
+    element_count: int
+    byte_offset: int
+    byte_length: int
+
+    def __post_init__(self) -> None:
+        for name in ("semantic", "data_type"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise ValidationError(f"tactile field {name} must be a non-empty str")
+        if type(self.element_count) is not int or self.element_count <= 0:
+            raise ValidationError("tactile field element_count must be a positive int")
+        if type(self.byte_offset) is not int or self.byte_offset < 0:
+            raise ValidationError("tactile field byte_offset must be non-negative")
+        if type(self.byte_length) is not int or self.byte_length <= 0:
+            raise ValidationError("tactile field byte_length must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class TactileFieldSample:
+    """Decoded values for one descriptor field, without physical conversion."""
+
+    semantic: str
+    data_type: str
+    element_count: int
+    byte_offset: int
+    byte_length: int
+    values: tuple[TactileValue, ...]
+
+    def __post_init__(self) -> None:
+        descriptor = TactileFieldDescriptor(
+            semantic=self.semantic,
+            data_type=self.data_type,
+            element_count=self.element_count,
+            byte_offset=self.byte_offset,
+            byte_length=self.byte_length,
+        )
+        del descriptor
+        if not isinstance(self.values, tuple) or len(self.values) != self.element_count:
+            raise ValidationError("tactile field values must match element_count")
+        if self.semantic == "xyz":
+            if any(
+                not isinstance(value, tuple)
+                or len(value) != 3
+                or any(not _is_finite_number(component) for component in value)
+                for value in self.values
+            ):
+                raise ValidationError(
+                    "xyz tactile values must contain finite xyz triples"
+                )
+        elif any(not _is_finite_number(value) for value in self.values):
+            raise ValidationError("tactile field values must contain finite numbers")
+
+
+@dataclass(frozen=True, slots=True)
+class TactileSensorMetadata:
+    """Runtime metadata for one selected O30 fingertip sensor."""
+
+    selected_sensor: int
+    sensor_name: str
+    sensor_type: str
+    data_unit: str | None
+    data_range: int
+    maximum_rows: int
+    maximum_columns: int
+    requested_rows: int
+    requested_columns: int
+    valid_data_position_mode: bool
+    rectangle_fill: bool
+    descriptor_text: str | None
+    field_descriptors: tuple[TactileFieldDescriptor, ...]
+    total_data_length: int
+
+    def __post_init__(self) -> None:
+        if type(self.selected_sensor) is not int or not 1 <= self.selected_sensor <= 5:
+            raise ValidationError("selected_sensor must be in 1..5")
+        for name in ("sensor_name", "sensor_type"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value:
+                raise ValidationError(f"{name} must be a non-empty str")
+        if self.data_unit is not None and (
+            not isinstance(self.data_unit, str) or not self.data_unit
+        ):
+            raise ValidationError("data_unit must be a non-empty str or None")
+        for name in (
+            "data_range",
+            "maximum_rows",
+            "maximum_columns",
+            "requested_rows",
+            "requested_columns",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or not 0 <= value <= 0xFF:
+                raise ValidationError(f"{name} must be an unsigned byte")
+        for name in ("valid_data_position_mode", "rectangle_fill"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValidationError(f"{name} must be bool")
+        if self.descriptor_text is not None and (
+            not isinstance(self.descriptor_text, str) or not self.descriptor_text
+        ):
+            raise ValidationError("descriptor_text must be a non-empty str or None")
+        if not isinstance(self.field_descriptors, tuple) or any(
+            not isinstance(value, TactileFieldDescriptor)
+            for value in self.field_descriptors
+        ):
+            raise ValidationError(
+                "field_descriptors must contain TactileFieldDescriptor values"
+            )
+        if type(self.total_data_length) is not int or not (
+            0 <= self.total_data_length <= 0xFFFF
+        ):
+            raise ValidationError("total_data_length must be an unsigned 16-bit int")
+        if bool(self.descriptor_text) != bool(self.field_descriptors):
+            raise ValidationError(
+                "descriptor_text and field_descriptors must both be present or absent"
+            )
+        described_length = sum(value.byte_length for value in self.field_descriptors)
+        if self.field_descriptors and described_length != self.total_data_length:
+            raise ValidationError(
+                "tactile descriptor byte length must match total_data_length"
+            )
+
+    @property
+    def descriptor_length(self) -> int:
+        """Return the descriptor's exact ASCII byte length."""
+
+        return (
+            0
+            if self.descriptor_text is None
+            else len(self.descriptor_text.encode("ascii"))
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return whether metadata describes a readable sensor data stream."""
+
+        return (
+            self.sensor_type != "NO_SENSOR"
+            and self.total_data_length > 0
+            and bool(self.field_descriptors)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TactileSensorSample:
+    """One O30 sensor's exact bytes and descriptor-decoded values."""
+
+    metadata: TactileSensorMetadata
+    raw_data: bytes
+    fields: tuple[TactileFieldSample, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metadata, TactileSensorMetadata):
+            raise ValidationError("metadata must be TactileSensorMetadata")
+        if not isinstance(self.raw_data, bytes):
+            raise ValidationError("raw_data must be bytes")
+        if not isinstance(self.fields, tuple) or any(
+            not isinstance(value, TactileFieldSample) for value in self.fields
+        ):
+            raise ValidationError("fields must contain TactileFieldSample values")
+        if self.metadata.available:
+            if len(self.raw_data) != self.metadata.total_data_length:
+                raise ValidationError("raw_data length must match sensor metadata")
+            descriptors = tuple(
+                (
+                    field.semantic,
+                    field.data_type,
+                    field.element_count,
+                    field.byte_offset,
+                    field.byte_length,
+                )
+                for field in self.fields
+            )
+            expected = tuple(
+                (
+                    field.semantic,
+                    field.data_type,
+                    field.element_count,
+                    field.byte_offset,
+                    field.byte_length,
+                )
+                for field in self.metadata.field_descriptors
+            )
+            if descriptors != expected:
+                raise ValidationError("decoded tactile fields must match metadata")
+        elif self.raw_data or self.fields:
+            raise ValidationError("an unavailable tactile sensor cannot contain data")
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +508,7 @@ class ForceSample:
     raw: tuple[RawNumber, ...]
     tactile: tuple[TactileMatrix, ...]
     meta: SampleMeta
+    sensors: tuple[TactileSensorSample, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.raw, tuple) or any(
@@ -267,8 +521,80 @@ class ForceSample:
             raise ValidationError("tactile must be a tuple of TactileMatrix")
         if not isinstance(self.meta, SampleMeta):
             raise ValidationError("meta must be SampleMeta")
-        if self.meta.valid and not self.raw and not self.tactile:
+        if not isinstance(self.sensors, tuple) or any(
+            not isinstance(value, TactileSensorSample) for value in self.sensors
+        ):
+            raise ValidationError("sensors must contain TactileSensorSample values")
+        if self.meta.valid and not self.raw and not self.tactile and not self.sensors:
             raise ValidationError("a valid force sample cannot be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class NormalForceResultantSample:
+    """One raw O30 FnS value and device-reported unit for every fingertip."""
+
+    sensor_names: tuple[str, ...]
+    raw: tuple[RawNumber, ...]
+    units: tuple[str | None, ...]
+    meta: SampleMeta
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sensor_names, tuple) or any(
+            not isinstance(value, str) or not value for value in self.sensor_names
+        ):
+            raise ValidationError("sensor_names must contain non-empty strings")
+        if len(set(self.sensor_names)) != len(self.sensor_names):
+            raise ValidationError("sensor_names must be unique")
+        if not isinstance(self.raw, tuple) or any(
+            not _is_finite_number(value) for value in self.raw
+        ):
+            raise ValidationError("resultant raw must contain finite protocol values")
+        if not isinstance(self.units, tuple) or any(
+            value is not None and (not isinstance(value, str) or not value)
+            for value in self.units
+        ):
+            raise ValidationError("resultant units must contain strings or None")
+        if not isinstance(self.meta, SampleMeta):
+            raise ValidationError("meta must be SampleMeta")
+        if len(self.sensor_names) != len(self.raw) or len(self.raw) != len(self.units):
+            raise ValidationError("resultant names, raw values, and units must align")
+        if self.meta.valid and not self.raw:
+            raise ValidationError("a valid resultant sample cannot be empty")
+
+    @classmethod
+    def from_force_sample(cls, sample: ForceSample) -> NormalForceResultantSample:
+        """Extract one scalar ``FnS`` value per fingertip without conversion."""
+
+        if not isinstance(sample, ForceSample):
+            raise ValidationError("sample must be ForceSample")
+        expected_names = ("thumb", "index", "middle", "ring", "pinky")
+        if tuple(sensor.metadata.sensor_name for sensor in sample.sensors) != expected_names:
+            raise UnsupportedOperationError(
+                "force sample does not contain all five O30 fingertip sensors"
+            )
+
+        raw: list[RawNumber] = []
+        units: list[str | None] = []
+        for sensor in sample.sensors:
+            fields = tuple(
+                field for field in sensor.fields if field.semantic == "FnS"
+            )
+            if len(fields) != 1 or len(fields[0].values) != 1:
+                raise UnsupportedOperationError(
+                    f"O30 {sensor.metadata.sensor_name} sensor does not expose "
+                    "one scalar FnS field"
+                )
+            value = fields[0].values[0]
+            if isinstance(value, tuple):
+                raise ValidationError("FnS must contain scalar protocol values")
+            raw.append(value)
+            units.append(sensor.metadata.data_unit)
+        return cls(
+            sensor_names=expected_names,
+            raw=tuple(raw),
+            units=tuple(units),
+            meta=sample.meta,
+        )
 
 
 __all__ = [
@@ -280,11 +606,18 @@ __all__ = [
     "EffortLimitSample",
     "FaultSample",
     "ForceSample",
+    "JointFaultStatus",
     "MeasuredSpeedSample",
     "MotionTimeSample",
+    "NormalForceResultantSample",
     "RawNumber",
     "SampleMeta",
+    "TactileFieldDescriptor",
+    "TactileFieldSample",
     "TactileMatrix",
+    "TactileSensorMetadata",
+    "TactileSensorSample",
+    "TactileValue",
     "TemperatureSample",
     "TorqueSample",
     "VoltageSample",

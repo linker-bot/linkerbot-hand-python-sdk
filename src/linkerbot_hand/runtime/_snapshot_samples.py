@@ -94,7 +94,18 @@ def build_sample(
             meta=meta,
         )
     if payload.semantic is TelemetrySemantic.FORCE:
-        return ForceSample(raw=payload.raw, tactile=payload.tactile, meta=meta)
+        return ForceSample(
+            raw=payload.raw,
+            tactile=payload.tactile,
+            sensors=payload.sensors,
+            meta=meta,
+        )
+    if payload.semantic is TelemetrySemantic.FAULTS:
+        return FaultSample(
+            raw=payload.raw,
+            meta=meta,
+            statuses=payload.fault_statuses,
+        )
     sample_type = _VECTOR_TYPES[payload.semantic]
     return sample_type(raw=payload.raw, meta=meta)
 
@@ -107,7 +118,44 @@ def validate_payload_shape(
     telemetry = capabilities.telemetry_channel(payload.semantic)
     if telemetry is None:
         raise ProtocolError("payload has no telemetry declaration")
-    if payload.semantic is TelemetrySemantic.FORCE and payload.tactile:
+    if payload.semantic is TelemetrySemantic.FORCE and (
+        payload.tactile or payload.sensors
+    ):
+        if payload.sensors:
+            if payload.tactile:
+                raise ProtocolError(
+                    "force payload cannot mix tactile matrices and sensors"
+                )
+            if len(telemetry.shape) != 1 or telemetry.shape[0] != len(
+                telemetry.channels
+            ):
+                raise ProtocolError(
+                    "descriptor tactile capability must declare sensor count"
+                )
+            if len(payload.sensors) != telemetry.shape[0]:
+                raise ProtocolError(
+                    "tactile sensor count does not match capability"
+                )
+            expected_selectors = tuple(range(1, len(payload.sensors) + 1))
+            if tuple(
+                sensor.metadata.selected_sensor for sensor in payload.sensors
+            ) != expected_selectors:
+                raise ProtocolError("tactile sensor selectors are not ordered")
+            if tuple(
+                sensor.metadata.sensor_name for sensor in payload.sensors
+            ) != telemetry.channels:
+                raise ProtocolError("tactile sensor names do not match capability")
+            if any(not sensor.metadata.available for sensor in payload.sensors):
+                raise ProtocolError("tactile payload contains an unavailable sensor")
+            if any(
+                sensor.metadata.available
+                and len(sensor.raw_data) != sensor.metadata.total_data_length
+                for sensor in payload.sensors
+            ):
+                raise ProtocolError(
+                    "tactile sensor data length does not match metadata"
+                )
+            return
         expected = telemetry.shape
         if len(expected) != 3 or len(payload.tactile) != expected[0]:
             raise ProtocolError("tactile payload does not match declared shape")

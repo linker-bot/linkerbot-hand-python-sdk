@@ -56,6 +56,16 @@ class DeviceInfo:
     side: HandSide
     raw_identity: bytes | tuple[int, ...] | None
     meta: SampleMeta
+    adapter_board_version: VersionField | None = None
+    control_board_version: VersionField | None = None
+    bootloader_version: VersionField | None = None
+    build_time: str | None = None
+    supported_interfaces: str | None = None
+    reported_side: HandSide | None = None
+    protocol_name: str | None = None
+    protocol_version: str | None = None
+    power_supply_range: str | None = None
+    microcontroller_uid: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, str) or not self.model:
@@ -72,12 +82,30 @@ class DeviceInfo:
             "pcb_version",
             "firmware_version",
             "mechanical_version",
+            "adapter_board_version",
+            "control_board_version",
+            "bootloader_version",
         ):
             value = getattr(self, name)
             if value is not None and not isinstance(value, VersionField):
                 raise ValidationError(f"{name} must be VersionField or None")
+        for name in (
+            "build_time",
+            "supported_interfaces",
+            "protocol_name",
+            "protocol_version",
+            "power_supply_range",
+            "microcontroller_uid",
+        ):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValidationError(f"{name} must be a non-empty str or None")
         if not isinstance(self.side, HandSide):
             raise ValidationError("side must be HandSide")
+        if self.reported_side is not None and not isinstance(
+            self.reported_side, HandSide
+        ):
+            raise ValidationError("reported_side must be HandSide or None")
         if isinstance(self.raw_identity, tuple) and any(
             type(value) is not int or not 0 <= value <= 255
             for value in self.raw_identity

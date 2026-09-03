@@ -226,7 +226,10 @@ class TransactionRunner:
 
         while True:
             transaction = current.transaction
-            final_stage = transaction.next_transaction is None
+            final_stage = (
+                transaction.next_transaction is None
+                and transaction.next_transaction_factory is None
+            )
 
             def mark_final_dispatched(
                 timestamp: float,
@@ -253,7 +256,11 @@ class TransactionRunner:
             if outcome.result is not None:
                 result = outcome.result
             acknowledged = outcome.acknowledged
-            next_transaction = transaction.next_transaction
+            try:
+                next_transaction = transaction.build_next_transaction()
+            except BaseException as error:
+                _record_sent_frames(error, sent_frames)
+                raise
             if next_transaction is None:
                 completed_at = self._clock.monotonic()
                 self._metrics.transaction_completed(

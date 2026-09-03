@@ -613,7 +613,7 @@ def _probe_l30(
             progress = transaction.consume(responses[0])
             if not progress.matched or not progress.complete:
                 raise ProtocolError("L30 DeviceInfo probe response was incomplete")
-            next_transaction = transaction.next_transaction
+            next_transaction = transaction.build_next_transaction()
             if next_transaction is None:
                 raise ProtocolError("L30 identity omitted its product-code stage")
             routes = (
@@ -780,7 +780,7 @@ def _probe_o30(
         progress = transaction.consume(matching[0])
         if not progress.matched or not progress.complete:
             raise ProtocolError("O30 product-model probe response was incomplete")
-        next_transaction = transaction.next_transaction
+        next_transaction = transaction.build_next_transaction()
         if next_transaction is None:
             raise ProtocolError("O30 identity omitted required fields")
         result = _execute_identity(
@@ -852,22 +852,35 @@ def _probe_o30(
             )
         )
     else:
-        candidates.append(
-            DiscoveryCandidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
-                address=address,
-                status=DiscoveryStatus.PARTIAL,
-                identity=_identity_from_result(result, side=None),
-                transport=spec,
-                problems=(
-                    DiscoveryProblem(
-                        "missing_side",
-                        "O30 HOP identity does not provide a verified hand side",
-                    ),
-                ),
+        reported_side = result.device_info.reported_side
+        if reported_side is not None:
+            candidates.append(
+                _verified_candidate(
+                    channel,
+                    TransportKind.CAN_FD,
+                    address,
+                    spec,
+                    result,
+                    reported_side=reported_side,
+                )
             )
-        )
+        else:
+            candidates.append(
+                DiscoveryCandidate(
+                    channel=channel,
+                    wire_protocol=TransportKind.CAN_FD,
+                    address=address,
+                    status=DiscoveryStatus.PARTIAL,
+                    identity=_identity_from_result(result, side=None),
+                    transport=spec,
+                    problems=(
+                        DiscoveryProblem(
+                            "missing_side",
+                            "O30 HOP identity does not provide a verified hand side",
+                        ),
+                    ),
+                )
+            )
 
 
 def _collect(
@@ -953,7 +966,10 @@ def _execute_identity(
                 complete = progress.complete
                 if isinstance(progress.result, IdentityResult):
                     result = progress.result
-            current = current.next_transaction
+            try:
+                current = current.build_next_transaction()
+            except Exception as error:
+                raise _ResponseError(error) from error
     finally:
         subscription.close()
     if result is None:
@@ -1183,7 +1199,10 @@ def _require_identity_progress(
     ):
         raise ProtocolError("identity response was incomplete")
     result = getattr(progress, "result", None)
-    if transaction.next_transaction is not None:
+    if (
+        transaction.next_transaction is not None
+        or transaction.next_transaction_factory is not None
+    ):
         raise ProtocolError("identity response unexpectedly requires another stage")
     if not isinstance(result, IdentityResult):
         raise ProtocolError("identity response returned no verified result")

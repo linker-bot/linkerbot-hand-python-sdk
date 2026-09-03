@@ -131,6 +131,57 @@ def test_stage_yield_requires_a_following_response_gated_stage() -> None:
         )
 
 
+def test_dynamic_stage_is_resolved_only_after_the_response_boundary() -> None:
+    final = ProtocolTransaction(
+        key="final",
+        correlation_key="final",
+        request_messages=(b"final",),
+        response_timeout_s=0,
+        estimated_duration_s=0.01,
+    )
+    selected = False
+
+    def build_next() -> ProtocolTransaction | None:
+        nonlocal selected
+        selected = True
+        return final
+
+    first = ProtocolTransaction(
+        key="first",
+        correlation_key="first",
+        request_messages=(b"first",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=lambda _message: ResponseProgress(
+            matched=True,
+            complete=True,
+        ),
+        next_transaction_factory=build_next,
+    )
+
+    assert first.has_dynamic_next_transaction
+    assert not selected
+    assert first.build_next_transaction() is final
+    assert selected
+    assert first.terminal_expects_response
+    assert not first.terminal_acknowledges_command
+
+
+def test_dynamic_stage_rejects_an_invalid_factory_result() -> None:
+    transaction = ProtocolTransaction(
+        key="dynamic",
+        correlation_key="dynamic",
+        request_messages=(b"dynamic",),
+        response_timeout_s=0.1,
+        estimated_duration_s=0.01,
+        response_consumer=lambda _message: ResponseProgress(matched=False),
+        next_transaction_factory=lambda: "not-a-transaction",  # type: ignore[return-value]
+    )
+
+    with pytest.raises(ValidationError, match="ProtocolTransaction or None"):
+        transaction.build_next_transaction()
+
+
 def test_response_wait_and_command_ack_are_independent_contracts() -> None:
     echo = ProtocolTransaction(
         key="angle-echo",

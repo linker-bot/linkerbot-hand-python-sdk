@@ -6,7 +6,7 @@ from linkerbot_transport import CANRouteKey
 
 from ...api.enums import HandSide
 from ...api.errors import ProtocolError, UnsupportedOperationError
-from ...api.readings import RawNumber
+from ...api.readings import RawNumber, TactileSensorMetadata
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -16,6 +16,7 @@ from ..base import ProtocolTransaction, SamplePayload
 from .control import command_transaction
 from .framing import REQUEST_ID, RESPONSE_ID, response_route
 from .identity import o30_identity_transaction
+from .sensors import tactile_transaction
 from .telemetry import read_transaction
 
 _BASELINE = (
@@ -28,7 +29,7 @@ _BASELINE = (
 
 
 class O30ProtocolBackend:
-    """Stateless O30 HOP profile using request 0x001 and response 0x401."""
+    """O30 HOP profile using request 0x001 and response 0x401."""
 
     def __init__(self, side: HandSide) -> None:
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
@@ -36,6 +37,7 @@ class O30ProtocolBackend:
         self._side = side
         self._endpoint_id = ("o30", REQUEST_ID, RESPONSE_ID)
         self._route_keys = (response_route(),)
+        self._sensor_metadata: dict[int, TactileSensorMetadata] = {}
 
     @property
     def endpoint_id(self) -> tuple[str, int, int]:
@@ -57,6 +59,9 @@ class O30ProtocolBackend:
 
         if capabilities.side is not self._side:
             raise ProtocolError("O30 capability side changed after backend creation")
+        # Identity runs once per connection generation. Force the next tactile
+        # read to re-probe metadata after reconnect or firmware replacement.
+        self._sensor_metadata.clear()
         return o30_identity_transaction(capabilities)
 
     def baseline_semantics(
@@ -90,6 +95,11 @@ class O30ProtocolBackend:
     ) -> ProtocolTransaction:
         """Build one V25 actual-state or set-point query."""
 
+        if semantic is TelemetrySemantic.FORCE:
+            return tactile_transaction(
+                capabilities,
+                metadata_cache=self._sensor_metadata,
+            )
         return read_transaction(semantic, capabilities)
 
     def operation_transaction(

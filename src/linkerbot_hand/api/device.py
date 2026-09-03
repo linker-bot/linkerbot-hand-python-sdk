@@ -20,6 +20,7 @@ from .readings import (
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
+    NormalForceResultantSample,
     RawNumber,
     TemperatureSample,
     TorqueSample,
@@ -237,6 +238,24 @@ class HandDevice(_DeviceCore):
             timeout,
             ForceSample,
             operation="get_force",
+        )
+
+    def get_normal_force_resultant(
+        self,
+        timeout: float,
+    ) -> NormalForceResultantSample:
+        """Read all five O30 fingertips and return their raw ``FnS`` values."""
+
+        operation = "get_normal_force_resultant"
+        if self.get_capabilities().model != "O30":
+            self._raise_unsupported(operation)
+        return NormalForceResultantSample.from_force_sample(
+            self._read(
+                TelemetrySemantic.FORCE,
+                timeout,
+                ForceSample,
+                operation=operation,
+            )
         )
 
     def get_faults(self, timeout: float) -> FaultSample:

@@ -61,6 +61,7 @@ _PUBLIC_METHODS = (
     "get_currents",
     "get_temperatures",
     "get_force",
+    "get_normal_force_resultant",
     "get_faults",
     "get_voltages",
     "set_motion_times",

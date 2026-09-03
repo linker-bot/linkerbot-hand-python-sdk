@@ -18,6 +18,7 @@ from linkerbot_hand.api import (
     HandDevice,
     HandSide,
     IdentityMismatchError,
+    NormalForceResultantSample,
     PollingPlan,
     ProtocolError,
     TimeoutError,
@@ -72,7 +73,7 @@ def _make_l30_hand() -> tuple[HandDevice, ScriptedL30Transport]:
 def _make_o30_hand(
     side: HandSide = HandSide.RIGHT,
 ) -> tuple[HandDevice, ScriptedO30Transport]:
-    script = O30DeviceScript()
+    script = O30DeviceScript(reported_side=side)
     transport = ScriptedO30Transport(script)
     hand = HandDevice(model="O30", side=side.value, transport=transport)
     return hand, transport
@@ -1069,7 +1070,7 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         capabilities = hand.get_capabilities()
         snapshot = hand.get_snapshot()
         assert capabilities.identity.verified
-        assert capabilities.identity.firmware == "1.1.0"
+        assert capabilities.identity.firmware == "1.2.0"
         assert snapshot.device_info is not None
         assert capabilities.model == "O30"
         assert capabilities.identity.product_code == "O30"
@@ -1134,6 +1135,74 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         hand.close()
 
 
+def _make_o30_sensor_hand(
+    sensor_variant: str,
+) -> tuple[HandDevice, ScriptedO30Transport]:
+    script = O30DeviceScript(reported_side=HandSide.RIGHT, sensor_variant=sensor_variant)
+    transport = ScriptedO30Transport(script)
+    hand = HandDevice(model="O30", side="right", transport=transport)
+    return hand, transport
+
+
+def test_o30_get_force_reads_all_five_descriptor_tactile_sensors() -> None:
+    hand, _transport = _make_o30_sensor_hand("TSSP_JZG")
+    hand.open()
+    try:
+        force = hand.get_force(timeout=1)
+
+        assert force.tactile == ()
+        assert len(force.sensors) == 5
+        assert tuple(sensor.metadata.sensor_name for sensor in force.sensors) == (
+            "thumb",
+            "index",
+            "middle",
+            "ring",
+            "pinky",
+        )
+        for finger, sensor in enumerate(force.sensors, start=1):
+            metadata = sensor.metadata
+            assert metadata.selected_sensor == finger
+            assert metadata.sensor_type == "TSSP_JZG"
+            assert metadata.data_unit == "g"
+            assert metadata.descriptor_text == "FnS_U16_1;Fn_U8_70"
+            assert metadata.total_data_length == 72
+            assert len(sensor.raw_data) == 72
+            resultant, normal_force = sensor.fields
+            assert resultant.semantic == "FnS"
+            assert resultant.values == (1000 + finger,)
+            assert normal_force.semantic == "Fn"
+            assert normal_force.values == tuple(
+                (finger * 10 + index) & 0xFF for index in range(70)
+            )
+    finally:
+        hand.close()
+
+
+def test_o30_get_normal_force_resultant_extracts_scalar_fns_per_finger() -> None:
+    hand, _transport = _make_o30_sensor_hand("TSSP_JZG")
+    hand.open()
+    try:
+        resultant = hand.get_normal_force_resultant(timeout=1)
+
+        assert isinstance(resultant, NormalForceResultantSample)
+        assert resultant.sensor_names == ("thumb", "index", "middle", "ring", "pinky")
+        assert resultant.raw == (1001, 1002, 1003, 1004, 1005)
+        assert resultant.units == ("g", "g", "g", "g", "g")
+        assert resultant.meta.valid
+    finally:
+        hand.close()
+
+
+def test_o30_get_force_without_a_sensor_is_reported_unavailable() -> None:
+    hand, _transport = _make_o30_sensor_hand("NO_SENSOR")
+    hand.open()
+    try:
+        with pytest.raises((ProtocolError, UnsupportedFirmwareError)):
+            hand.get_force(timeout=0.3)
+    finally:
+        hand.close()
+
+
 @pytest.mark.parametrize("model", ("O30", "o30", "O30i", "o30i"))
 def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
     script = O30DeviceScript(product_model="O30i-20-001-R-B")
@@ -1144,6 +1213,18 @@ def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
         assert hand.get_capabilities().model == "O30"
     finally:
         hand.close()
+
+
+def test_o30_open_rejects_device_reported_side_mismatch() -> None:
+    script = O30DeviceScript(reported_side=HandSide.RIGHT)
+    hand = HandDevice(
+        model="O30",
+        side="left",
+        transport=ScriptedO30Transport(script),
+    )
+
+    with pytest.raises(IdentityMismatchError, match="side does not match"):
+        hand.open()
 
 
 def test_o30_polling_stops_without_trailing_queries() -> None:

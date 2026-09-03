@@ -30,6 +30,16 @@ class IdentityCapability:
     sensor_variant: str | None = None
     serial_number: str | None = None
     product_code: str | None = None
+    protocol_name: str | None = None
+    protocol_version: str | None = None
+    power_supply_range: str | None = None
+    microcontroller_uid: str | None = None
+    adapter_board_version: str | None = None
+    control_board_version: str | None = None
+    bootloader_version: str | None = None
+    build_time: str | None = None
+    supported_interfaces: str | None = None
+    reported_side: HandSide | None = None
     supported_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -46,10 +56,23 @@ class IdentityCapability:
             "sensor_variant",
             "serial_number",
             "product_code",
+            "protocol_name",
+            "protocol_version",
+            "power_supply_range",
+            "microcontroller_uid",
+            "adapter_board_version",
+            "control_board_version",
+            "bootloader_version",
+            "build_time",
+            "supported_interfaces",
         ):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value):
                 raise ValidationError(f"{name} must be a non-empty str or None")
+        if self.reported_side is not None and not isinstance(
+            self.reported_side, HandSide
+        ):
+            raise ValidationError("reported_side must be HandSide or None")
         if not isinstance(self.supported_fields, tuple) or any(
             not isinstance(value, str) or not value for value in self.supported_fields
         ):
