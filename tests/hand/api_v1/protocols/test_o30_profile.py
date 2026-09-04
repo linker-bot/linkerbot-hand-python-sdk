@@ -31,11 +31,15 @@ from linkerbot_hand.protocols.o30.codec import (
 )
 from linkerbot_hand.protocols.o30.framing import (
     FRAME_TYPE,
+    LEFT_REQUEST_ID,
+    LEFT_RESPONSE_ID,
     REQUEST_ID,
     RESPONSE_ID,
+    addressing_for_side,
     build_read_message,
     build_write_message,
     decode_frame,
+    matching_response_frame,
 )
 from linkerbot_transport.canfd import CANFDMessage
 
@@ -155,8 +159,12 @@ def _consume_identity(
 
 
 def test_o30_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
-    read = build_read_message(MI_POSITION, sub_index=0, length=25)
-    write = build_write_message(MI_POSITION, sub_index=0, payload=bytes(25))
+    read = build_read_message(
+        MI_POSITION, sub_index=0, length=25, request_id=REQUEST_ID
+    )
+    write = build_write_message(
+        MI_POSITION, sub_index=0, payload=bytes(25), request_id=REQUEST_ID
+    )
 
     assert read.arbitration_id == REQUEST_ID
     assert read.data == b"\x01\x00\x19"
@@ -169,6 +177,33 @@ def test_o30_hop_frames_use_standard_ids_edl_and_no_brs() -> None:
     assert decoded.payload == b"\x10\x20"
     with pytest.raises(ProtocolError, match="declares"):
         decode_frame(b"\x01\x00\x02\x10")
+
+
+def test_o30_left_hand_uses_0x002_0x402_and_filters_by_response_id() -> None:
+    left = addressing_for_side(HandSide.LEFT)
+    assert (left.request_id, left.response_id) == (LEFT_REQUEST_ID, LEFT_RESPONSE_ID)
+    assert (LEFT_REQUEST_ID, LEFT_RESPONSE_ID) == (0x002, 0x402)
+
+    read = build_read_message(
+        MI_POSITION, sub_index=0, length=25, request_id=left.request_id
+    )
+    assert read.arbitration_id == 0x002
+
+    left_reply = CANFDMessage(
+        arbitration_id=LEFT_RESPONSE_ID,
+        data=b"\x01\x00\x02\x10\x20",
+        is_extended_id=False,
+        frame_type=FRAME_TYPE,
+    )
+    right_reply = CANFDMessage(
+        arbitration_id=RESPONSE_ID,
+        data=b"\x01\x00\x02\x10\x20",
+        is_extended_id=False,
+        frame_type=FRAME_TYPE,
+    )
+    assert matching_response_frame(left_reply, LEFT_RESPONSE_ID) is not None
+    assert matching_response_frame(right_reply, LEFT_RESPONSE_ID) is None
+    assert matching_response_frame(right_reply, RESPONSE_ID) is not None
 
 
 def test_o30_v25_mapping_keeps_every_uninstalled_slot_zero() -> None:

@@ -69,6 +69,16 @@ def test_registry_selects_o30_standard_can_fd_route_without_io() -> None:
     assert backend.route_keys == (CANRouteKey(0x401, False),)
 
 
+def test_registry_selects_o30_left_hand_can_fd_route_without_io() -> None:
+    capabilities = get_declared_capabilities("o30", side=HandSide.LEFT)
+
+    backend = create_protocol_backend(capabilities)
+
+    assert isinstance(backend, O30ProtocolBackend)
+    assert backend.endpoint_id == ("o30", 0x002, 0x402)
+    assert backend.route_keys == (CANRouteKey(0x402, False),)
+
+
 def test_registry_selects_side_neutral_l30_can_fd_routes_without_io() -> None:
     capabilities = get_declared_capabilities("l30")
 

@@ -26,6 +26,7 @@ from linkerbot_hand.api import (
     UnsupportedFirmwareError,
     ValidationError,
 )
+from linkerbot_hand.protocols.o30.framing import addressing_for_side
 
 from .classic_can_fake import (
     ScriptedClassicCANTransport,
@@ -73,7 +74,12 @@ def _make_l30_hand() -> tuple[HandDevice, ScriptedL30Transport]:
 def _make_o30_hand(
     side: HandSide = HandSide.RIGHT,
 ) -> tuple[HandDevice, ScriptedO30Transport]:
-    script = O30DeviceScript(reported_side=side)
+    addressing = addressing_for_side(side)
+    script = O30DeviceScript(
+        reported_side=side,
+        request_id=addressing.request_id,
+        response_id=addressing.response_id,
+    )
     transport = ScriptedO30Transport(script)
     hand = HandDevice(model="O30", side=side.value, transport=transport)
     return hand, transport
@@ -1220,6 +1226,21 @@ def test_o30_get_force_without_a_sensor_is_reported_unavailable() -> None:
         hand.close()
 
 
+def test_o30_left_hand_connects_and_reads_over_0x002_0x402() -> None:
+    hand, transport = _make_o30_hand(HandSide.LEFT)
+    assert (transport.script.request_id, transport.script.response_id) == (0x002, 0x402)
+    hand.open()
+    try:
+        capabilities = hand.get_capabilities()
+        assert capabilities.identity.side is HandSide.LEFT
+        assert capabilities.model == "O30"
+        info = hand.get_device_info(1.0)
+        assert info.side is HandSide.LEFT
+        assert hand.get_angles(timeout=0.2).raw == tuple(range(20))
+    finally:
+        hand.close()
+
+
 @pytest.mark.parametrize("model", ("O30", "o30", "O30i", "o30i"))
 def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
     script = O30DeviceScript(product_model="O30i-20-001-R-B")
@@ -1233,10 +1254,12 @@ def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
 
 
 def test_o30_open_rejects_device_reported_side_mismatch() -> None:
-    script = O30DeviceScript(reported_side=HandSide.RIGHT)
+    # Device speaks the right-hand ID pair but reports LEFT; a right-declared
+    # open must complete identity then reject the reported-side mismatch.
+    script = O30DeviceScript(reported_side=HandSide.LEFT)
     hand = HandDevice(
         model="O30",
-        side="left",
+        side="right",
         transport=ScriptedO30Transport(script),
     )
 

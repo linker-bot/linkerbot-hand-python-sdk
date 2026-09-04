@@ -25,7 +25,7 @@ from .codec import (
 )
 from .framing import (
     MAX_FRAGMENT_LENGTH,
-    RESPONSE_ID,
+    HOPAddressing,
     build_read_message,
     build_write_message,
 )
@@ -217,6 +217,7 @@ def sensor_data_chunks(total_data_length: int) -> tuple[tuple[int, int, int], ..
 
 def tactile_transaction(
     capabilities: DeviceCapabilities,
+    addressing: HOPAddressing,
     *,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
@@ -230,7 +231,7 @@ def tactile_transaction(
             metadata_cache.clear()
         else:
             return replace(
-                _data_transaction(metadata_cache),
+                _data_transaction(metadata_cache, addressing=addressing),
                 firmware_optional=True,
             )
 
@@ -238,6 +239,7 @@ def tactile_transaction(
     first = _metadata_select_transaction(
         1,
         metadata,
+        addressing=addressing,
         metadata_cache=metadata_cache,
     )
     return replace(first, firmware_optional=True)
@@ -247,6 +249,7 @@ def _metadata_select_transaction(
     selected_sensor: int,
     metadata: dict[int, TactileSensorMetadata],
     *,
+    addressing: HOPAddressing,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
     payload = bytes((selected_sensor,))
@@ -255,6 +258,7 @@ def _metadata_select_transaction(
         return _metadata_prefix_transaction(
             selected_sensor,
             metadata,
+            addressing=addressing,
             metadata_cache=metadata_cache,
         )
 
@@ -262,6 +266,7 @@ def _metadata_select_transaction(
         key=("read", TelemetrySemantic.FORCE, "select_metadata", selected_sensor),
         sub_index=_SI_SELECTED_SENSOR,
         payload=payload,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -270,6 +275,7 @@ def _metadata_prefix_transaction(
     selected_sensor: int,
     metadata: dict[int, TactileSensorMetadata],
     *,
+    addressing: HOPAddressing,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
     values: dict[str, bytes] = {}
@@ -290,6 +296,7 @@ def _metadata_prefix_transaction(
                 selected_sensor,
                 metadata,
                 values,
+                addressing=addressing,
                 metadata_cache=metadata_cache,
             )
         return _metadata_descriptor_transaction(
@@ -297,6 +304,7 @@ def _metadata_prefix_transaction(
             metadata,
             values,
             descriptor_length=descriptor_length,
+            addressing=addressing,
             metadata_cache=metadata_cache,
         )
 
@@ -306,6 +314,7 @@ def _metadata_prefix_transaction(
         sub_index=_SI_SENSOR_TYPE,
         length=_METADATA_PREFIX_LENGTH,
         on_data=consume_prefix,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -316,6 +325,7 @@ def _metadata_descriptor_transaction(
     values: dict[str, bytes],
     *,
     descriptor_length: int,
+    addressing: HOPAddressing,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
     def consume_descriptor(data: bytes) -> None:
@@ -326,6 +336,7 @@ def _metadata_descriptor_transaction(
             selected_sensor,
             metadata,
             values,
+            addressing=addressing,
             metadata_cache=metadata_cache,
         )
 
@@ -335,6 +346,7 @@ def _metadata_descriptor_transaction(
         sub_index=_SI_DESCRIPTOR,
         length=descriptor_length,
         on_data=consume_descriptor,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -344,6 +356,7 @@ def _metadata_total_length_transaction(
     metadata: dict[int, TactileSensorMetadata],
     values: dict[str, bytes],
     *,
+    addressing: HOPAddressing,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
     def consume_total_length(data: bytes) -> None:
@@ -354,6 +367,7 @@ def _metadata_total_length_transaction(
             selected_sensor,
             metadata,
             values,
+            addressing=addressing,
             metadata_cache=metadata_cache,
         )
 
@@ -363,6 +377,7 @@ def _metadata_total_length_transaction(
         sub_index=_SI_TOTAL_DATA_LENGTH,
         length=2,
         on_data=consume_total_length,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -372,6 +387,7 @@ def _metadata_controls_transaction(
     metadata: dict[int, TactileSensorMetadata],
     values: dict[str, bytes],
     *,
+    addressing: HOPAddressing,
     metadata_cache: dict[int, TactileSensorMetadata],
 ) -> ProtocolTransaction:
     final_sensor = selected_sensor == len(SENSOR_NAMES)
@@ -392,9 +408,10 @@ def _metadata_controls_transaction(
             return _metadata_select_transaction(
                 selected_sensor + 1,
                 metadata,
+                addressing=addressing,
                 metadata_cache=metadata_cache,
             )
-        return _data_transaction(metadata)
+        return _data_transaction(metadata, addressing=addressing)
 
     return _read_stage(
         key=("read", TelemetrySemantic.FORCE, "controls", selected_sensor),
@@ -402,6 +419,7 @@ def _metadata_controls_transaction(
         sub_index=_SI_SELECTED_SENSOR,
         length=_SENSOR_CONTROL_LENGTH,
         on_data=consume_controls,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -466,6 +484,8 @@ def _build_metadata(
 
 def _data_transaction(
     metadata: dict[int, TactileSensorMetadata],
+    *,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     available = tuple(
         selected_sensor
@@ -480,6 +500,7 @@ def _data_transaction(
         0,
         metadata,
         samples,
+        addressing=addressing,
     )
 
 
@@ -488,6 +509,8 @@ def _data_select_transaction(
     sensor_position: int,
     metadata: dict[int, TactileSensorMetadata],
     samples: dict[int, TactileSensorSample],
+    *,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     selected_sensor = available[sensor_position]
     payload = bytes((selected_sensor,))
@@ -502,12 +525,14 @@ def _data_select_transaction(
             chunk_position=0,
             raw_data=bytearray(metadata[selected_sensor].total_data_length),
             global_offset=0,
+            addressing=addressing,
         )
 
     return _write_stage(
         key=("read", TelemetrySemantic.FORCE, "select_data", selected_sensor),
         sub_index=_SI_SELECTED_SENSOR,
         payload=payload,
+        addressing=addressing,
         next_factory=next_stage,
     )
 
@@ -522,6 +547,7 @@ def _data_chunk_transaction(
     chunk_position: int,
     raw_data: bytearray,
     global_offset: int,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     selected_sensor = available[sensor_position]
     main_index, sub_index, length = chunks[chunk_position]
@@ -561,12 +587,14 @@ def _data_chunk_transaction(
                 chunk_position=chunk_position + 1,
                 raw_data=raw_data,
                 global_offset=global_offset + length,
+                addressing=addressing,
             )
         return _data_select_transaction(
             available,
             sensor_position + 1,
             metadata,
             samples,
+            addressing=addressing,
         )
 
     has_next = not (final_chunk and final_sensor)
@@ -582,6 +610,7 @@ def _data_chunk_transaction(
         sub_index=sub_index,
         length=length,
         on_data=consume_chunk,
+        addressing=addressing,
         next_factory=next_stage if has_next else None,
     )
 
@@ -593,6 +622,7 @@ def _read_stage(
     sub_index: int,
     length: int,
     on_data: Callable[[bytes], SamplePayload | None] | Callable[[bytes], None],
+    addressing: HOPAddressing,
     next_factory: _NextFactory | None,
 ) -> ProtocolTransaction:
     assembler = HOPRangeAssembler(
@@ -600,6 +630,7 @@ def _read_stage(
         sub_index=sub_index,
         length=length,
         rts=False,
+        response_id=addressing.response_id,
         object_unavailable_is_unsupported=True,
     )
 
@@ -616,12 +647,13 @@ def _read_stage(
 
     return ProtocolTransaction(
         key=key,
-        correlation_key=("o30_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", addressing.response_id),
         request_messages=(
             build_read_message(
                 main_index,
                 sub_index=sub_index,
                 length=length,
+                request_id=addressing.request_id,
             ),
         ),
         response_timeout_s=_RESPONSE_TIMEOUT_S,
@@ -638,6 +670,7 @@ def _write_stage(
     key: object,
     sub_index: int,
     payload: bytes,
+    addressing: HOPAddressing,
     next_factory: _NextFactory,
 ) -> ProtocolTransaction:
     assembler = HOPRangeAssembler(
@@ -645,6 +678,7 @@ def _write_stage(
         sub_index=sub_index,
         length=len(payload),
         rts=False,
+        response_id=addressing.response_id,
         object_unavailable_is_unsupported=True,
     )
 
@@ -658,12 +692,13 @@ def _write_stage(
 
     return ProtocolTransaction(
         key=key,
-        correlation_key=("o30_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", addressing.response_id),
         request_messages=(
             build_write_message(
                 MI_SENSOR_INFO,
                 sub_index=sub_index,
                 payload=payload,
+                request_id=addressing.request_id,
             ),
         ),
         response_timeout_s=_RESPONSE_TIMEOUT_S,

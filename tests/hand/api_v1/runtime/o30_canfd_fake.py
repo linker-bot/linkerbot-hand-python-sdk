@@ -11,8 +11,8 @@ from linkerbot_hand.protocols.o30.framing import (
     ERROR_MAIN_INDEX,
     FRAME_TYPE,
     MAIN_INDEX_MASK,
-    REQUEST_ID,
-    RESPONSE_ID,
+    RIGHT_REQUEST_ID,
+    RIGHT_RESPONSE_ID,
     RTS_MASK,
 )
 from linkerbot_transport import CANRouteKey, SendReceipt
@@ -110,6 +110,8 @@ class O30DeviceScript:
     identity_layout: str = "deployed"
     reported_side: HandSide | None = HandSide.RIGHT
     sensor_variant: str = "NO_SENSOR"
+    request_id: int = RIGHT_REQUEST_ID
+    response_id: int = RIGHT_RESPONSE_ID
     sent_messages: list[CANFDMessage] = field(default_factory=list)
     command_messages: list[CANFDMessage] = field(default_factory=list)
     read_counts: Counter[tuple[int, bool]] = field(default_factory=Counter)
@@ -144,7 +146,7 @@ class O30DeviceScript:
         """Record one request and return its immediate scripted response."""
 
         if (
-            request.arbitration_id != REQUEST_ID
+            request.arbitration_id != self.request_id
             or request.is_extended_id
             or len(request.data) < 3
         ):
@@ -333,7 +335,7 @@ class O30DeviceScript:
     ) -> CANFDMessage:
         control = main_index | (RTS_MASK if rts else 0)
         return CANFDMessage(
-            arbitration_id=RESPONSE_ID,
+            arbitration_id=self.response_id,
             data=bytes((control, sub_index, len(payload))) + payload,
             is_extended_id=False,
             frame_type=FRAME_TYPE,

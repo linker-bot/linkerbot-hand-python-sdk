@@ -24,7 +24,7 @@ from .codec import (
     WIRE_SLOT_COUNT,
     encode_v25,
 )
-from .framing import RESPONSE_ID, build_write_message
+from .framing import HOPAddressing, build_write_message
 from .response import HOPRangeAssembler
 
 
@@ -56,6 +56,7 @@ def command_transaction(
     semantic: CommandSemantic,
     values: tuple[RawNumber, ...],
     capabilities: DeviceCapabilities,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     """Build one compact write whose correlated HOP response is the ACK."""
 
@@ -73,6 +74,7 @@ def command_transaction(
         sub_index=0,
         length=WIRE_SLOT_COUNT,
         rts=command.rts,
+        response_id=addressing.response_id,
     )
 
     def consume(message: object) -> ResponseProgress:
@@ -85,13 +87,14 @@ def command_transaction(
 
     return ProtocolTransaction(
         key=("command", semantic),
-        correlation_key=("o30_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", addressing.response_id),
         request_messages=(
             build_write_message(
                 main_index,
                 sub_index=0,
                 payload=payload,
                 rts=command.rts,
+                request_id=addressing.request_id,
             ),
         ),
         response_timeout_s=0.1,

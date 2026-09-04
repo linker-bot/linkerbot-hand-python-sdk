@@ -17,7 +17,7 @@ from ...api.readings import SampleMeta
 from ...capabilities.types import DeviceCapabilities
 from ..base import IdentityResult, ProtocolTransaction, ResponseProgress
 from .codec import MI_PRODUCT_INFO
-from .framing import RESPONSE_ID, build_read_message
+from .framing import HOPAddressing, build_read_message
 from .response import HOPRangeAssembler
 
 _EXPECTED_PROTOCOL_NAME = "HOP"
@@ -67,6 +67,7 @@ _DOCUMENTED_FIELDS = (
 
 def o30_identity_transaction(
     capabilities: DeviceCapabilities,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     """Read identity without imposing a firmware-version connection gate."""
 
@@ -78,13 +79,15 @@ def o30_identity_transaction(
         0,
         capabilities,
         values,
-        next_factory=lambda: _layout_transaction(capabilities, values),
+        addressing,
+        next_factory=lambda: _layout_transaction(capabilities, values, addressing),
     )
 
 
 def _layout_transaction(
     capabilities: DeviceCapabilities,
     values: dict[str, bytes],
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     layout = _select_layout(values)
     fields = _DEPLOYED_FIELDS if layout == "deployed" else _DOCUMENTED_FIELDS
@@ -93,6 +96,7 @@ def _layout_transaction(
         0,
         capabilities,
         values,
+        addressing,
         result_factory=lambda: _identity_result(
             capabilities,
             values,
@@ -106,6 +110,7 @@ def _field_transaction(
     index: int,
     capabilities: DeviceCapabilities,
     values: dict[str, bytes],
+    addressing: HOPAddressing,
     *,
     next_factory: Callable[[], ProtocolTransaction] | None = None,
     result_factory: Callable[[], IdentityResult] | None = None,
@@ -116,6 +121,7 @@ def _field_transaction(
         sub_index=field.sub_index,
         length=field.length,
         rts=False,
+        response_id=addressing.response_id,
     )
     final_field = index + 1 == len(fields)
 
@@ -126,6 +132,7 @@ def _field_transaction(
                 index + 1,
                 capabilities,
                 values,
+                addressing,
                 next_factory=next_factory,
                 result_factory=result_factory,
             )
@@ -153,12 +160,13 @@ def _field_transaction(
     has_next = not final_field or next_factory is not None
     return ProtocolTransaction(
         key=("identity", "o30", field.name),
-        correlation_key=("o30_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", addressing.response_id),
         request_messages=(
             build_read_message(
                 MI_PRODUCT_INFO,
                 sub_index=field.sub_index,
                 length=field.length,
+                request_id=addressing.request_id,
             ),
         ),
         response_timeout_s=0.1,

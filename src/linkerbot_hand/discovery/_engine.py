@@ -40,6 +40,9 @@ from ..protocols.o20.codec import (
 from ..protocols.o20.identity import o20_identity_transaction
 from ..protocols.o30.codec import MI_PRODUCT_INFO
 from ..protocols.o30.framing import (
+    RIGHT_ADDRESSING as O30_RIGHT_ADDRESSING,
+)
+from ..protocols.o30.framing import (
     build_read_message as build_o30_read,
 )
 from ..protocols.o30.framing import (
@@ -714,18 +717,25 @@ def _probe_o30(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
-    route = o30_response_route()
+    route = o30_response_route(O30_RIGHT_ADDRESSING.response_id)
     messages = _collect(
         transport,
         (route,),
-        (build_o30_read(MI_PRODUCT_INFO, sub_index=0, length=0x10),),
+        (
+            build_o30_read(
+                MI_PRODUCT_INFO,
+                sub_index=0,
+                length=0x10,
+                request_id=O30_RIGHT_ADDRESSING.request_id,
+            ),
+        ),
         config,
     )
     matching: list[object] = []
     malformed: Exception | None = None
     for message in messages:
         try:
-            frame = matching_response_frame(message)
+            frame = matching_response_frame(message, O30_RIGHT_ADDRESSING.response_id)
         except HandError as error:
             malformed = error
             continue
@@ -741,7 +751,7 @@ def _probe_o30(
     spec = _transport_spec(source, channel, TransportKind.CAN_FD)
     address = DiscoveryAddress(
         scheme="o30_hop_endpoint",
-        request_id=0x001,
+        request_id=O30_RIGHT_ADDRESSING.request_id,
         response_id=route.arbitration_id,
         is_extended_id=False,
     )
@@ -775,7 +785,7 @@ def _probe_o30(
         )
         return
     provisional = get_declared_capabilities("O30", side=HandSide.LEFT)
-    transaction = o30_identity_transaction(provisional)
+    transaction = o30_identity_transaction(provisional, O30_RIGHT_ADDRESSING)
     try:
         progress = transaction.consume(matching[0])
         if not progress.matched or not progress.complete:

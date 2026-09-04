@@ -24,7 +24,7 @@ from .codec import (
     WIRE_SLOT_COUNT,
     decode_v25,
 )
-from .framing import RESPONSE_ID, build_read_message
+from .framing import HOPAddressing, build_read_message
 from .response import HOPRangeAssembler
 
 
@@ -89,6 +89,7 @@ _READ_OBJECTS = {
 def read_transaction(
     semantic: TelemetrySemantic,
     capabilities: DeviceCapabilities,
+    addressing: HOPAddressing,
 ) -> ProtocolTransaction:
     """Build one compact 25-slot query returning twenty installed channels."""
 
@@ -106,6 +107,7 @@ def read_transaction(
         sub_index=0,
         length=WIRE_SLOT_COUNT,
         rts=profile.rts,
+        response_id=addressing.response_id,
     )
 
     def consume(message: object) -> ResponseProgress:
@@ -130,13 +132,14 @@ def read_transaction(
 
     return ProtocolTransaction(
         key=("read", semantic),
-        correlation_key=("o30_hop", RESPONSE_ID),
+        correlation_key=("o30_hop", addressing.response_id),
         request_messages=(
             build_read_message(
                 profile.main_index,
                 sub_index=0,
                 length=WIRE_SLOT_COUNT,
                 rts=profile.rts,
+                request_id=addressing.request_id,
             ),
         ),
         response_timeout_s=0.1,

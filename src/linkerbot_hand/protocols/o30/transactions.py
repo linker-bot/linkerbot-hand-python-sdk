@@ -14,7 +14,7 @@ from ...capabilities.types import (
 )
 from ..base import ProtocolTransaction, SamplePayload
 from .control import command_transaction
-from .framing import REQUEST_ID, RESPONSE_ID, response_route
+from .framing import addressing_for_side, response_route
 from .identity import o30_identity_transaction
 from .sensors import tactile_transaction
 from .telemetry import read_transaction
@@ -29,14 +29,19 @@ _BASELINE = (
 
 
 class O30ProtocolBackend:
-    """O30 HOP profile using request 0x001 and response 0x401."""
+    """O30 HOP profile; CAN ID pair is fixed per side (right 0x001, left 0x002)."""
 
     def __init__(self, side: HandSide) -> None:
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
             raise ProtocolError("O30 protocol requires a left or right side")
         self._side = side
-        self._endpoint_id = ("o30", REQUEST_ID, RESPONSE_ID)
-        self._route_keys = (response_route(),)
+        self._addressing = addressing_for_side(side)
+        self._endpoint_id = (
+            "o30",
+            self._addressing.request_id,
+            self._addressing.response_id,
+        )
+        self._route_keys = (response_route(self._addressing.response_id),)
         self._sensor_metadata: dict[int, TactileSensorMetadata] = {}
 
     @property
@@ -62,7 +67,7 @@ class O30ProtocolBackend:
         # Identity runs once per connection generation. Force the next tactile
         # read to re-probe metadata after reconnect or firmware replacement.
         self._sensor_metadata.clear()
-        return o30_identity_transaction(capabilities)
+        return o30_identity_transaction(capabilities, self._addressing)
 
     def baseline_semantics(
         self,
@@ -86,7 +91,7 @@ class O30ProtocolBackend:
     ) -> ProtocolTransaction:
         """Build one V25 write completed only by its HOP response."""
 
-        return command_transaction(semantic, values, capabilities)
+        return command_transaction(semantic, values, capabilities, self._addressing)
 
     def read_transaction(
         self,
@@ -98,9 +103,10 @@ class O30ProtocolBackend:
         if semantic is TelemetrySemantic.FORCE:
             return tactile_transaction(
                 capabilities,
+                self._addressing,
                 metadata_cache=self._sensor_metadata,
             )
-        return read_transaction(semantic, capabilities)
+        return read_transaction(semantic, capabilities, self._addressing)
 
     def operation_transaction(
         self,

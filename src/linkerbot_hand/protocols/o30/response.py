@@ -25,12 +25,14 @@ class HOPRangeAssembler:
         sub_index: int,
         length: int,
         rts: bool,
+        response_id: int,
         object_unavailable_is_unsupported: bool = False,
     ) -> None:
         self._main_index = main_index
         self._sub_index = sub_index
         self._length = length
         self._rts = rts
+        self._response_id = response_id
         self._object_unavailable_is_unsupported = (
             object_unavailable_is_unsupported
         )
@@ -40,7 +42,7 @@ class HOPRangeAssembler:
     def consume(self, message: object) -> tuple[bool, bytes | None]:
         """Return ``(matched, complete_payload)`` for one routed message."""
 
-        frame = matching_response_frame(message)
+        frame = matching_response_frame(message, self._response_id)
         if frame is None:
             return False, None
         if (

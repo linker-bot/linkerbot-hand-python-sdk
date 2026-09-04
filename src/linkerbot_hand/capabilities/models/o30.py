@@ -386,8 +386,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             nominal_bitrate=1_000_000,
             data_bitrate=1_000_000,
             addressing_note=(
-                "HOP uses standard request ID 0x001 and response ID 0x401 with "
-                "CAN FD BRS disabled."
+                "HOP standard-frame CAN ID pair is fixed per hand side: right "
+                "hand request 0x001 / response 0x401, left hand request 0x002 / "
+                "response 0x402, with CAN FD BRS disabled."
             ),
         ),
         operations=OperationCapabilities(

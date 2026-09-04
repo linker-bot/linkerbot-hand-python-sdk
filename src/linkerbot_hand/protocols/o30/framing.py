@@ -7,15 +7,57 @@ from dataclasses import dataclass
 from linkerbot_transport import CANRouteKey
 from linkerbot_transport.canfd import CANFDMessage
 
+from ...api.enums import HandSide
 from ...api.errors import ProtocolError, ValidationError
 
-REQUEST_ID = 0x001
-RESPONSE_ID = 0x401
+# O30 assigns each hand side a fixed standard-frame CAN ID pair. The response
+# ID is the request ID with the top standard-frame bit (0x400) set.
+RIGHT_REQUEST_ID = 0x001
+RIGHT_RESPONSE_ID = 0x401
+LEFT_REQUEST_ID = 0x002
+LEFT_RESPONSE_ID = 0x402
+# Backwards-friendly aliases for the right-hand pair (used by discovery/tests).
+REQUEST_ID = RIGHT_REQUEST_ID
+RESPONSE_ID = RIGHT_RESPONSE_ID
+
 FRAME_TYPE = 0x04
 ERROR_MAIN_INDEX = 0x4F
 RTS_MASK = 0x80
 MAIN_INDEX_MASK = 0x7F
 MAX_FRAGMENT_LENGTH = 61
+_STANDARD_ID_MAX = 0x7FF
+
+
+@dataclass(frozen=True, slots=True)
+class HOPAddressing:
+    """One O30 endpoint's request/response standard-frame CAN ID pair."""
+
+    request_id: int
+    response_id: int
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.request_id, "request_id"),
+            (self.response_id, "response_id"),
+        ):
+            if type(value) is not int or not 0 <= value <= _STANDARD_ID_MAX:
+                raise ValidationError(f"HOP {name} must be a standard CAN ID")
+        if self.response_id != self.request_id | 0x400:
+            raise ValidationError("HOP response_id must be request_id | 0x400")
+
+
+RIGHT_ADDRESSING = HOPAddressing(RIGHT_REQUEST_ID, RIGHT_RESPONSE_ID)
+LEFT_ADDRESSING = HOPAddressing(LEFT_REQUEST_ID, LEFT_RESPONSE_ID)
+
+
+def addressing_for_side(side: HandSide) -> HOPAddressing:
+    """Return the fixed CAN ID pair O30 assigns to ``side``."""
+
+    if side is HandSide.RIGHT:
+        return RIGHT_ADDRESSING
+    if side is HandSide.LEFT:
+        return LEFT_ADDRESSING
+    raise ValidationError("O30 addressing requires a left or right side")
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,10 +70,10 @@ class HOPFrame:
     rts: bool
 
 
-def response_route() -> CANRouteKey:
+def response_route(response_id: int) -> CANRouteKey:
     """Return the single standard-ID route consumed by an O30 endpoint."""
 
-    return CANRouteKey(RESPONSE_ID, False)
+    return CANRouteKey(response_id, False)
 
 
 def build_read_message(
@@ -39,6 +81,7 @@ def build_read_message(
     *,
     sub_index: int,
     length: int,
+    request_id: int,
     rts: bool = False,
 ) -> CANFDMessage:
     """Build one three-byte HOP object-range read."""
@@ -48,7 +91,7 @@ def build_read_message(
         raise ValidationError("rts must be bool")
     control = main_index | (RTS_MASK if rts else 0)
     return CANFDMessage(
-        arbitration_id=REQUEST_ID,
+        arbitration_id=request_id,
         data=bytes((control, sub_index, length)),
         is_extended_id=False,
         frame_type=FRAME_TYPE,
@@ -60,6 +103,7 @@ def build_write_message(
     *,
     sub_index: int,
     payload: bytes,
+    request_id: int,
     rts: bool = False,
 ) -> CANFDMessage:
     """Build one single-frame HOP object-range write."""
@@ -75,20 +119,20 @@ def build_write_message(
     _validate_object_range(main_index, sub_index, len(payload))
     control = main_index | (RTS_MASK if rts else 0)
     return CANFDMessage(
-        arbitration_id=REQUEST_ID,
+        arbitration_id=request_id,
         data=bytes((control, sub_index, len(payload))) + payload,
         is_extended_id=False,
         frame_type=FRAME_TYPE,
     )
 
 
-def matching_response_frame(message: object) -> HOPFrame | None:
+def matching_response_frame(message: object, response_id: int) -> HOPFrame | None:
     """Decode one exact endpoint response or ignore unrelated CAN traffic."""
 
     if (
         not isinstance(message, CANFDMessage)
         or message.is_extended_id
-        or message.arbitration_id != RESPONSE_ID
+        or message.arbitration_id != response_id
     ):
         return None
     return decode_frame(message.data)
@@ -131,11 +175,20 @@ def _validate_object_range(main_index: int, sub_index: int, length: int) -> None
 __all__ = [
     "ERROR_MAIN_INDEX",
     "FRAME_TYPE",
+    "LEFT_ADDRESSING",
+    "LEFT_REQUEST_ID",
+    "LEFT_RESPONSE_ID",
     "MAIN_INDEX_MASK",
+    "MAX_FRAGMENT_LENGTH",
     "REQUEST_ID",
     "RESPONSE_ID",
+    "RIGHT_ADDRESSING",
+    "RIGHT_REQUEST_ID",
+    "RIGHT_RESPONSE_ID",
     "RTS_MASK",
+    "HOPAddressing",
     "HOPFrame",
+    "addressing_for_side",
     "build_read_message",
     "build_write_message",
     "decode_frame",
