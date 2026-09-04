@@ -158,7 +158,7 @@ def test_o30_capability_declares_compact_hop_transport_contract() -> None:
         command.raw_encoding == "u8_v25_object" for command in capabilities.commands
     )
     assert capabilities.transport.nominal_bitrate == 1_000_000
-    assert capabilities.transport.data_bitrate == 1_000_000
+    assert capabilities.transport.data_bitrate is None
     assert "0x001" in capabilities.transport.addressing_note
     assert "0x401" in capabilities.transport.addressing_note
     assert "BRS disabled" in capabilities.transport.addressing_note

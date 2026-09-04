@@ -552,14 +552,15 @@ def test_o30_identity_uses_reported_side() -> None:
     assert candidate.problems == ()
 
 
-def test_o30_left_hand_discovered_over_0x002_0x402() -> None:
+@pytest.mark.parametrize("data_bitrate", (1_000_000, 5_000_000, 7_000_000))
+def test_o30_left_hand_discovered_over_0x002_0x402(data_bitrate: int) -> None:
     script = O30DeviceScript(
         reported_side=HandSide.LEFT,
         request_id=0x002,
         response_id=0x402,
     )
     source = _Source(
-        _fd_channel(data_bitrate=1_000_000),
+        _fd_channel(data_bitrate=data_bitrate),
         {
             TransportKind.CAN: _empty_transport,
             TransportKind.CAN_FD: lambda: ScriptedO30Transport(script),

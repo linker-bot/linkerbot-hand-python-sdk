@@ -1093,7 +1093,11 @@ def _channel_matches_model(
         channel.nominal_bitrate is None
         or channel.nominal_bitrate == required.nominal_bitrate
     ) and (
-        channel.data_bitrate is None or channel.data_bitrate == required.data_bitrate
+        # A profile with no declared data bitrate (e.g. O30, CAN FD with BRS
+        # disabled) accepts any interface data bitrate.
+        required.data_bitrate is None
+        or channel.data_bitrate is None
+        or channel.data_bitrate == required.data_bitrate
     )
 
 

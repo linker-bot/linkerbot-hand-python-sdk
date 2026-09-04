@@ -384,11 +384,16 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         transport=TransportCapability(
             kind=TransportKind.CAN_FD,
             nominal_bitrate=1_000_000,
-            data_bitrate=1_000_000,
+            # BRS is disabled, so the data phase always runs at the 1 Mbit
+            # nominal rate and the interface's configured data bitrate is
+            # irrelevant. Leaving it unconstrained lets any dbitrate (1M/5M/7M…)
+            # connect and be discovered.
+            data_bitrate=None,
             addressing_note=(
                 "HOP standard-frame CAN ID pair is fixed per hand side: right "
                 "hand request 0x001 / response 0x401, left hand request 0x002 / "
-                "response 0x402, with CAN FD BRS disabled."
+                "response 0x402. CAN FD BRS disabled, so the data phase equals "
+                "the 1 Mbit nominal rate and any interface data bitrate works."
             ),
         ),
         operations=OperationCapabilities(

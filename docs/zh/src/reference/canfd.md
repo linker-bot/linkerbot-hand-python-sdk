@@ -6,7 +6,7 @@ O20、L30 和 O30 使用 CAN FD。当前 capability：
 | --- | ---: | ---: | --- |
 | O20 | 1 Mbit/s | 5 Mbit/s | 必填 |
 | L30 | 1 Mbit/s | 5 Mbit/s | 不适用，禁止传入 |
-| O30 | 1 Mbit/s | 1 Mbit/s | 必填 |
+| O30 | 1 Mbit/s | 任意（BRS off，数据段恒为 1 Mbit） | 必填 |
 
 协议 profile 负责 CAN ID、标准/扩展帧、FD 和 BRS 标志。应用只选择物理 transport，
 不再传旧型号类的 `frame_type`、`node_id`、`host_id` 或 manager 参数。
@@ -31,13 +31,13 @@ sudo ip link set can0 type can \
 sudo ip link set can0 up
 ```
 
-O30：
+O30（BRS off，数据段速率不影响通信，dbitrate 可任取 1M/5M/7M，示例用 5M）：
 
 ```bash
 sudo ip link set can0 down
 sudo ip link set can0 type can \
   bitrate 1000000 \
-  dbitrate 1000000 \
+  dbitrate 5000000 \
   fd on
 sudo ip link set can0 up
 ```
@@ -83,7 +83,7 @@ hand = HandDevice(
 )
 ```
 
-O30：
+O30（BRS off，data_bitrate 可任取；示例用 5M，接口配 1M/7M 同样可用）：
 
 ```python
 hand = HandDevice(
@@ -92,7 +92,7 @@ hand = HandDevice(
     transport=SocketCANFDTransport(
         "can0",
         bitrate=1_000_000,
-        data_bitrate=1_000_000,
+        data_bitrate=5_000_000,
     ),
 )
 ```
@@ -101,9 +101,7 @@ transport 和 `HandDevice` 构造都不触碰网络接口。默认
 `auto_reconfigure=False`；`open()` 会使用当前系统配置。只有确认当前进程独占接口且具备
 `CAP_NET_ADMIN` 时才启用自动配置。
 
-同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。按当前
-capability，应把 O30 1M/1M 与 O20/L30 1M/5M 视为不同物理总线配置，除非硬件和
-transport 团队完成兼容验证。
+同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。O30 使用 BRS off，数据段恒为 1 Mbit、接口 dbitrate 不生效，因此 O30 能直接接在 O20/L30 所用的 1M/5M 总线上；其余型号仍需让接口 data_bitrate 与各自 capability 对齐。
 
 ## 厂商 CAN FD backend
 

@@ -94,11 +94,11 @@ sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
 sudo ip link set can0 up
 ```
 
-O30 使用 1 Mbit/s 仲裁速率和数据速率：
+O30 使用 1 Mbit/s 仲裁速率；BRS off，数据段恒为 1 Mbit，接口 dbitrate 任取（1M/5M/7M 均可，示例用 5M）：
 
 ```bash
 sudo ip link set can0 down
-sudo ip link set can0 type can bitrate 1000000 dbitrate 1000000 fd on
+sudo ip link set can0 type can bitrate 1000000 dbitrate 5000000 fd on
 sudo ip link set can0 up
 ```
 
