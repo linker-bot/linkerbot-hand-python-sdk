@@ -40,13 +40,17 @@ from ..protocols.o20.codec import (
 from ..protocols.o20.identity import o20_identity_transaction
 from ..protocols.o30.codec import MI_PRODUCT_INFO
 from ..protocols.o30.framing import (
+    LEFT_ADDRESSING as O30_LEFT_ADDRESSING,
+)
+from ..protocols.o30.framing import (
     RIGHT_ADDRESSING as O30_RIGHT_ADDRESSING,
 )
 from ..protocols.o30.framing import (
-    build_read_message as build_o30_read,
+    HOPAddressing,
+    matching_response_frame,
 )
 from ..protocols.o30.framing import (
-    matching_response_frame,
+    build_read_message as build_o30_read,
 )
 from ..protocols.o30.framing import (
     response_route as o30_response_route,
@@ -717,7 +721,30 @@ def _probe_o30(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
-    route = o30_response_route(O30_RIGHT_ADDRESSING.response_id)
+    # O30 assigns a fixed CAN ID pair per hand side; probe both so left hands
+    # (0x002/0x402) are discovered as well as right hands (0x001/0x401).
+    for addressing in (O30_RIGHT_ADDRESSING, O30_LEFT_ADDRESSING):
+        _probe_o30_endpoint(
+            addressing,
+            source,
+            channel,
+            transport,
+            config,
+            candidates,
+            failures,
+        )
+
+
+def _probe_o30_endpoint(
+    addressing: HOPAddressing,
+    source: DiscoverySource,
+    channel: DiscoveryChannel,
+    transport: object,
+    config: DiscoveryConfig,
+    candidates: list[DiscoveryCandidate],
+    failures: list[DiscoveryFailure],
+) -> None:
+    route = o30_response_route(addressing.response_id)
     messages = _collect(
         transport,
         (route,),
@@ -726,7 +753,7 @@ def _probe_o30(
                 MI_PRODUCT_INFO,
                 sub_index=0,
                 length=0x10,
-                request_id=O30_RIGHT_ADDRESSING.request_id,
+                request_id=addressing.request_id,
             ),
         ),
         config,
@@ -735,7 +762,7 @@ def _probe_o30(
     malformed: Exception | None = None
     for message in messages:
         try:
-            frame = matching_response_frame(message, O30_RIGHT_ADDRESSING.response_id)
+            frame = matching_response_frame(message, addressing.response_id)
         except HandError as error:
             malformed = error
             continue
@@ -751,7 +778,7 @@ def _probe_o30(
     spec = _transport_spec(source, channel, TransportKind.CAN_FD)
     address = DiscoveryAddress(
         scheme="o30_hop_endpoint",
-        request_id=O30_RIGHT_ADDRESSING.request_id,
+        request_id=addressing.request_id,
         response_id=route.arbitration_id,
         is_extended_id=False,
     )
@@ -785,7 +812,7 @@ def _probe_o30(
         )
         return
     provisional = get_declared_capabilities("O30", side=HandSide.LEFT)
-    transaction = o30_identity_transaction(provisional, O30_RIGHT_ADDRESSING)
+    transaction = o30_identity_transaction(provisional, addressing)
     try:
         progress = transaction.consume(matching[0])
         if not progress.matched or not progress.complete:
