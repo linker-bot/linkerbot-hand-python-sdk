@@ -60,6 +60,7 @@ def build_write_message(
     *,
     sub_index: int,
     payload: bytes,
+    rts: bool = False,
 ) -> CANFDMessage:
     """Build one single-frame HOP object-range write."""
 
@@ -69,10 +70,13 @@ def build_write_message(
         raise ValidationError(
             f"HOP write payload cannot exceed {MAX_FRAGMENT_LENGTH} bytes"
         )
+    if not isinstance(rts, bool):
+        raise ValidationError("rts must be bool")
     _validate_object_range(main_index, sub_index, len(payload))
+    control = main_index | (RTS_MASK if rts else 0)
     return CANFDMessage(
         arbitration_id=REQUEST_ID,
-        data=bytes((main_index, sub_index, len(payload))) + payload,
+        data=bytes((control, sub_index, len(payload))) + payload,
         is_extended_id=False,
         frame_type=FRAME_TYPE,
     )

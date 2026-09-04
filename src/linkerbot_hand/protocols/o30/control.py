@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ...api.errors import ProtocolError, UnsupportedOperationError
 from ...api.readings import RawNumber
 from ...capabilities.types import (
@@ -11,6 +13,7 @@ from ...capabilities.types import (
 from ..base import ProtocolTransaction, ResponseProgress
 from .codec import (
     MI_ACCELERATION,
+    MI_CURRENT,
     MI_EFFORT,
     MI_MOTION_TIME,
     MI_POSITION,
@@ -24,15 +27,28 @@ from .codec import (
 from .framing import RESPONSE_ID, build_write_message
 from .response import HOPRangeAssembler
 
+
+@dataclass(frozen=True, slots=True)
+class _CommandObject:
+    """One writable V25 object and the RTS its write must carry."""
+
+    main_index: int
+    # RTS=1 writes a set-point/limit (actual per 0.0.4 devices, e.g. current
+    # limit 0x04). RTS=0 writes are only meaningful where the device accepts a
+    # setpoint without the return-switch (kept as-is until on-device review).
+    rts: bool = False
+
+
 _COMMAND_OBJECTS = {
-    CommandSemantic.ANGLES: MI_POSITION,
-    CommandSemantic.SPEEDS: MI_SPEED,
-    CommandSemantic.ACCELERATIONS: MI_ACCELERATION,
-    CommandSemantic.EFFORT_LIMITS: MI_EFFORT,
-    CommandSemantic.MOTION_TIMES: MI_MOTION_TIME,
-    CommandSemantic.STALL_DETECTION_TIMES: MI_STALL_TIME,
-    CommandSemantic.STALL_THRESHOLDS: MI_STALL_THRESHOLD,
-    CommandSemantic.STALL_HOLD_CURRENTS: MI_STALL_HOLD_CURRENT,
+    CommandSemantic.ANGLES: _CommandObject(MI_POSITION),
+    CommandSemantic.SPEEDS: _CommandObject(MI_SPEED),
+    CommandSemantic.ACCELERATIONS: _CommandObject(MI_ACCELERATION),
+    CommandSemantic.EFFORT_LIMITS: _CommandObject(MI_EFFORT),
+    CommandSemantic.CURRENT_LIMITS: _CommandObject(MI_CURRENT, rts=True),
+    CommandSemantic.MOTION_TIMES: _CommandObject(MI_MOTION_TIME),
+    CommandSemantic.STALL_DETECTION_TIMES: _CommandObject(MI_STALL_TIME),
+    CommandSemantic.STALL_THRESHOLDS: _CommandObject(MI_STALL_THRESHOLD),
+    CommandSemantic.STALL_HOLD_CURRENTS: _CommandObject(MI_STALL_HOLD_CURRENT),
 }
 
 
@@ -44,18 +60,19 @@ def command_transaction(
     """Build one compact write whose correlated HOP response is the ACK."""
 
     try:
-        main_index = _COMMAND_OBJECTS[semantic]
+        command = _COMMAND_OBJECTS[semantic]
     except KeyError as error:
         raise UnsupportedOperationError(
             f"O30 has no protocol command for {semantic.value}"
         ) from error
+    main_index = command.main_index
     raw = _validated_values(values, semantic, capabilities)
     payload = encode_v25(raw)
     assembler = HOPRangeAssembler(
         main_index,
         sub_index=0,
         length=WIRE_SLOT_COUNT,
-        rts=False,
+        rts=command.rts,
     )
 
     def consume(message: object) -> ResponseProgress:
@@ -70,7 +87,12 @@ def command_transaction(
         key=("command", semantic),
         correlation_key=("o30_hop", RESPONSE_ID),
         request_messages=(
-            build_write_message(main_index, sub_index=0, payload=payload),
+            build_write_message(
+                main_index,
+                sub_index=0,
+                payload=payload,
+                rts=command.rts,
+            ),
         ),
         response_timeout_s=0.1,
         estimated_duration_s=0.003,

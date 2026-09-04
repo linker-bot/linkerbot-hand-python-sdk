@@ -53,7 +53,13 @@ _READ_OBJECTS = {
         rts=True,
         origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
+    TelemetrySemantic.TORQUES: _ReadObject(MI_EFFORT),
     TelemetrySemantic.CURRENTS: _ReadObject(MI_CURRENT),
+    TelemetrySemantic.CURRENT_LIMITS: _ReadObject(
+        MI_CURRENT,
+        rts=True,
+        origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
+    ),
     TelemetrySemantic.TEMPERATURES: _ReadObject(MI_TEMPERATURE),
     TelemetrySemantic.FAULTS: _ReadObject(MI_FAULT),
     TelemetrySemantic.VOLTAGES: _ReadObject(MI_VOLTAGE),

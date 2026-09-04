@@ -1135,6 +1135,23 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         hand.close()
 
 
+def test_o30_current_limits_write_uses_rts1_and_torque_reads_actual() -> None:
+    hand, transport = _make_o30_hand()
+    hand.open()
+    try:
+        # Torque measurement reads actual (RTS0); current limit reads setpoint.
+        assert hand.get_torques(timeout=0.2).raw == (20,) * 20
+        assert hand.get_current_limits(timeout=0.2).raw == tuple(range(80, 100))
+
+        handle = hand.set_current_limits((50,) * 20)
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        # Writing a limit/setpoint must carry RTS=1 (CTRL 0x04 | 0x80 = 0x84).
+        assert transport.script.command_messages[-1].data[0] == 0x84
+        assert hand.get_current_limits(timeout=0.2).raw == (50,) * 20
+    finally:
+        hand.close()
+
+
 def _make_o30_sensor_hand(
     sensor_variant: str,
 ) -> tuple[HandDevice, ScriptedO30Transport]:

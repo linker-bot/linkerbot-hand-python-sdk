@@ -23,6 +23,7 @@ _WRITABLE_OBJECTS = {
     codec.MI_POSITION,
     codec.MI_SPEED,
     codec.MI_ACCELERATION,
+    codec.MI_CURRENT,
     codec.MI_EFFORT,
     codec.MI_MOTION_TIME,
     codec.MI_STALL_TIME,
@@ -154,7 +155,7 @@ class O30DeviceScript:
         self.sent_messages.append(request)
         if len(request.data) > 3:
             self.command_messages.append(request)
-            return self._write(main_index, sub_index, length, request.data[3:])
+            return self._write(main_index, sub_index, length, request.data[3:], rts=rts)
         self.read_counts[(main_index, rts)] += 1
         return self._read(main_index, sub_index, length, rts=rts)
 
@@ -164,6 +165,8 @@ class O30DeviceScript:
         sub_index: int,
         length: int,
         payload: bytes,
+        *,
+        rts: bool = False,
     ) -> tuple[CANFDMessage, ...]:
         if main_index == codec.MI_SENSOR_INFO:
             return self._write_sensor(sub_index, length, payload)
@@ -177,7 +180,7 @@ class O30DeviceScript:
         self.targets[main_index] = value
         if main_index == codec.MI_POSITION:
             self.actual[main_index] = value
-        return (self._response(main_index, sub_index, value),)
+        return (self._response(main_index, sub_index, value, rts=rts),)
 
     def _read(
         self,
