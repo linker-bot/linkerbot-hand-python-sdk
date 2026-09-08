@@ -241,11 +241,38 @@ class DeviceActor:
             self._stop.set()
         else:
             initial.succeed()
-            self._main_loop(runner)
+            self._run_main_loop(runner)
         finally:
             self._mailbox.stop(
                 deadline_s=self._clock.monotonic() + self._config.shutdown_timeout_s
             )
+
+    def _run_main_loop(self, runner: TransactionRunner) -> None:
+        """Run the loop behind a fault boundary so the thread never dies silently.
+
+        ``open()`` has already succeeded here, so an escaping exception would
+        otherwise end the actor thread while health still reported a connected
+        device and every waiter blocked until its own deadline.
+        """
+
+        try:
+            self._main_loop(runner)
+        except BaseException as error:
+            _LOGGER.exception("actor loop stopped on an unhandled error")
+            self._fault_after_start(error)
+            raise
+
+    def _fault_after_start(self, error: BaseException) -> None:
+        """Publish a truthful fault and release waiters after a loop crash."""
+
+        try:
+            classified = self._classify(error, "run")
+            self._reject_failed_initialization(classified)
+            self._metrics.faulted(classified)
+        except Exception:
+            _LOGGER.exception("actor fault reporting failed")
+        finally:
+            self._stop.set()
 
     def _main_loop(self, runner: TransactionRunner) -> None:
         while not self._stop.is_set():
@@ -563,26 +590,18 @@ class DeviceActor:
                 and _sent_frames(error, 0) > 0
                 and claim.key not in self._verified_firmware_optional
             ):
-                if isinstance(classified, UnsupportedFirmwareError):
-                    classified = self._disable_firmware_unsupported_read(
+                # Never let bookkeeping failures skip the waiter release below.
+                try:
+                    classified = self._firmware_optional_failure(
                         claim.key,
+                        error,
                         classified,
                     )
-                elif isinstance(classified, (TimeoutError, ProtocolError)):
-                    failures = self._firmware_optional_failures.get(claim.key, 0) + 1
-                    self._firmware_optional_failures[claim.key] = failures
-                    if failures >= _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD:
-                        classified = self._disable_firmware_unsupported_read(
-                            claim.key,
-                            error,
-                        )
-                    else:
-                        _LOGGER.warning(
-                            "%s optional query failed %d/%d; keeping it enabled",
-                            claim.key.value,
-                            failures,
-                            _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD,
-                        )
+                except Exception:
+                    _LOGGER.exception(
+                        "optional-query degradation failed for %s",
+                        claim.key.value,
+                    )
             self._transactions.fail(claim.key, classified)
             if poll_in_flight and isinstance(claim.key, TelemetrySemantic):
                 self._polling.mark_timeout(claim.key)
@@ -705,6 +724,30 @@ class DeviceActor:
                 return True
         return False
 
+    def _firmware_optional_failure(
+        self,
+        semantic: TelemetrySemantic,
+        error: BaseException,
+        classified: HandError,
+    ) -> HandError:
+        """Count one optional-query failure and downgrade once it is conclusive."""
+
+        if isinstance(classified, UnsupportedFirmwareError):
+            return self._disable_firmware_unsupported_read(semantic, classified)
+        if not isinstance(classified, (TimeoutError, ProtocolError)):
+            return classified
+        failures = self._firmware_optional_failures.get(semantic, 0) + 1
+        self._firmware_optional_failures[semantic] = failures
+        if failures >= _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD:
+            return self._disable_firmware_unsupported_read(semantic, error)
+        _LOGGER.warning(
+            "%s optional query failed %d/%d; keeping it enabled",
+            semantic.value,
+            failures,
+            _FIRMWARE_OPTIONAL_FAILURE_THRESHOLD,
+        )
+        return classified
+
     def _disable_firmware_unsupported_read(
         self,
         semantic: TelemetrySemantic,
@@ -712,8 +755,27 @@ class DeviceActor:
     ) -> UnsupportedFirmwareError:
         """Disable one optional query without ending the connection generation."""
 
-        capabilities = self._state.mark_firmware_unsupported_telemetry(semantic)
         self._firmware_optional_failures.pop(semantic, None)
+        try:
+            capabilities = self._state.mark_firmware_unsupported_telemetry(semantic)
+        except HandError as error:
+            # This runs inside an ``except`` handler, so raising here would
+            # escape the caller entirely. A generation that can no longer accept
+            # capability updates is already ending, which makes the downgrade
+            # meaningless; report the original cause instead.
+            _LOGGER.warning(
+                "could not disable unsupported %s: %s",
+                semantic.value,
+                error,
+            )
+            return UnsupportedFirmwareError(
+                f"{self._state.declared.model} firmware does not support "
+                f"{semantic.value}",
+                operation=f"get_{semantic.value}",
+                model=self._state.declared.model,
+                generation=self._state.generation(),
+                cause=cause,
+            )
         self._polling.disable_firmware_unsupported(semantic, capabilities)
         error = UnsupportedFirmwareError(
             f"{capabilities.model} firmware "

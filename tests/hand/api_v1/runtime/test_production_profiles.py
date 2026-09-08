@@ -1161,7 +1161,9 @@ def test_o30_current_limits_write_uses_rts1_and_torque_reads_actual() -> None:
 def _make_o30_sensor_hand(
     sensor_variant: str,
 ) -> tuple[HandDevice, ScriptedO30Transport]:
-    script = O30DeviceScript(reported_side=HandSide.RIGHT, sensor_variant=sensor_variant)
+    script = O30DeviceScript(
+        reported_side=HandSide.RIGHT, sensor_variant=sensor_variant
+    )
     transport = ScriptedO30Transport(script)
     hand = HandDevice(model="O30", side="right", transport=transport)
     return hand, transport
@@ -1356,5 +1358,65 @@ def test_production_recovery_rejects_a_replacement_product_code() -> None:
             hand.recover(timeout=1)
 
         assert not hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_optional_query_degradation_failure_still_releases_waiters() -> None:
+    """A capability update that fails must not escape the read handler.
+
+    ``mark_firmware_unsupported_telemetry`` raises once the generation stops
+    accepting updates. Because the downgrade runs inside an ``except`` handler,
+    an escaping error would kill the actor thread with ``open()`` already
+    reported as successful.
+    """
+
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    transport.script.firmware = (2, 3, 3)
+    transport.script.unsupported_queries.add(0x36)
+    hand.open()
+    try:
+        actor = hand._runtime._actor
+        semantic = TelemetrySemantic.CURRENTS
+
+        def refuse_update(_semantic: TelemetrySemantic) -> None:
+            raise DeviceNotReadyError("capability updates are closed")
+
+        actor._state.mark_firmware_unsupported_telemetry = refuse_update
+
+        error = actor._disable_firmware_unsupported_read(
+            semantic,
+            TimeoutError("read timed out"),
+        )
+
+        assert isinstance(error, UnsupportedFirmwareError)
+        assert semantic.value in str(error)
+        assert semantic not in actor._firmware_optional_failures
+        assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
+def test_actor_loop_crash_publishes_a_fault_instead_of_dying_silently() -> None:
+    """An escaped loop error must fault health and release every waiter."""
+
+    hand, _transport = _make_hand("L6", HandSide.LEFT)
+    hand.open()
+    try:
+        actor = hand._runtime._actor
+        crash = RuntimeError("unhandled actor failure")
+
+        def explode(_runner: object) -> None:
+            raise crash
+
+        actor._main_loop = explode
+
+        with pytest.raises(RuntimeError, match="unhandled actor failure"):
+            actor._run_main_loop(object())
+
+        health = hand.get_health()
+        assert not health.connected
+        assert health.recent_error is not None
+        assert actor._stop.is_set()
     finally:
         hand.close()
