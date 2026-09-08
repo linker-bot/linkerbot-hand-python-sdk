@@ -246,11 +246,15 @@ class ClassicSixAxisBackend:
             telemetry = capabilities.telemetry_channel(semantic)
             if telemetry is None:
                 continue
+            # Unsolicited traffic may collide with a telemetry opcode without
+            # being a response to us. Per the ``decode_report`` contract that is
+            # "unmatched", so a length mismatch must not raise here.
             raw = decode_u8_vector(
                 message,
                 route=self._route,
                 opcode=opcode,
                 count=6,
+                strict=False,
             )
             if raw is None:
                 continue

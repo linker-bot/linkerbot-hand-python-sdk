@@ -345,3 +345,49 @@ def test_baseline_includes_angles_faults_and_current_limits() -> None:
             TelemetrySemantic.FAULTS,
             TelemetrySemantic.CURRENT_LIMITS,
         )
+
+
+def _stray(side: HandSide, data: bytes) -> can.Message:
+    return can.Message(
+        arbitration_id=classic_route(side).arbitration_id,
+        data=data,
+        is_extended_id=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "backend_type"),
+    (("l6", L6ProtocolBackend), ("o6", O6ProtocolBackend)),
+)
+def test_decode_report_returns_empty_tuple_on_opcode_collision(
+    model: str,
+    backend_type: type,
+) -> None:
+    """``decode_report`` must report "unmatched", never raise (base.py contract)."""
+
+    side = HandSide.LEFT
+    backend = backend_type(side)
+    capabilities = get_declared_capabilities(model, side=side.value)
+
+    # First byte matches the angles opcode but the frame is one byte too long,
+    # which is how padded traffic from another master looks on the bus.
+    assert (
+        backend.decode_report(_stray(side, bytes([0x01]) + bytes(7)), capabilities)
+        == ()
+    )
+    # A shorter collision is equally unmatched rather than a protocol error.
+    assert backend.decode_report(_stray(side, bytes([0x01, 0x02])), capabilities) == ()
+
+
+def test_active_read_still_rejects_a_wrong_length_response() -> None:
+    """Relaxing report decoding must not relax the active response check."""
+
+    side = HandSide.LEFT
+    capabilities = get_declared_capabilities("l6", side=side.value)
+    transaction = L6ProtocolBackend(side).read_transaction(
+        TelemetrySemantic.ANGLES,
+        capabilities,
+    )
+
+    with pytest.raises(ProtocolError, match="must contain 7 bytes"):
+        transaction.consume(_stray(side, bytes([0x01]) + bytes(7)))

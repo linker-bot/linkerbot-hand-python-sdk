@@ -31,6 +31,10 @@ class ClassicCANDeviceScript:
     identity_queries: int = 0
     unsupported_queries: set[int] = field(default_factory=set)
     malformed_query_responses: dict[int, bytes] = field(default_factory=dict)
+    # Extra frames emitted after every scripted response. They model unrelated
+    # bus traffic (another master, a same-ID device, padded frames) rather than
+    # a reply to our own request.
+    stray_frames: list[bytes] = field(default_factory=list)
     bad_command_echoes: dict[int, tuple[int, ...]] = field(default_factory=dict)
     dropped_command_responses: set[int] = field(default_factory=set)
 
@@ -156,6 +160,11 @@ class ClassicCANDeviceScript:
             for row in reversed(range(rows))
         )
 
+    def frame(self, data: bytes) -> can.Message:
+        """Build one device frame on this script's route."""
+
+        return self._frame(data)
+
     def _frame(self, data: bytes) -> can.Message:
         return can.Message(
             arbitration_id=self.arbitration_id,
@@ -176,6 +185,8 @@ class ScriptedClassicCANTransport(FakeTransport[can.Message]):
         if receipt.exception() is None:
             for response in self.script.respond(message):
                 self.emit(response)
+            for stray in self.script.stray_frames:
+                self.emit(self.script.frame(stray))
         return receipt
 
 

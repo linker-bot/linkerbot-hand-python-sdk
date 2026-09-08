@@ -1420,3 +1420,29 @@ def test_actor_loop_crash_publishes_a_fault_instead_of_dying_silently() -> None:
         assert actor._stop.is_set()
     finally:
         hand.close()
+
+
+def test_stray_opcode_collision_does_not_fail_unrelated_reads() -> None:
+    """A stray frame that collides with a telemetry opcode must be ignored.
+
+    ``ProtocolBackend.decode_report`` promises an empty tuple when a message is
+    unmatched. A same-ID frame padded to 8 bytes used to raise instead, failing
+    whichever transaction was in flight and eventually degrading a healthy
+    channel to "firmware unsupported".
+    """
+
+    hand, transport = _make_hand("L6", HandSide.LEFT)
+    # Opcode 0x36 is the currents query; 8 bytes is one byte too long for it.
+    transport.script.stray_frames.append(bytes([0x36]) + bytes(7))
+    hand.open()
+    try:
+        for _ in range(4):
+            assert hand.get_angles(timeout=0.3).raw is not None
+
+        capabilities = hand.get_capabilities()
+        health = hand.get_health()
+        assert capabilities.firmware_unsupported_telemetry == ()
+        assert health.connected
+        assert hand.get_currents(timeout=0.3).raw is not None
+    finally:
+        hand.close()

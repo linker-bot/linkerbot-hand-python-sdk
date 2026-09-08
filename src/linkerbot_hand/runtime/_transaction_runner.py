@@ -386,7 +386,27 @@ class TransactionRunner:
         self._metrics.received(timestamp=inbound.received_at_s)
         if self._consume_quarantined(inbound.message):
             return
-        payloads = self._backend.decode_report(inbound.message, capabilities)
+        self._publish_report(inbound, capabilities=capabilities, generation=generation)
+
+    def _publish_report(
+        self,
+        inbound: InboundMessage,
+        *,
+        capabilities: DeviceCapabilities,
+        generation: int | None,
+    ) -> None:
+        """Decode and publish report traffic behind a backend error boundary.
+
+        ``ProtocolBackend.decode_report`` must return an empty tuple when a
+        message is unmatched, but a backend that raises instead must never fail
+        whichever transaction happens to be in flight.
+        """
+
+        try:
+            payloads = self._backend.decode_report(inbound.message, capabilities)
+        except Exception as error:  # noqa: BLE001 - report callback boundary
+            self._report_error(error)
+            return
         self._publish(payloads, generation=generation)
 
     def _wait_for_receipt(
@@ -477,8 +497,9 @@ class TransactionRunner:
                 progress = transaction.consume(inbound.message)
                 if not progress.matched:
                     if generation is not None:
-                        self._publish(
-                            self._backend.decode_report(inbound.message, capabilities),
+                        self._publish_report(
+                            inbound,
+                            capabilities=capabilities,
                             generation=generation,
                         )
                     continue

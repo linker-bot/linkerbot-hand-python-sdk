@@ -66,14 +66,24 @@ def decode_u8_vector(
     route: CANRouteKey,
     opcode: int,
     count: int,
+    strict: bool = True,
 ) -> tuple[int, ...] | None:
-    """Decode an exact opcode plus unsigned-byte vector response."""
+    """Decode an exact opcode plus unsigned-byte vector response.
+
+    ``strict`` treats a length mismatch on this opcode as a device protocol
+    violation, which is what an active response consumer wants. Unsolicited
+    report decoding must pass ``strict=False``: an opcode collision with
+    unrelated bus traffic is "unmatched", not a protocol error, and raising
+    there would fail whichever transaction happens to be in flight.
+    """
 
     data = matching_data(message, route)
     if data is None or not data or data[0] != opcode:
         return None
     expected = count + 1
     if len(data) != expected:
+        if not strict:
+            return None
         raise ProtocolError(
             f"opcode 0x{opcode:02X} response must contain {expected} bytes"
         )
