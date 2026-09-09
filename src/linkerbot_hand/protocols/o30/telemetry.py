@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ...api.enums import DataOrigin
 from ...api.errors import UnsupportedOperationError
+from ...api.readings import JointFaultStatus
 from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
 from .codec import (
@@ -22,6 +24,7 @@ from .codec import (
     MI_TEMPERATURE,
     MI_VOLTAGE,
     WIRE_SLOT_COUNT,
+    decode_fault_statuses,
     decode_v25,
 )
 from .framing import HOPAddressing, build_read_message
@@ -33,6 +36,13 @@ class _ReadObject:
     main_index: int
     rts: bool = False
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
+    # Optional protocol-specific decoder that turns the raw vector into typed
+    # per-joint status values published alongside it. Declared here rather than
+    # branched on inside ``consume`` so the read table stays the single place
+    # that describes each object.
+    decode_statuses: (
+        Callable[[tuple[int, ...]], tuple[JointFaultStatus, ...]] | None
+    ) = None
 
 
 _READ_OBJECTS = {
@@ -61,7 +71,14 @@ _READ_OBJECTS = {
         origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
     TelemetrySemantic.TEMPERATURES: _ReadObject(MI_TEMPERATURE),
-    TelemetrySemantic.FAULTS: _ReadObject(MI_FAULT),
+    TelemetrySemantic.FAULTS: _ReadObject(
+        MI_FAULT,
+        # Bit meanings come from the 0.0.4 protocol frame table and have not been
+        # confirmed against a real fault on hardware: reproducing them needs the
+        # device to actually stall, overheat, or drop an actuator. ``raw`` is
+        # always preserved untouched so a caller can re-check the bits.
+        decode_statuses=decode_fault_statuses,
+    ),
     TelemetrySemantic.VOLTAGES: _ReadObject(MI_VOLTAGE),
     TelemetrySemantic.MOTION_TIMES: _ReadObject(
         MI_MOTION_TIME,
@@ -122,6 +139,11 @@ def read_transaction(
                 semantic=semantic,
                 raw=raw,
                 origin=profile.origin,
+                fault_statuses=(
+                    ()
+                    if profile.decode_statuses is None
+                    else profile.decode_statuses(raw)
+                ),
                 within_declared_range=_within_declared_range(
                     raw,
                     semantic,

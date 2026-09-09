@@ -27,6 +27,7 @@ from linkerbot_hand.api import (
     UnsupportedOperationError,
     ValidationError,
 )
+from linkerbot_hand.protocols.o30 import codec as o30_codec
 from linkerbot_hand.protocols.o30.framing import addressing_for_side
 
 from .classic_can_fake import (
@@ -1143,6 +1144,56 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         assert all(
             len(message.data) == 28 and message.data[2] == 25
             for message in transport.script.command_messages
+        )
+    finally:
+        hand.close()
+
+
+def test_o30_faults_publish_decoded_per_joint_statuses() -> None:
+    """``get_faults()`` must carry the decoded bits, not just the raw bytes.
+
+    Bit meanings come from the 0.0.4 protocol frame table and are not confirmed
+    against a real fault on hardware, so this asserts the wiring and the bit
+    arithmetic rather than device behaviour. ``raw`` must survive untouched.
+    """
+
+    hand, transport = _make_o30_hand()
+    # bit0 hand-layer stall, bit3 over-temperature, plus one reserved bit set.
+    faults = [0] * 20
+    faults[0] = 0x01
+    faults[3] = 0x08
+    faults[7] = 0x40 | 0x80
+    faults[11] = 0x10
+    transport.script.actual[o30_codec.MI_FAULT] = o30_codec.encode_v25(tuple(faults))
+    try:
+        hand.open()
+        sample = hand.get_faults(timeout=0.2)
+
+        assert sample.raw == tuple(faults)
+        assert len(sample.statuses) == 20
+        assert all(
+            status.raw == raw
+            for status, raw in zip(sample.statuses, sample.raw, strict=True)
+        )
+        assert sample.statuses[0].hand_layer_stall
+        assert not sample.statuses[0].actuator_layer_stall
+        assert sample.statuses[3].over_temperature
+        assert not sample.statuses[3].over_current
+        assert sample.statuses[7].actuator_abnormal
+        assert sample.statuses[7].actuator_offline
+        assert sample.statuses[11].reserved_bits == 0x10
+        assert not sample.statuses[11].hand_layer_stall
+        # A joint with no fault bits must decode to all-false, not be omitted.
+        assert sample.statuses[1].raw == 0
+        assert not any(
+            (
+                sample.statuses[1].hand_layer_stall,
+                sample.statuses[1].actuator_layer_stall,
+                sample.statuses[1].over_current,
+                sample.statuses[1].over_temperature,
+                sample.statuses[1].actuator_abnormal,
+                sample.statuses[1].actuator_offline,
+            )
         )
     finally:
         hand.close()
