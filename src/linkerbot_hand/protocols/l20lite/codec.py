@@ -39,7 +39,7 @@ COMMAND_LAYOUTS = {
 }
 TELEMETRY_LAYOUTS = {
     TelemetrySemantic.ANGLES: ANGLE_LAYOUT,
-    TelemetrySemantic.CONFIGURED_SPEEDS: SPEED_LAYOUT,
+    TelemetrySemantic.MEASURED_SPEEDS: SPEED_LAYOUT,
     TelemetrySemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
     TelemetrySemantic.TEMPERATURES: TEMPERATURE_LAYOUT,
     TelemetrySemantic.FAULTS: FAULT_LAYOUT,
@@ -49,10 +49,11 @@ BASELINE_SEMANTICS = (
     TelemetrySemantic.FAULTS,
     TelemetrySemantic.EFFORT_LIMITS,
 )
-CONFIG_TELEMETRY = (
-    TelemetrySemantic.CONFIGURED_SPEEDS,
-    TelemetrySemantic.EFFORT_LIMITS,
-)
+# Empty on purpose. The protocol states that a bare 0x05/0x06 or 0x02/0x03 query
+# returns the real-time speed and the real-time current/torque; only a write is
+# echoed back. Listing either here would label an actual measurement as
+# DEVICE_CONFIG_RESPONSE, i.e. "the value you just wrote".
+CONFIG_TELEMETRY: tuple[TelemetrySemantic, ...] = ()
 
 __all__ = [
     "BASELINE_SEMANTICS",

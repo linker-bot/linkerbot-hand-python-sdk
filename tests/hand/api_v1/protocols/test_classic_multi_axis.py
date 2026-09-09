@@ -89,14 +89,14 @@ def test_l20lite_commands_preserve_documented_split_and_public_order() -> None:
             DataOrigin.DEVICE_RESPONSE,
         ),
         (
-            TelemetrySemantic.CONFIGURED_SPEEDS,
+            TelemetrySemantic.MEASURED_SPEEDS,
             (b"\x06\x05\x06\x07\x08\x09", b"\x05\x00\x01\x02\x03\x04"),
-            DataOrigin.DEVICE_CONFIG_RESPONSE,
+            DataOrigin.DEVICE_RESPONSE,
         ),
         (
             TelemetrySemantic.EFFORT_LIMITS,
             (b"\x03\x05\x06\x07\x08\x09", b"\x02\x00\x01\x02\x03\x04"),
-            DataOrigin.DEVICE_CONFIG_RESPONSE,
+            DataOrigin.DEVICE_RESPONSE,
         ),
     ),
 )
@@ -159,7 +159,7 @@ def test_l20_reserved_slots_are_zero_filled_and_never_public() -> None:
 def test_l20_config_reads_and_clear_faults_have_exact_semantics() -> None:
     capabilities = get_declared_capabilities("l20", side="right")
     backend = L20ProtocolBackend(HandSide.RIGHT)
-    speed = backend.read_transaction(TelemetrySemantic.CONFIGURED_SPEEDS, capabilities)
+    speed = backend.read_transaction(TelemetrySemantic.MEASURED_SPEEDS, capabilities)
     clear = backend.operation_transaction("clear_faults", capabilities)
 
     assert _request_data(speed) == tuple(

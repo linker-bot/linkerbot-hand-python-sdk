@@ -114,6 +114,43 @@ def test_configured_and_measured_speed_semantics_are_not_interchangeable() -> No
     assert o30_measured.device_queried and o30_configured.device_queried
 
 
+@pytest.mark.parametrize("model", ("l20lite", "l20"))
+def test_l20_family_queries_return_measurements_not_configuration(model: str) -> None:
+    """A bare speed or torque query on these two models returns the live value.
+
+    The protocol states that a write carries the target and is echoed back,
+    while a bare query returns the real-time value. Declaring either channel as
+    configuration would present actual motion and load as "the value you just
+    wrote", and would leave both models with no measured channel at all.
+    """
+
+    capabilities = get_declared_capabilities(model, side="left")
+
+    measured = capabilities.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS)
+    assert measured is not None
+    assert measured.device_measured
+    assert measured.device_queried
+    assert capabilities.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS) is None
+
+    effort = capabilities.telemetry_channel(TelemetrySemantic.EFFORT_LIMITS)
+    assert effort is not None
+    assert effort.device_measured
+    assert effort.device_queried
+    assert "real-time" in (effort.raw_scale_note or "")
+
+
+@pytest.mark.parametrize("model", ("l20lite", "l20"))
+def test_l20_family_reads_are_device_responses_not_config_responses(model: str) -> None:
+    from linkerbot_hand.protocols.l20 import codec as l20_codec
+    from linkerbot_hand.protocols.l20lite import codec as l20lite_codec
+
+    codec = l20lite_codec if model == "l20lite" else l20_codec
+
+    assert codec.CONFIG_TELEMETRY == ()
+    assert TelemetrySemantic.MEASURED_SPEEDS in codec.TELEMETRY_LAYOUTS
+    assert TelemetrySemantic.CONFIGURED_SPEEDS not in codec.TELEMETRY_LAYOUTS
+
+
 def test_limit_semantics_do_not_claim_true_torque() -> None:
     l6 = get_declared_capabilities("l6", side="left")
     l20lite = get_declared_capabilities("l20lite", side="left")

@@ -120,7 +120,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.006,
             ),
             telemetry(
-                TelemetrySemantic.CONFIGURED_SPEEDS,
+                TelemetrySemantic.MEASURED_SPEEDS,
                 names,
                 "u8",
                 shape=(10,),
@@ -130,7 +130,6 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.006,
-                device_measured=False,
             ),
             telemetry(
                 TelemetrySemantic.EFFORT_LIMITS,
@@ -139,12 +138,15 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(10,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
-                raw_scale_note="physical meaning remains unverified",
+                raw_scale_note=(
+                    "a bare query returns the real-time value; the protocol "
+                    "text alternates between current and torque, so the exact "
+                    "physical quantity awaits hardware confirmation"
+                ),
                 unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.006,
-                device_measured=False,
             ),
             telemetry(
                 TelemetrySemantic.FORCE,

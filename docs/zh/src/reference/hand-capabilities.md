@@ -53,8 +53,8 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
-| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | 无 |
-| L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, configured_speeds, effort_limits, force, temperatures, faults | clear_faults |
+| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | 无 |
+| L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
 | O30 | 必填 | CAN FD 1M/1M | 20 | angles, speeds, accelerations, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, effort_limits, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
@@ -102,6 +102,7 @@ L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30 为 `False`。后者�
   `0x05` 主动查询，因此该通道是 `COMMAND_RESPONSE`，不是实测速度，也不是主机推测缓存。
 - O6 查询返回配置参数，发布到 `configured_speeds`。
 - O20、L30、O30 提供独立 `measured_speeds`。
+- L20Lite、L20 只有 `measured_speeds`：协议规定写入携带目标值并被回显，而只发功能码的查询返回实时速度，因此这两个型号没有「读回设定值」的通道，`get_configured_speeds()` 返回 unsupported。同理，它们的 `effort_limits` 查询返回的也是实时值而非配置回显；该实时量究竟是电流还是转矩，协议文字混用，待实机确认。
 
 运行时会在 health 中报告 requested/achieved Hz、missed deadlines 和 timeout。推荐值不是
 实机稳定上限；上限必须在相同工作量和总线配置下测试。

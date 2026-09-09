@@ -24,6 +24,7 @@ from linkerbot_hand.api import (
     TimeoutError,
     TransportError,
     UnsupportedFirmwareError,
+    UnsupportedOperationError,
     ValidationError,
 )
 from linkerbot_hand.protocols.o30.framing import addressing_for_side
@@ -833,10 +834,16 @@ def test_extended_classic_profiles_open_and_control_multi_frame_objects(
         assert angles.wait(timeout=1) is CommandStage.DISPATCHED
         speeds = hand.set_speeds((70,) * joint_count)
         assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
-        configured = hand.get_configured_speeds(timeout=0.2)
+        # The protocol returns the live speed for a bare query, so this is an
+        # actual device reading rather than a configuration echo. The fake
+        # replays the last written value because it does not simulate motion;
+        # what this asserts is the semantic and the origin.
+        measured = hand.get_speeds(timeout=0.2)
 
-        assert configured.raw == (70,) * joint_count
-        assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert measured.raw == (70,) * joint_count
+        assert measured.meta.origin is DataOrigin.DEVICE_RESPONSE
+        with pytest.raises(UnsupportedOperationError):
+            hand.get_configured_speeds(timeout=0.2)
         assert sum(
             1
             for payload in transport.script.command_payloads

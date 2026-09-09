@@ -8,6 +8,8 @@
 
 ## 未发布
 
+- 修正 L20Lite 与 L20 把实时测量值错标成配置值的状态语义。协议规定这两个型号的速度与转矩写入携带目标值并被回显，而只发功能码的查询返回**实时值**；SDK 此前把速度查询映射为 `CONFIGURED_SPEEDS`、并把速度与 `EFFORT_LIMITS` 都列入配置响应集合、声明 `device_measured=False`，等于把设备实际的运动与负载当成「你刚写进去的配置」。现在速度通道改为 `MEASURED_SPEEDS`，两个通道都声明 `device_measured=True`，读取结果的 `DataOrigin` 由 `DEVICE_CONFIG_RESPONSE` 改为 `DEVICE_RESPONSE`。**行为影响**：这两个型号的 `get_speeds()` 开始可用并返回实测速度，`get_configured_speeds()` 转为 unsupported（协议不提供读回设定值）；ROS 相应发布 `~/state/measured_speeds` 而不再发布 `~/state/configured_speeds`。`EFFORT_LIMITS` 暂不改名——协议文字在电流与转矩之间混用，最终命名待实机确认，当前只在 `raw_scale_note` 中写明该查询返回实时值。
+
 - 修正 L30 电流限制的单位声明。`CommandSemantic.CURRENT_LIMITS` 与 `TelemetrySemantic.CURRENT_LIMITS` 原先声明 `raw_unit="mA"` 且 `unit_confidence=MEASURED`，而协议原文是「范围 60～800，单位 6.5ma」，即原始值是 count。两处改为 `raw_unit="count"` + `raw_scale_note="6.5 mA/count is documented but not converted by the SDK"` + `unit_confidence=DOCUMENTED`，与同型号已正确声明的实测电流通道一致。**行为影响**：`raw_range` 不变（仍是协议的 `60..800` count），SDK 仍然只返回协议原始值、不做任何换算；但依赖 `raw_unit` 把该数值当作 mA 使用的调用方需要改为按 `6.5 mA/count` 自行换算——此前按 mA 理解会产生 6.5 倍偏差。同步修正 `hand-capabilities.md` 中「协议值本身以 mA 表示」的说法。
 
 - 纠正并补全自动发现文档。修正描述错误：发现文档与两个 README 不再声称「O30 无法可靠验证左右手、候选保持 `side=None`」（身份字段已给出左右手，候选的 `side` 已确定，写死不一致的 `side` 会抛 `ValidationError`）；O30 探测地址补上左手 `0x002`/`0x402` 与「两个端点都探测」；FD 探针的 data bitrate 口径改为 O30 只要求 1 Mbit/s nominal、接口 dbitrate 任取。新增说明：`discover_hands()` 返回的是信息报告而非设备对象，以及「扫描 → 构造关闭设备 → `open()`」三段职责边界；单接口与多接口下 `candidates` 的形状和 `require_one()` 的行为；候选里正常流程真正要用的四样信息（CAN 口、型号、左右手、支持的方法），并说明 `capabilities` 在 `open()` 之前即可查询。
