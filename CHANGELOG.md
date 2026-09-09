@@ -13,6 +13,22 @@
 - 修正 L30 电流限制的单位声明。`CommandSemantic.CURRENT_LIMITS` 与 `TelemetrySemantic.CURRENT_LIMITS` 原先声明 `raw_unit="mA"` 且 `unit_confidence=MEASURED`，而协议原文是「范围 60～800，单位 6.5ma」，即原始值是 count。两处改为 `raw_unit="count"` + `raw_scale_note="6.5 mA/count is documented but not converted by the SDK"` + `unit_confidence=DOCUMENTED`，与同型号已正确声明的实测电流通道一致。**行为影响**：`raw_range` 不变（仍是协议的 `60..800` count），SDK 仍然只返回协议原始值、不做任何换算；但依赖 `raw_unit` 把该数值当作 mA 使用的调用方需要改为按 `6.5 mA/count` 自行换算——此前按 mA 理解会产生 6.5 倍偏差。同步修正 `hand-capabilities.md` 中「协议值本身以 mA 表示」的说法。
 
 - 纠正并补全自动发现文档。修正描述错误：发现文档与两个 README 不再声称「O30 无法可靠验证左右手、候选保持 `side=None`」（身份字段已给出左右手，候选的 `side` 已确定，写死不一致的 `side` 会抛 `ValidationError`）；O30 探测地址补上左手 `0x002`/`0x402` 与「两个端点都探测」；FD 探针的 data bitrate 口径改为 O30 只要求 1 Mbit/s nominal、接口 dbitrate 任取。新增说明：`discover_hands()` 返回的是信息报告而非设备对象，以及「扫描 → 构造关闭设备 → `open()`」三段职责边界；单接口与多接口下 `candidates` 的形状和 `require_one()` 的行为；候选里正常流程真正要用的四样信息（CAN 口、型号、左右手、支持的方法），并说明 `capabilities` 在 `open()` 之前即可查询。
+- 给 actor 主循环补异常边界。此前 `_main_loop` 位于 `else:` 分支、完全没有异常边界，初始化成功之后的未捕获异常会让 actor 线程带 traceback 静默退出，而 `open()` 早已返回成功、`get_health()` 仍报 `CONNECTED`、`auto_reconnect` 永不触发、`recover()` 因线程已停止抛 `ClosedError`，设备只能 `close()`。触发链是可选查询连续超时期间另一线程调用 `close()`，使降级逻辑从 `except` 处理器内部抛出 `DeviceNotReadyError`。现在线程异常会被分类、上报并置位停止标志，健康状态如实反映故障。
+
+- 修复总线杂散报文可让无关事务失败、并把正常通道永久降级的问题（影响 L6 与 O6）。`protocols/base.py` 规定 `decode_report` 未匹配时返回空元组，但 `decode_u8_vector` 在首字节撞号、长度不符时会抛 `ProtocolError`。后果：一帧与遥测 opcode 撞号的杂散帧会让当时在飞的无关事务以错误的异常类型和无关的 opcode 文本失败（例如 `0xC6` 写入报出 `opcode 0x01 response must contain 7 bytes`，本应是 `TIMEOUT`）；连续三帧还能让一个每次都正常应答的查询通道被判为「固件不支持」而永久停用。现在报文解码路径按契约返回未匹配，主动响应路径仍严格校验长度。
+
+- 放宽 O30 的数据段波特率约束。O30 使用 CAN FD 且 BRS off，数据段速率恒等于标称 1 Mbit，接口配置的 dbitrate 实际不影响通信（1M/5M/7M 均可）。此前 capability 把 `data_bitrate` 声明为 1M，导致自动发现要求接口数据段速率恰好 1M —— 接口配成实机常用的 5M 时 O30 扫不到。现在 `data_bitrate` 声明为 `None`，发现在型号未声明数据段速率时接受任意接口 dbitrate（仍按标称 1M 匹配）。O30 因此可直接接在 O20/L30 所用的 1M/5M 总线上。
+
+- 自动发现的 O30 探测改为同时探测左右手两套 CAN ID 端点（右 `0x001`/`0x401`、左 `0x002`/`0x402`）。此前只发右手请求、只听右手响应，总线上的左手 O30 扫不到。左右手同时在线时会返回两个候选，`require_one()` 相应抛 `AmbiguousHandError`。
+
+- O30 按左右手选择 CAN ID。O30 出厂约定右手用请求 `0x001`/响应 `0x401`、左手用 `0x002`/`0x402`（双手共总线时靠不同 ID 区分）。此前 CAN ID 写死且与 `side` 无关，`HandDevice(model="O30", side="left")` 连不上左手。现在 backend 依声明的 `side` 计算端点与响应路由，四类事务全链透传；HOP 对象、帧布局、字节序与关节映射不变。
+
+- 补齐 O30 的电流限制读写与力矩实测读。O30 0.0.4 的电流（`0x04`）与转矩（`0x06`）各有「实测/设定」两个视图。新增 `get_torques()` 读实测转矩、`get_current_limits()` 与 `set_current_limits()` 读写电流限制。写「限制/目标」必须走 RTS=1（RTS=0 带数据会被设备当作读实测而不写入），该行为已实机验证。
+
+- 新增 O30 HOP 0.0.4 的描述符驱动触觉传感器支持与法向力合力读取。包含 0.0.4 的身份布局（实机与文档两种）、协议版本识别、故障位解析、wire_slot 与 logical_joint_id 两套关节索引，以及新增公开接口 `get_normal_force_resultant()`（五指法向力合力）与 `ForceSample.sensors` 等触觉描述符类型。运行时新增「下一事务阶段依据上一响应内容动态选择」的链式事务能力。**不提供 0.0.3 旧协议的降级兼容。**
+
+- 将公共型号 `O30i` 统一为 `O30`（**破坏性**）。capability、协议 backend、registry、自动发现、测试与中英文说明中的公共型号统一为 `O30`，SDK 对外始终返回规范型号 `O30`；`O30i`/`o30i` 仍可作为配置输入别名。设备返回的 `O30`、`O30-...`、`O30i`、`O30i-...` 产品号均兼容，完整产品号保留在身份信息中。HOP 对象、CAN ID、帧布局、字节序、传输参数与 20 关节映射不变。
+
 - L20 自动发现和身份校验新增常见 `LHT20-...` 产品编号前缀兼容；例如
   `LHT20-10-499-L-B-1-D` 会保留原始产品编号，并统一报告公共型号 `L20`。
 - 将误命名的公共型号 `L25/l25` 更正为 `L20/l20`；模块、capability、自动发现、
@@ -86,6 +102,10 @@
   `submit_speeds()` 统一为协议原始值接口；命令值不再隐式归一化或换算物理单位。
 - 新增明确命名的 `set_percentage_angles()` / `submit_percentage_angles()`；L6、O6、
   L20Lite 和 L20 还支持显式百分比速度接口。
+  <br>**后续变更（加注，非勘误）**：上述名称已不再存在。百分比角度接口现命名为
+  `set_percent_angles()`；`submit_*` 系列在「收敛为唯一 `HandDevice` 内核」时整体移除；
+  百分比速度接口现为 `set_percent_speeds()`，且因七个型号都没有 profile 声明速度的百分比
+  映射，当前对所有型号返回 unsupported。按本条目查找方法名会找不到。
 - `SensorSample.values` 只包含协议解码值，并补充 `unit`、`encoding`、`physical_unit`、
   `scale`、`offset`、`value_kind` 与 `matrix_shape`；删除重复的原始值通道，
   `JointState.angle` 也直接保存协议位置。
