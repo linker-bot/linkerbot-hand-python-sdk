@@ -123,7 +123,7 @@ def test_limit_semantics_do_not_claim_true_torque() -> None:
     assert l20lite.command(CommandSemantic.EFFORT_LIMITS) is not None
     l30_limit = l30.command(CommandSemantic.CURRENT_LIMITS)
     assert l30_limit is not None
-    assert l30_limit.raw_unit == "mA"
+    assert l30_limit.raw_unit == "count"
     assert l30.command(CommandSemantic.TORQUES) is None
     l30_limit_state = l30.telemetry_channel(TelemetrySemantic.CURRENT_LIMITS)
     assert l30_limit_state is not None
@@ -133,6 +133,30 @@ def test_limit_semantics_do_not_claim_true_torque() -> None:
     assert l30_current is not None
     assert l30_current.raw_unit == "count"
     assert "6.5 mA/count" in (l30_current.raw_scale_note or "")
+
+
+def test_l30_current_channels_expose_protocol_counts_not_milliamps() -> None:
+    """The protocol documents "范围：60～800，单位 6.5ma", so raw values are counts.
+
+    Declaring these as mA would tell a caller that writing 500 limits the joint
+    to 500 mA when the device actually applies 3250 mA. The scale belongs in
+    ``raw_scale_note`` only; the SDK never converts it.
+    """
+
+    l30 = get_declared_capabilities("l30")
+    channels = (
+        l30.command(CommandSemantic.CURRENT_LIMITS),
+        l30.telemetry_channel(TelemetrySemantic.CURRENT_LIMITS),
+        l30.telemetry_channel(TelemetrySemantic.CURRENTS),
+    )
+
+    for channel in channels:
+        assert channel is not None
+        assert channel.raw_unit == "count"
+        assert "6.5 mA/count" in (channel.raw_scale_note or "")
+        # ``MEASURED`` would claim the unit was confirmed on hardware; the only
+        # evidence here is the protocol document.
+        assert channel.unit_confidence is Confidence.DOCUMENTED
 
 
 def test_o30_stall_contract_maps_only_installed_channels() -> None:

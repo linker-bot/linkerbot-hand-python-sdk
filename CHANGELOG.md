@@ -8,6 +8,8 @@
 
 ## 未发布
 
+- 修正 L30 电流限制的单位声明。`CommandSemantic.CURRENT_LIMITS` 与 `TelemetrySemantic.CURRENT_LIMITS` 原先声明 `raw_unit="mA"` 且 `unit_confidence=MEASURED`，而协议原文是「范围 60～800，单位 6.5ma」，即原始值是 count。两处改为 `raw_unit="count"` + `raw_scale_note="6.5 mA/count is documented but not converted by the SDK"` + `unit_confidence=DOCUMENTED`，与同型号已正确声明的实测电流通道一致。**行为影响**：`raw_range` 不变（仍是协议的 `60..800` count），SDK 仍然只返回协议原始值、不做任何换算；但依赖 `raw_unit` 把该数值当作 mA 使用的调用方需要改为按 `6.5 mA/count` 自行换算——此前按 mA 理解会产生 6.5 倍偏差。同步修正 `hand-capabilities.md` 中「协议值本身以 mA 表示」的说法。
+
 - 纠正并补全自动发现文档。修正描述错误：发现文档与两个 README 不再声称「O30 无法可靠验证左右手、候选保持 `side=None`」（身份字段已给出左右手，候选的 `side` 已确定，写死不一致的 `side` 会抛 `ValidationError`）；O30 探测地址补上左手 `0x002`/`0x402` 与「两个端点都探测」；FD 探针的 data bitrate 口径改为 O30 只要求 1 Mbit/s nominal、接口 dbitrate 任取。新增说明：`discover_hands()` 返回的是信息报告而非设备对象，以及「扫描 → 构造关闭设备 → `open()`」三段职责边界；单接口与多接口下 `candidates` 的形状和 `require_one()` 的行为；候选里正常流程真正要用的四样信息（CAN 口、型号、左右手、支持的方法），并说明 `capabilities` 在 `open()` 之前即可查询。
 - L20 自动发现和身份校验新增常见 `LHT20-...` 产品编号前缀兼容；例如
   `LHT20-10-499-L-B-1-D` 会保留原始产品编号，并统一报告公共型号 `L20`。

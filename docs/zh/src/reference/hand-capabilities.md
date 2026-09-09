@@ -113,7 +113,7 @@ L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30 为 `False`。后者�
 - L6/O6 使用 `current_limits`，协议原值为 count；L6 的文档比例为
   `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
   `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
-- L30 使用 `current_limits`，协议值本身以 mA 表示。
+- L30 使用 `current_limits`，协议原值为 count，文档比例为 `6.5 mA/count`（范围 `60..800` count，即约 `390..5200 mA`）。SDK 只返回 count，不做换算；比例记录在 `raw_scale_note` 中。
 - L20Lite/L20/O20/O30 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
 - 当前七型号没有 profile 声明真实 `torques` 通道，因此
   `set_torques()` / `get_torques()` 会返回 unsupported。
