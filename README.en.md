@@ -193,15 +193,14 @@ link is probed with classic frames first, and FD probes are skipped if a classic
 hand responds. O20, L30, and O30 then use their own identity protocols rather
 than `0xC0`.
 
-Multiple endpoints, observable same-address collisions, malformed identity, and
-missing required fields are never silently resolved. O30 identity currently
-cannot verify the physical side, so it returns a partial candidate; after
-checking the hardware, create it with an explicit side:
+Multiple endpoints, observable same-address collisions, malformed identity, and missing required fields are never silently resolved. O30 identity reports the physical side, so its candidate already carries a resolved `side` and needs no explicit one:
 
 ```python
-candidate = report.require_one(allow_partial=True)
-hand = candidate.create_hand_device(side="right")
+candidate = report.require_one()
+hand = candidate.create_hand_device()
 ```
+
+Do not hard-code the side: passing one that disagrees with the discovered identity raises `ValidationError`. With a left and a right O30 on the same bus both endpoints answer, so `require_one()` raises `AmbiguousHandError` and you pick from `report.candidates` by `candidate.side`.
 
 Probe transports are closed before `discover_hands()` returns. The candidate
 retains a closed transport recipe, and the returned `HandDevice` remains closed
