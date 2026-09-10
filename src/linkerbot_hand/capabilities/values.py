@@ -148,6 +148,12 @@ class TelemetryCapability:
     verified_max_hz: float | None = None
     device_measured: bool = True
     device_queried: bool = True
+    # Whether samples on this channel carry decoded per-channel status objects
+    # next to ``raw``. This is a property of what the protocol profile decodes,
+    # not of the wire layout, so consumers must read this rather than infer it
+    # from ``raw_encoding``: the two are independent and only happen to line up
+    # for the channels that exist today.
+    decoded_statuses: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.semantic, TelemetrySemantic):
@@ -190,6 +196,8 @@ class TelemetryCapability:
             self.device_queried, bool
         ):
             raise ValidationError("device measurement flags must be bool")
+        if not isinstance(self.decoded_statuses, bool):
+            raise ValidationError("decoded_statuses must be bool")
         if (
             self.read_mode
             in {

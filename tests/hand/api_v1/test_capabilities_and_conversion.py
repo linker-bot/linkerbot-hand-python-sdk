@@ -151,6 +151,47 @@ def test_l20_family_reads_are_device_responses_not_config_responses(model: str) 
     assert TelemetrySemantic.CONFIGURED_SPEEDS not in codec.TELEMETRY_LAYOUTS
 
 
+def test_decoded_statuses_matches_the_o30_read_table() -> None:
+    """The capability flag and the protocol read table must not drift apart.
+
+    A consumer decides at configure time whether a channel will carry decoded
+    statuses, so the declaration has to agree with whichever objects actually
+    have a decoder wired. Inferring this from ``raw_encoding`` instead would
+    silently miss a channel whose wire layout differs.
+    """
+
+    from linkerbot_hand.protocols.o30.telemetry import _READ_OBJECTS
+
+    capabilities = get_declared_capabilities("o30", side="right")
+
+    for semantic, profile in _READ_OBJECTS.items():
+        channel = capabilities.telemetry_channel(semantic)
+        assert channel is not None
+        assert channel.decoded_statuses == (profile.decode_statuses is not None), (
+            f"{semantic.value} disagrees between the read table and capabilities"
+        )
+
+    faults = capabilities.telemetry_channel(TelemetrySemantic.FAULTS)
+    assert faults is not None and faults.decoded_statuses
+
+
+@pytest.mark.parametrize(
+    ("model", "side"),
+    [
+        ("l6", "right"),
+        ("o6", "right"),
+        ("l20lite", "right"),
+        ("l20", "right"),
+        ("o20", "right"),
+        ("l30", None),
+    ],
+)
+def test_only_o30_declares_decoded_statuses(model: str, side: str | None) -> None:
+    capabilities = get_declared_capabilities(model, side=side)
+
+    assert not any(channel.decoded_statuses for channel in capabilities.telemetry)
+
+
 def test_limit_semantics_do_not_claim_true_torque() -> None:
     l6 = get_declared_capabilities("l6", side="left")
     l20lite = get_declared_capabilities("l20lite", side="left")

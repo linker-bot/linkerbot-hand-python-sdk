@@ -8,6 +8,8 @@
 
 ## 未发布
 
+- `TelemetryCapability` 新增 `decoded_statuses`，声明该通道的样本是否附带已解码的逐通道状态对象。O30 的故障通道声明为 `True`，其余型号所有通道为 `False`（默认值，现有声明未变）。此前消费方要在 `open()` 之前知道「这个通道会不会带解码结果」，只能去猜 `raw_encoding` 字符串 —— 而 `raw_encoding` 描述的是线上字节布局，与「SDK 是否替调用方解码」逻辑上独立，今天只是恰好一一对应，将来别的型号接入解码但编码不同就会被漏掉。新增契约测试固化 capability 声明与 `protocols/o30/telemetry.py` 读对象表的一致性，防止两张表漂移。
+
 - 接通 O30 的关节故障位解码。`decode_fault_statuses()` 早已按 0.0.4 协议实现完整的 7 位解码，但从未被生产代码调用，因此 `get_faults().statuses` 对 O30 恒为空元组，`ad47d9c` 引入的能力对外完全不可见。现在读对象描述表可声明解码器，故障对象（MI `0x0C`）据此在样本中填入逐关节 `JointFaultStatus`：使用者可直接判断 `statuses[i].over_temperature`，不必自行对 `raw[i]` 做位运算并查协议。查询方式不变，仍是一帧读回全部 20 个关节；`raw` 原样保留。**位含义依据 0.0.4 协议帧格式表，未经实机故障场景验证** —— 要确认需让设备真实堵转、过温或掉线。
 
 - 修正 L20Lite 与 L20 把实时测量值错标成配置值的状态语义。协议规定这两个型号的速度与转矩写入携带目标值并被回显，而只发功能码的查询返回**实时值**；SDK 此前把速度查询映射为 `CONFIGURED_SPEEDS`、并把速度与 `EFFORT_LIMITS` 都列入配置响应集合、声明 `device_measured=False`，等于把设备实际的运动与负载当成「你刚写进去的配置」。现在速度通道改为 `MEASURED_SPEEDS`，两个通道都声明 `device_measured=True`，读取结果的 `DataOrigin` 由 `DEVICE_CONFIG_RESPONSE` 改为 `DEVICE_RESPONSE`。**行为影响**：这两个型号的 `get_speeds()` 开始可用并返回实测速度，`get_configured_speeds()` 转为 unsupported（协议不提供读回设定值）；ROS 相应发布 `~/state/measured_speeds` 而不再发布 `~/state/configured_speeds`。`EFFORT_LIMITS` 暂不改名——协议文字在电流与转矩之间混用，最终命名待实机确认，当前只在 `raw_scale_note` 中写明该查询返回实时值。

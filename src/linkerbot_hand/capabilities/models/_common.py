@@ -162,6 +162,7 @@ def telemetry(
     read_mode: ReadMode = ReadMode.QUERY,
     device_measured: bool = True,
     device_queried: bool = True,
+    decoded_statuses: bool = False,
 ) -> TelemetryCapability:
     """Build one typed raw telemetry declaration."""
 
@@ -181,6 +182,7 @@ def telemetry(
         verified_max_hz=verified_max_hz,
         device_measured=device_measured,
         device_queried=device_queried,
+        decoded_statuses=decoded_statuses,
     )
 
 

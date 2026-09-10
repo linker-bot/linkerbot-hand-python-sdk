@@ -332,6 +332,10 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=5,
                 stale_after_s=0.5,
                 estimated_transaction_s=0.004,
+                # ``protocols/o30/telemetry.py`` wires decode_fault_statuses for
+                # this object, so every fault sample carries per-joint
+                # JointFaultStatus values next to the raw bytes.
+                decoded_statuses=True,
             ),
             telemetry(
                 TelemetrySemantic.VOLTAGES,
