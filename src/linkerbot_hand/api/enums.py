@@ -70,6 +70,19 @@ class ReadMode(str, Enum):
     COMMAND_RESPONSE = "command_response"
 
 
+class SampleProjection(str, Enum):
+    """Which sample fields a telemetry channel populates.
+
+    Consumers must read this instead of reverse-engineering ``raw_encoding`` or
+    counting ``shape`` dimensions: those describe the wire format, which is
+    independent of which sample field the protocol profile fills.
+    """
+
+    RAW_VECTOR = "raw_vector"
+    TACTILE_MATRIX = "tactile_matrix"
+    TACTILE_DESCRIPTOR = "tactile_descriptor"
+
+
 class Quantization(str, Enum):
     """Rule used when a percent conversion targets an integer protocol field."""
 
@@ -86,5 +99,6 @@ __all__ = [
     "JointMotionType",
     "Quantization",
     "ReadMode",
+    "SampleProjection",
     "TransportKind",
 ]

@@ -1,7 +1,13 @@
 """Declared O30 profile exposing only twenty installed protocol slots."""
 
 from ...api.commands import AckSupport
-from ...api.enums import Confidence, HandSide, JointMotionType, TransportKind
+from ...api.enums import (
+    Confidence,
+    HandSide,
+    JointMotionType,
+    SampleProjection,
+    TransportKind,
+)
 from ..types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -283,6 +289,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=10,
                 stale_after_s=0.3,
                 estimated_transaction_s=0.2,
+                payload_projection=SampleProjection.TACTILE_DESCRIPTOR,
             ),
             telemetry(
                 TelemetrySemantic.CURRENTS,

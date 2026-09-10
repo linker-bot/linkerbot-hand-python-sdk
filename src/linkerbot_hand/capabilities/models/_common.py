@@ -8,6 +8,7 @@ from ...api.enums import (
     HandSide,
     JointMotionType,
     ReadMode,
+    SampleProjection,
     TransportKind,
 )
 from ..ranges import NumericRange, PercentMapping
@@ -163,6 +164,7 @@ def telemetry(
     device_measured: bool = True,
     device_queried: bool = True,
     decoded_statuses: bool = False,
+    payload_projection: SampleProjection = SampleProjection.RAW_VECTOR,
 ) -> TelemetryCapability:
     """Build one typed raw telemetry declaration."""
 
@@ -183,6 +185,7 @@ def telemetry(
         device_measured=device_measured,
         device_queried=device_queried,
         decoded_statuses=decoded_statuses,
+        payload_projection=payload_projection,
     )
 
 

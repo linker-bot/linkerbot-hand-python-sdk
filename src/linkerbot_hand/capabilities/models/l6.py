@@ -1,7 +1,14 @@
 """Declared L6 capability profile available before device identification."""
 
 from ...api.commands import AckSupport
-from ...api.enums import Confidence, HandSide, JointMotionType, ReadMode, TransportKind
+from ...api.enums import (
+    Confidence,
+    HandSide,
+    JointMotionType,
+    ReadMode,
+    SampleProjection,
+    TransportKind,
+)
 from ..ranges import NumericRange
 from ..types import (
     CommandSemantic,
@@ -225,6 +232,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=5,
                 stale_after_s=0.5,
                 estimated_transaction_s=0.055,
+                payload_projection=SampleProjection.TACTILE_MATRIX,
             ),
             telemetry(
                 TelemetrySemantic.TEMPERATURES,

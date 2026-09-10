@@ -8,6 +8,9 @@
 
 ## 未发布
 
+- `TelemetryCapability` 新增 `payload_projection`（枚举 `SampleProjection`：`RAW_VECTOR` / `TACTILE_MATRIX` / `TACTILE_DESCRIPTOR`），声明该通道的样本会填充哪些字段。七个型号的 force 通道各自声明（六个矩阵、O30 描述符），其余通道为默认 `RAW_VECTOR`。此前消费方要判断「force 是标量、矩阵还是描述符」只能解析 `raw_encoding` 字符串并数 `shape` 的维数，而这两者描述的是线上格式、与样本填哪个字段逻辑上独立：O30 的描述符 force 恰好也是一维，靠 `shape` 本身分不开标量与描述符。
+- `get_normal_force_resultant()` 改为按 force 通道的 `payload_projection` 判断是否支持，不再硬编码型号名 `"O30"`。将来第二个型号支持描述符触觉时无需改动该方法。
+
 - `TelemetryCapability` 新增 `decoded_statuses`，声明该通道的样本是否附带已解码的逐通道状态对象。O30 的故障通道声明为 `True`，其余型号所有通道为 `False`（默认值，现有声明未变）。此前消费方要在 `open()` 之前知道「这个通道会不会带解码结果」，只能去猜 `raw_encoding` 字符串 —— 而 `raw_encoding` 描述的是线上字节布局，与「SDK 是否替调用方解码」逻辑上独立，今天只是恰好一一对应，将来别的型号接入解码但编码不同就会被漏掉。新增契约测试固化 capability 声明与 `protocols/o30/telemetry.py` 读对象表的一致性，防止两张表漂移。
 
 - 接通 O30 的关节故障位解码。`decode_fault_statuses()` 早已按 0.0.4 协议实现完整的 7 位解码，但从未被生产代码调用，因此 `get_faults().statuses` 对 O30 恒为空元组，`ad47d9c` 引入的能力对外完全不可见。现在读对象描述表可声明解码器，故障对象（MI `0x0C`）据此在样本中填入逐关节 `JointFaultStatus`：使用者可直接判断 `statuses[i].over_temperature`，不必自行对 `raw[i]` 做位运算并查协议。查询方式不变，仍是一帧读回全部 20 个关节；`raw` 原样保留。**位含义依据 0.0.4 协议帧格式表，未经实机故障场景验证** —— 要确认需让设备真实堵转、过温或掉线。

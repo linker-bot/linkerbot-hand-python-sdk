@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..api.commands import AckSupport
-from ..api.enums import Confidence, ReadMode
+from ..api.enums import Confidence, ReadMode, SampleProjection
 from ..api.errors import ValidationError
 from .ranges import NumericRange, PercentMapping, is_finite_number
 
@@ -154,6 +154,11 @@ class TelemetryCapability:
     # from ``raw_encoding``: the two are independent and only happen to line up
     # for the channels that exist today.
     decoded_statuses: bool = False
+    # Which sample fields this channel populates. ``shape`` and ``raw_encoding``
+    # describe the wire format; this describes the resulting sample, and the two
+    # are independent. Consumers deciding what to build before any I/O must read
+    # this rather than reverse-engineer the format.
+    payload_projection: SampleProjection = SampleProjection.RAW_VECTOR
 
     def __post_init__(self) -> None:
         if not isinstance(self.semantic, TelemetrySemantic):
@@ -198,6 +203,8 @@ class TelemetryCapability:
             raise ValidationError("device measurement flags must be bool")
         if not isinstance(self.decoded_statuses, bool):
             raise ValidationError("decoded_statuses must be bool")
+        if not isinstance(self.payload_projection, SampleProjection):
+            raise ValidationError("payload_projection must be SampleProjection")
         if (
             self.read_mode
             in {

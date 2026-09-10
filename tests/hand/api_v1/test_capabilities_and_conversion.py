@@ -9,6 +9,7 @@ from linkerbot_hand.api import (
     Confidence,
     HandSide,
     ReadMode,
+    SampleProjection,
     UnsupportedOperationError,
 )
 from linkerbot_hand.api.errors import ValidationError
@@ -190,6 +191,91 @@ def test_only_o30_declares_decoded_statuses(model: str, side: str | None) -> Non
     capabilities = get_declared_capabilities(model, side=side)
 
     assert not any(channel.decoded_statuses for channel in capabilities.telemetry)
+
+
+@pytest.mark.parametrize(
+    ("model", "side", "projection"),
+    [
+        ("l6", "right", SampleProjection.TACTILE_MATRIX),
+        ("o6", "right", SampleProjection.TACTILE_MATRIX),
+        ("l20lite", "right", SampleProjection.TACTILE_MATRIX),
+        ("l20", "right", SampleProjection.TACTILE_MATRIX),
+        ("o20", "right", SampleProjection.TACTILE_MATRIX),
+        ("l30", None, SampleProjection.TACTILE_MATRIX),
+        ("o30", "right", SampleProjection.TACTILE_DESCRIPTOR),
+    ],
+)
+def test_force_projection_is_declared_not_inferred(
+    model: str,
+    side: str | None,
+    projection: SampleProjection,
+) -> None:
+    """Every force channel states which sample field it fills.
+
+    Consumers previously reverse-engineered this from ``raw_encoding`` plus the
+    number of ``shape`` dimensions. Those two are entangled: O30's descriptor
+    force is one-dimensional, so shape alone cannot tell it from a scalar
+    channel, and the encoding string is a wire-format detail.
+    """
+
+    capabilities = get_declared_capabilities(model, side=side)
+
+    force = capabilities.telemetry_channel(TelemetrySemantic.FORCE)
+    assert force is not None
+    assert force.payload_projection is projection
+    # The declaration must agree with the shape the profile actually publishes.
+    if projection is SampleProjection.TACTILE_MATRIX:
+        assert len(force.shape) == 3
+    else:
+        assert len(force.shape) == 1
+    # Nothing but force uses a tactile projection.
+    assert all(
+        channel.payload_projection is SampleProjection.RAW_VECTOR
+        for channel in capabilities.telemetry
+        if channel.semantic is not TelemetrySemantic.FORCE
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "side", "supported"),
+    [
+        ("l6", "left", False),
+        ("o6", "left", False),
+        ("l20lite", "left", False),
+        ("l20", "left", False),
+        ("o20", "left", False),
+        ("l30", None, False),
+        ("o30", "left", True),
+        ("o30", "right", True),
+    ],
+)
+def test_normal_force_resultant_support_follows_the_projection(
+    model: str,
+    side: str | None,
+    supported: bool,
+) -> None:
+    """Support must be decided by the capability, never by the model name.
+
+    The check runs against declared capabilities, so it resolves before
+    ``open()``. A model without the descriptor projection is rejected as
+    unsupported; a model with it gets past the check and then fails only because
+    the device is still closed.
+    """
+
+    from linkerbot_hand import ClosedError, HandDevice, UnsupportedOperationError
+    from linkerbot_transport.can import CANTransport
+    from linkerbot_transport.canfd import SocketCANFDTransport
+
+    transport = (
+        SocketCANFDTransport("vcan-test", bitrate=1_000_000, data_bitrate=5_000_000)
+        if model in {"o20", "l30", "o30"}
+        else CANTransport("vcan-test")
+    )
+    device = HandDevice(model=model, side=side, transport=transport)
+
+    expected = ClosedError if supported else UnsupportedOperationError
+    with pytest.raises(expected):
+        device.get_normal_force_resultant(timeout=0.1)
 
 
 def test_limit_semantics_do_not_claim_true_torque() -> None:

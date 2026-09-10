@@ -8,6 +8,7 @@ from ..capabilities.types import CommandSemantic, TelemetrySemantic
 from ._device_core import _DeviceCore
 from .commands import CommandHandle
 from .device_info import DeviceInfo
+from .enums import SampleProjection
 from .errors import ValidationError
 from .readings import (
     AngleSample,
@@ -247,7 +248,14 @@ class HandDevice(_DeviceCore):
         """Read all five O30 fingertips and return their raw ``FnS`` values."""
 
         operation = "get_normal_force_resultant"
-        if self.get_capabilities().model != "O30":
+        # The resultant comes from the descriptor tactile projection. Ask the
+        # capability rather than the model name: a second model gaining
+        # descriptor tactile must not require editing this method.
+        force = self.get_capabilities().telemetry_channel(TelemetrySemantic.FORCE)
+        if (
+            force is None
+            or force.payload_projection is not SampleProjection.TACTILE_DESCRIPTOR
+        ):
             self._raise_unsupported(operation)
         return NormalForceResultantSample.from_force_sample(
             self._read(

@@ -5,6 +5,7 @@ from ...api.enums import (
     HandSide,
     JointMotionType,
     ReadMode,
+    SampleProjection,
     TransportKind,
 )
 from ..ranges import NumericRange
@@ -233,6 +234,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.02,
+                payload_projection=SampleProjection.TACTILE_MATRIX,
             ),
             telemetry(
                 TelemetrySemantic.TEMPERATURES,

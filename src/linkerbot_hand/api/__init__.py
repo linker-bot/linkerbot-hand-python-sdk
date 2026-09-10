@@ -18,6 +18,7 @@ from .enums import (
     JointMotionType,
     Quantization,
     ReadMode,
+    SampleProjection,
     TransportKind,
 )
 from .errors import (
@@ -133,6 +134,7 @@ __all__ = [
     "RawNumber",
     "ReadMode",
     "SampleMeta",
+    "SampleProjection",
     "StallDetectionTimeSample",
     "StallHoldCurrentSample",
     "StallThresholdSample",
