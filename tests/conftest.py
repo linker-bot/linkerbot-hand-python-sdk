@@ -63,7 +63,10 @@ class InteractiveSession:
     def __init__(self, test_name: str) -> None:
         self.test_name = test_name
         self.tester: str = os.environ.get("TESTER", "")
-        self._started_at: datetime = datetime.now()
+        # Local wall-clock time with the local offset attached: the report
+        # filename stays readable for whoever runs the session, and
+        # ``isoformat()`` records the offset instead of an ambiguous naive time.
+        self._started_at: datetime = datetime.now().astimezone()
         self._pending_steps: list[PendingStep] = []
         self._results: list[StepResult] = []
         self._quit_early: bool = False

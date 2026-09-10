@@ -33,9 +33,7 @@ class HOPRangeAssembler:
         self._length = length
         self._rts = rts
         self._response_id = response_id
-        self._object_unavailable_is_unsupported = (
-            object_unavailable_is_unsupported
-        )
+        self._object_unavailable_is_unsupported = object_unavailable_is_unsupported
         self._buffer = bytearray(length)
         self._received = bytearray(length)
 

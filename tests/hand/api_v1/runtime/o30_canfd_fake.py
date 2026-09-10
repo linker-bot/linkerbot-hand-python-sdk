@@ -67,9 +67,7 @@ def _tssp_jzg_finger(selected_sensor: int) -> SensorFinger:
     """Build one deterministic ``FnS_U16_1;Fn_U8_70`` fingertip stream."""
 
     normal_force_resultant = 1000 + selected_sensor
-    normal_force = bytes(
-        (selected_sensor * 10 + index) & 0xFF for index in range(70)
-    )
+    normal_force = bytes((selected_sensor * 10 + index) & 0xFF for index in range(70))
     return SensorFinger(
         sensor_type="TSSP_JZG",
         data_unit="g",
@@ -230,7 +228,9 @@ class O30DeviceScript:
                         (
                             0xD9,
                             0x08,
-                            "" if self.reported_side is None else self.reported_side.value.upper(),
+                            ""
+                            if self.reported_side is None
+                            else self.reported_side.value.upper(),
                         ),
                     )
                 )
@@ -248,7 +248,9 @@ class O30DeviceScript:
                         (
                             0xF1,
                             0x08,
-                            "" if self.reported_side is None else self.reported_side.value.upper(),
+                            ""
+                            if self.reported_side is None
+                            else self.reported_side.value.upper(),
                         ),
                     )
                 )

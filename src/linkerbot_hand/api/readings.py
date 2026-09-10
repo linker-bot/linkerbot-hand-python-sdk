@@ -568,7 +568,10 @@ class NormalForceResultantSample:
         if not isinstance(sample, ForceSample):
             raise ValidationError("sample must be ForceSample")
         expected_names = ("thumb", "index", "middle", "ring", "pinky")
-        if tuple(sensor.metadata.sensor_name for sensor in sample.sensors) != expected_names:
+        if (
+            tuple(sensor.metadata.sensor_name for sensor in sample.sensors)
+            != expected_names
+        ):
             raise UnsupportedOperationError(
                 "force sample does not contain all five O30 fingertip sensors"
             )
@@ -576,9 +579,7 @@ class NormalForceResultantSample:
         raw: list[RawNumber] = []
         units: list[str | None] = []
         for sensor in sample.sensors:
-            fields = tuple(
-                field for field in sensor.fields if field.semantic == "FnS"
-            )
+            fields = tuple(field for field in sensor.fields if field.semantic == "FnS")
             if len(fields) != 1 or len(fields[0].values) != 1:
                 raise UnsupportedOperationError(
                     f"O30 {sensor.metadata.sensor_name} sensor does not expose "

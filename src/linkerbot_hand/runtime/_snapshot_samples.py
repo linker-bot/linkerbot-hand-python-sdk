@@ -133,17 +133,17 @@ def validate_payload_shape(
                     "descriptor tactile capability must declare sensor count"
                 )
             if len(payload.sensors) != telemetry.shape[0]:
-                raise ProtocolError(
-                    "tactile sensor count does not match capability"
-                )
+                raise ProtocolError("tactile sensor count does not match capability")
             expected_selectors = tuple(range(1, len(payload.sensors) + 1))
-            if tuple(
-                sensor.metadata.selected_sensor for sensor in payload.sensors
-            ) != expected_selectors:
+            if (
+                tuple(sensor.metadata.selected_sensor for sensor in payload.sensors)
+                != expected_selectors
+            ):
                 raise ProtocolError("tactile sensor selectors are not ordered")
-            if tuple(
-                sensor.metadata.sensor_name for sensor in payload.sensors
-            ) != telemetry.channels:
+            if (
+                tuple(sensor.metadata.sensor_name for sensor in payload.sensors)
+                != telemetry.channels
+            ):
                 raise ProtocolError("tactile sensor names do not match capability")
             if any(not sensor.metadata.available for sensor in payload.sensors):
                 raise ProtocolError("tactile payload contains an unavailable sensor")
