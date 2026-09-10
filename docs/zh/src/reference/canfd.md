@@ -6,7 +6,7 @@ O20、L30 和 O30 使用 CAN FD。当前 capability：
 | --- | ---: | ---: | --- |
 | O20 | 1 Mbit/s | 5 Mbit/s | 必填 |
 | L30 | 1 Mbit/s | 5 Mbit/s | 不适用，禁止传入 |
-| O30 | 1 Mbit/s | 任意（BRS off，数据段恒为 1 Mbit） | 必填 |
+| O30 | 1 Mbit/s | 推荐 5 Mbit/s，任意速率均可（BRS off，数据段恒等于标称速率） | 必填 |
 
 协议 profile 负责 CAN ID、标准/扩展帧、FD 和 BRS 标志。应用只选择物理 transport，
 不再传旧型号类的 `frame_type`、`node_id`、`host_id` 或 manager 参数。
@@ -31,7 +31,7 @@ sudo ip link set can0 type can \
 sudo ip link set can0 up
 ```
 
-O30（BRS off，数据段速率不影响通信，dbitrate 可任取 1M/5M/7M，示例用 5M）：
+O30（BRS off，数据段速率不影响通信，因此推荐 5 Mbit/s，但任意速率都可用，示例用 5M）：
 
 ```bash
 sudo ip link set can0 down
@@ -101,7 +101,7 @@ transport 和 `HandDevice` 构造都不触碰网络接口。默认
 `auto_reconfigure=False`；`open()` 会使用当前系统配置。只有确认当前进程独占接口且具备
 `CAP_NET_ADMIN` 时才启用自动配置。
 
-同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。O30 使用 BRS off，数据段恒为 1 Mbit、接口 dbitrate 不生效，因此 O30 能直接接在 O20/L30 所用的 1M/5M 总线上；其余型号仍需让接口 data_bitrate 与各自 capability 对齐。
+同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。O30 使用 BRS off，数据段恒等于标称速率、接口 dbitrate 不生效，因此 O30 能直接接在 O20/L30 所用的 1M/5M 总线上（这也是推荐 5 Mbit/s 的原因）；其余型号仍需让接口 data_bitrate 与各自 capability 对齐。
 
 ## 厂商 CAN FD backend
 

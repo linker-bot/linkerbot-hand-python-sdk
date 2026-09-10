@@ -134,7 +134,7 @@ bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送
 只要 classic 身份有响应，就停止该接口上的后续 FD 探测。原因是“网卡支持 CAN FD”和
 “设备使用 FD 帧”不是同一件事，而且向包含经典 CAN 节点的总线发送 FD 帧可能触发错误。
 
-只有接口当前配置与型号声明匹配时才发送对应 FD 探针：O20/L30 要求 1 Mbit/s nominal 与 5 Mbit/s data；O30 只要求 1 Mbit/s nominal，它的 profile 不声明 data bitrate（BRS off，数据段恒为 1 Mbit），因此接口 dbitrate 取任意值都会被探测。发现不为尝试另一协议而重新配置接口。
+只有接口当前配置与型号声明匹配时才发送对应 FD 探针：O20/L30 要求 1 Mbit/s nominal 与 5 Mbit/s data；O30 只要求 1 Mbit/s nominal，它的 profile 不声明 data bitrate（BRS off，数据段恒等于标称速率），因此接口 dbitrate 取任意值都会被探测。发现不为尝试另一协议而重新配置接口。
 
 ## 安全边界
 

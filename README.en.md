@@ -170,8 +170,7 @@ l30 = HandDevice(
 )
 ```
 
-O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30 uses 1 Mbit/s
-for both nominal and data rates.
+O20 uses the same 1/5 Mbit/s SocketCAN FD configuration. O30 uses a 1 Mbit/s nominal rate with BRS off, so its data phase always equals the nominal rate and the interface `dbitrate` does not affect communication: **5 Mbit/s is recommended, but any data bitrate works** (1M, 2M, 7M and so on). Pass whatever the interface is actually configured with as `data_bitrate`.
 
 ## Explicit Discovery
 
