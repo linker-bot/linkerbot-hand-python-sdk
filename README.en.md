@@ -43,14 +43,14 @@ Linkerbot layers explicitly, and perform a hardware-free verification:
 sudo apt update
 sudo apt install -y python3-venv can-utils
 
-python3 -m venv ~/venvs/linkerbot-hand-1.0.0
-source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+python3 -m venv ~/venvs/linkerbot-hand-2.0.0
+source ~/venvs/linkerbot-hand-2.0.0/bin/activate
 python -m pip install --upgrade pip
 python -m pip install \
   --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
   --extra-index-url https://pypi.org/simple \
   'linkerbot-transport[all]==1.0.0' \
-  'linkerbot-hand==1.0.0'
+  'linkerbot-hand==2.0.0'
 
 python - <<'PY'
 from importlib.metadata import version
@@ -69,20 +69,44 @@ hand.close()
 PY
 ```
 
-The final four lines should show both `1.0.0` versions, all seven supported
+The final four lines should show transport `1.0.0`, hand `2.0.0`, all seven supported
 models, and `lifecycle closed`. Constructing the transport and `HandDevice`
 does not open `can0`, start a thread, or perform device I/O, so no hardware is
 required. In each new terminal, reactivate the environment first:
 
 ```bash
-source ~/venvs/linkerbot-hand-1.0.0/bin/activate
+source ~/venvs/linkerbot-hand-2.0.0/bin/activate
 ```
 
-Use an editable install only when developing unreleased source:
+Use an editable install only when developing unreleased source. Note that
+`linkerbot-transport` is not on public PyPI, so **installing hand alone does not
+work**: a bare `pip install -e .` fails because transport cannot be resolved.
+Two workable forms.
+
+Install both layers from source (use this when developing transport too):
 
 ```bash
-python -m pip install -e .
+git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-transport.git
+git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-hand.git
+python -m pip install -e './linkerbot-transport[all]' -e ./linkerbot-hand
 ```
+
+Work on hand only and take a released transport (the common case):
+
+```bash
+python -m pip install \
+  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
+  --extra-index-url https://pypi.org/simple \
+  -e .
+```
+
+Either form is verified the same way:
+
+```bash
+python -c 'import linkerbot_hand; print(linkerbot_hand.__file__)'
+```
+
+The path printed must be the local checkout, not `site-packages`.
 
 Python 3.10 or newer is required. `linkerbot-hand` already declares its
 transport dependency; listing both packages explicitly keeps the installed
