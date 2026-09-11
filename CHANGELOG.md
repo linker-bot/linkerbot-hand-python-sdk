@@ -8,6 +8,19 @@
 
 ## 未发布
 
+## 2.0.0 - 2026-09-11
+
+本版本包含 5 项破坏性改动。逐条摘要如下，受影响的调用方按此调整即可，不必通读全部条目。
+
+| 影响 | 原来 | 现在 |
+| --- | --- | --- |
+| 公共型号名 `L25` | `HandDevice(model="l25", ...)` | `HandDevice(model="l20", ...)`；不再接受 `l25`。设备身份帧中的历史工厂前缀 `L25`、`LHL25`、`LHG20` 仍可识别 |
+| 公共型号名 `O30i` | `capabilities.model` 可能返回 `O30i` | 一律返回 `O30`；`o30i`/`O30i` 仍可作为**输入**别名 |
+| **L30 电流限制单位** | `raw_unit == "mA"`，写 `500` 被理解为 500 mA | `raw_unit == "count"` + `raw_scale_note` 为 `6.5 mA/count`。**同一物理值需写 `77` 而非 `500`**；按旧语义传值会得到约 6.5 倍的实际电流限制 |
+| L20Lite/L20 速度读取 | `get_configured_speeds()` 可用，`get_speeds()` 返回 unsupported | 互换：`get_speeds()` 可用并返回实测速度，`get_configured_speeds()` 返回 unsupported（协议不提供读回设定值）。ROS 相应发布 `~/state/measured_speeds` 而不再发布 `~/state/configured_speeds` |
+| `get_normal_force_resultant()` 支持性判定 | 按型号名 `"O30"` 判断 | 按 force 通道的 `payload_projection` 是否为 `TACTILE_DESCRIPTOR` 判断。对 O30 行为不变；依赖「按型号」这一语义的第三方代码受影响 |
+
+
 - 统一 O30 数据段速率的文档口径为「**推荐 5 Mbit/s，但任意数据段速率都可用**」。O30 使用 BRS off，数据段恒等于标称速率、接口 dbitrate 不影响通信，此前中文文档只写「任取」而未给推荐值，读者无从判断该配多少；`README.en.md` 更是仍写着过时的「O30 uses 1 Mbit/s for both nominal and data rates」。`README.md`、`README.en.md`、`canfd.md`（能力表与示例）、`hand-discovery.md` 六处已统一，并把「数据段恒为 1 Mbit」这一易误读的表述改为「恒等于标称速率」。
 
 - 新增 CI 与本地 pre-commit 门禁。`.gitea/workflows/ci.yml` 在 push 到 `main` 与 pull request 时执行 `ruff check` 与 `ruff format --check`；pull request 另有一道检查：改动了 `src/` 而未更新 `CHANGELOG.md` 即失败，纯内部重构可在 PR 标题加 `[skip changelog]` 跳过。`.pre-commit-config.yaml` 用 `repo: local` 调用环境中的 ruff（而非拉取自带独立版本的 `ruff-pre-commit`），使钩子、手动执行与 CI 三处规则与版本一致；每个克隆需各自执行一次 `pre-commit install`，它会同时装上 commit 时与 **push 时**两种钩子；在 Gitea runner 上线之前，push 钩子是实际起作用的那道门禁（无 runner 时工作流只会排队不执行）。`pre-commit` 已加入 dev 依赖组。CI 暂不执行 pytest —— `linkerbot-transport` 不在公共索引且仓库私有，需先确定依赖分发方式。
