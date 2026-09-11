@@ -8,6 +8,10 @@
 
 ## 未发布
 
+- 新增发布流程：`scripts/release.py`（`check` / `tag` / `publish` 三个子命令）与 `.gitea/workflows/release.yml`（推送 `v*` 标签时触发），流程说明见 [scripts/README.md](scripts/README.md)。发布一个版本需要五处保持一致 —— `pyproject.toml` 的版本号、`CHANGELOG.md` 的带日期章节、两个 README 里钉住的版本、git 签名标签、registry 里的产物 —— 而 2.0.0 那次只做到前两处，结果是版本发了却没人装得上（文档仍指向 `1.0.0`、没有 `v2.0.0` 标签、registry 里只有 `1.0.0`，ROS 声明的 `linkerbot-hand>=2.0.0` 无法解析）；补救过程本身又在文档修正尚未合并时打了标签，只能删掉远端标签重做。脚本把这些做成机械门禁：工作区与分支状态、CHANGELOG 有带日期章节且 `未发布` 已清空、两个 README 恰好钉当前版本且无残留旧版本、标签未被占用、`ruff` 与 `pytest` 通过、该版本尚未发布过。`publish` 另外校验产物本身而不只是「构建成功」：`twine check`、wheel 元数据版本、wheel 长描述里钉住的版本（`readme` 会把 README 打进产物，钉错就永久留在已发布的包里）、以及 sdist 内不含 git 未跟踪的文件。registry 不可达时明确报「未校验」而不是当作「没发布过」，否则一次网络故障就会放过一次重复上传。分工是「打标签是人的动作，上传是自动化的动作」：本地 `tag`，CI 在标签推送时 `publish`，且 `publish` 幂等（registry 已有该版本则跳过），因此本地与 CI 各跑一次不会重复上传。Gitea runner 当前离线，工作流交付后只会排队不执行，现阶段两步都在本地跑。发布范围只含 `linkerbot-hand` 与 `linkerbot-transport`；`linkerbot-hand-ros` 不上传 registry，它的正式安装路径是 `git clone --branch v<版本>` 加 `colcon build`，且 `linkerbot_hand_msgs` 是 ROSIDL 接口、没有平台无关 wheel，pip 装进 venv 也起不来节点。
+
+- `ruff check` 与 `ruff format --check` 的 CI 路径从 `src tests` 扩展为 `src tests scripts`。pre-commit 钩子按文件名传参、本就会检查 `scripts/`，而 CI 按目录列举则不会 —— 新增该目录后两者会对不齐。
+
 - 修正两个 README 的安装说明。快速启动仍钉在 `1.0.0`（venv 目录名、`==` 版本、预期输出共 4 处），照文档执行会装到旧版本。源码安装原先只有一行 `pip install -e .`，实测在干净环境失败 —— `linkerbot-transport` 不在公共 PyPI，只装 hand 无法解析该依赖。现给出两种实测可行的写法：同时 editable 安装 transport 与 hand，或只 editable 安装 hand 并提供 Gitea 索引以取用已发布的 transport；并附验证命令确认装到的是本地源码而非已发布包。
 
 ## 2.0.0 - 2026-09-11
