@@ -14,8 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Needed by the gates that inspect git: the tracked-file check and the
-          # "sdist contains only committed files" check.
+          # Checking out the tag itself is what satisfies publish's "the tag must
+          # point at HEAD" gate. fetch-depth 0 is needed by the gates that inspect
+          # git: the tracked-file check, the tag/HEAD comparison, and the "sdist
+          # contains only committed files" check.
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
@@ -41,6 +44,7 @@ jobs:
         env:
           GITEA_USERNAME: ${{ secrets.GITEA_USERNAME }}
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-        # Idempotent: skips when the registry already holds this version, so a
-        # re-run or a local publish beforehand cannot double-upload.
+        # Idempotent: skips the upload when the registry already holds this
+        # version and skips the Release when one already exists, so a re-run or a
+        # local publish beforehand cannot double-publish.
         run: python scripts/release.py publish
