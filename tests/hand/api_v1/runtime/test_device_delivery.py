@@ -16,6 +16,7 @@ from linkerbot_hand.api import (
     DeviceConfig,
     ErrorCode,
     PollingPlan,
+    ProtocolError,
     TimeoutError,
 )
 from linkerbot_hand.api.enums import DataOrigin
@@ -878,6 +879,75 @@ def test_timed_out_reply_is_quarantined_instead_of_published_as_a_report() -> No
         assert quarantined.meta.sequence == before.meta.sequence
         assert quarantined.raw == before.raw
     finally:
+        hand.close()
+
+
+def test_consecutive_response_timeouts_accumulate_until_a_real_success() -> None:
+    hand, state, _transport = make_hand()
+    hand.open()
+    try:
+        assert hand.get_health().consecutive_errors == 0
+
+        with state.lock:
+            state.drop_reads.add(TelemetrySemantic.ANGLES)
+
+        for expected in (1, 2, 3):
+            with pytest.raises(TimeoutError, match="response"):
+                hand.get_angles(timeout=1)
+            assert hand.get_health().consecutive_errors == expected
+
+        with state.lock:
+            state.drop_reads.clear()
+
+        hand.get_angles(timeout=1)
+        assert hand.get_health().consecutive_errors == 0
+    finally:
+        hand.close()
+
+
+def test_read_without_target_publication_accumulates_like_a_timeout() -> None:
+    hand, _state, transport = make_hand()
+    backend = transport.backends["fake-hand"]
+    hand.open()
+
+    def consume_without_result(message: object) -> ResponseProgress:
+        if (
+            not isinstance(message, WireMessage)
+            or message.kind != "read_reply"
+            or message.semantic != TelemetrySemantic.ANGLES.value
+        ):
+            return ResponseProgress(matched=False)
+        return ResponseProgress(matched=True, complete=True, result=None)
+
+    original_read_transaction = backend.read_transaction
+
+    def read_transaction(
+        semantic: TelemetrySemantic,
+        capabilities: object,
+    ) -> ProtocolTransaction:
+        if semantic is not TelemetrySemantic.ANGLES:
+            return original_read_transaction(semantic, capabilities)
+        return ProtocolTransaction(
+            key=("read", semantic),
+            correlation_key=("read", semantic),
+            request_messages=(
+                WireMessage(backend.endpoint_id, "read", semantic.value),
+            ),
+            response_timeout_s=0.1,
+            estimated_duration_s=0.001,
+            response_consumer=consume_without_result,
+        )
+
+    backend.read_transaction = read_transaction  # ty: ignore[invalid-assignment]
+    try:
+        for expected in (1, 2, 3):
+            with pytest.raises(ProtocolError, match="did not publish angles"):
+                hand.get_angles(timeout=1)
+            assert hand.get_health().consecutive_errors == expected
+    finally:
+        backend.read_transaction = (  # ty: ignore[invalid-assignment]
+            original_read_transaction
+        )
         hand.close()
 
 

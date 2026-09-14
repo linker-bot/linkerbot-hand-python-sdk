@@ -107,11 +107,15 @@ class RuntimeMetrics:
         )
 
     def sent(self, *, timestamp: float) -> None:
-        """Record the latest device transaction dispatched by the transport."""
+        """Record the latest device transaction dispatched by the transport.
+
+        Dispatch is not success: clearing consecutive errors here would erase a
+        prior response timeout as soon as the next request goes out. Only
+        ``transaction_completed`` and ``ready`` may reset that counter.
+        """
 
         with self._lock:
             self._last_send = timestamp
-            self._consecutive_errors = 0
 
     def received(self, *, timestamp: float) -> None:
         """Record one frame accepted by this device's exact route."""

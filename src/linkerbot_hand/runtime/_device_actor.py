@@ -558,6 +558,7 @@ class DeviceActor:
                         next_stage_duration_s=next_stage_duration_s,
                     )
                 ),
+                require_published_semantic=semantic,
             )
             published = next(
                 (
@@ -568,6 +569,8 @@ class DeviceActor:
                 None,
             )
             if published is None:
+                # Unreachable: require_published_semantic makes the runner fail
+                # the transaction before it clears the consecutive-error count.
                 raise ProtocolError(
                     f"read transaction did not publish {semantic.value}"
                 )

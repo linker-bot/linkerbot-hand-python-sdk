@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from linkerbot_transport import SendOutcome, SendReceipt
 
 from ..api.errors import ClosedError, DeviceNotReadyError, ProtocolError, TimeoutError
-from ..capabilities.types import DeviceCapabilities
+from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import (
     IdentityResult,
     ProtocolBackend,
@@ -120,6 +120,7 @@ class TransactionRunner:
         deadline_at_s: float | None = None,
         on_dispatched: Callable[[float, int], None] | None = None,
         on_stage_boundary: Callable[[float], None] | None = None,
+        require_published_semantic: TelemetrySemantic | None = None,
     ) -> TransactionOutcome:
         """Execute one transaction without allowing another correlation conflict."""
 
@@ -135,6 +136,7 @@ class TransactionRunner:
             pending,
             on_dispatched=on_dispatched,
             on_stage_boundary=on_stage_boundary,
+            require_published_semantic=require_published_semantic,
         )
 
     def begin(
@@ -214,8 +216,16 @@ class TransactionRunner:
         *,
         on_dispatched: Callable[[float, int], None] | None = None,
         on_stage_boundary: Callable[[float], None] | None = None,
+        require_published_semantic: TelemetrySemantic | None = None,
     ) -> TransactionOutcome:
-        """Finish every response-gated stage and publish canonical samples."""
+        """Finish every response-gated stage and publish canonical samples.
+
+        ``require_published_semantic`` makes "the caller actually got its data"
+        part of the transaction's success condition. It has to be checked here
+        rather than by the caller: ``transaction_completed`` below clears the
+        consecutive-error counter, so a check made after this returns would be
+        counted only after the counter had already been reset.
+        """
 
         started_at_s = pending.started_at_s
         sent_frames = 0
@@ -262,6 +272,16 @@ class TransactionRunner:
                 _record_sent_frames(error, sent_frames)
                 raise
             if next_transaction is None:
+                if require_published_semantic is not None and not any(
+                    payload.semantic is require_published_semantic
+                    for payload, _sample in publications
+                ):
+                    error = ProtocolError(
+                        "read transaction did not publish "
+                        f"{require_published_semantic.value}"
+                    )
+                    _record_sent_frames(error, sent_frames)
+                    raise error
                 completed_at = self._clock.monotonic()
                 self._metrics.transaction_completed(
                     timestamp=completed_at,
