@@ -14,17 +14,32 @@ from linkerbot_hand.api import (
     AngleSample,
     CommandStage,
     DeviceConfig,
+    DeviceNotReadyError,
     ErrorCode,
+    HandError,
     PollingPlan,
     ProtocolError,
     TimeoutError,
 )
 from linkerbot_hand.api.enums import DataOrigin
 from linkerbot_hand.capabilities.registry import get_declared_capabilities
-from linkerbot_hand.capabilities.types import CommandSemantic, TelemetrySemantic
-from linkerbot_hand.protocols import ProtocolTransaction, ResponseProgress
+from linkerbot_hand.capabilities.types import (
+    CommandSemantic,
+    DeviceCapabilities,
+    TelemetrySemantic,
+)
+from linkerbot_hand.protocols import (
+    ProtocolTransaction,
+    ResponseProgress,
+    SamplePayload,
+)
 
-from .factories import hold_next_idle_deadline_check, make_hand, make_shared_hands
+from .factories import (
+    hold_next_idle_deadline_check,
+    make_hand,
+    make_shared_hands,
+    opened_runtime,
+)
 from .fakes import WireMessage, wait_until
 
 
@@ -945,6 +960,184 @@ def test_read_without_target_publication_accumulates_like_a_timeout() -> None:
                 hand.get_angles(timeout=1)
             assert hand.get_health().consecutive_errors == expected
     finally:
+        backend.read_transaction = (  # ty: ignore[invalid-assignment]
+            original_read_transaction
+        )
+        hand.close()
+
+
+def test_quarantined_parse_failure_is_not_attributed_to_the_next_transaction() -> None:
+    hand, state, transport = make_hand()
+    backend = transport.backends["fake-hand"]
+    original_read_transaction = backend.read_transaction
+    armed: list[bool] = []
+
+    def read_transaction(
+        semantic: TelemetrySemantic,
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        transaction = original_read_transaction(semantic, capabilities)
+        if semantic is not TelemetrySemantic.ANGLES or not armed:
+            return transaction
+
+        def consume(message: object) -> ResponseProgress:
+            if isinstance(message, WireMessage) and message.kind == "poison":
+                raise ProtocolError("quarantined assembler rejected a late frame")
+            return transaction.consume(message)
+
+        return replace(transaction, response_consumer=consume)
+
+    backend.read_transaction = read_transaction  # ty: ignore[invalid-assignment]
+    hand.open()
+    try:
+        with state.lock:
+            state.drop_reads.add(TelemetrySemantic.ANGLES)
+            state.late_response_guard_s = 5.0
+
+        # Strand a transaction whose consumer rejects the poison frame. Only
+        # this one is armed — the baseline read during open() must stay clean,
+        # and so must every read after it.
+        armed.append(True)
+        with pytest.raises(TimeoutError, match="response"):
+            hand.get_angles(timeout=1)
+        armed.clear()
+        with state.lock:
+            state.drop_reads.clear()
+
+        # The next read drains the mailbox on behalf of that quarantine entry.
+        transport.emit(WireMessage(backend.route_key, "poison"))
+        assert hand.get_angles(timeout=1) is not None
+
+        # The entry must be gone, not re-raising for the rest of the window.
+        transport.emit(WireMessage(backend.route_key, "poison"))
+        assert hand.get_angles(timeout=1) is not None
+    finally:
+        backend.read_transaction = (  # ty: ignore[invalid-assignment]
+            original_read_transaction
+        )
+        hand.close()
+
+
+def test_interstage_disconnect_does_not_reach_the_ended_generation() -> None:
+    hand, _state, transport = make_hand()
+    backend = transport.backends["fake-hand"]
+    hand.open()
+    try:
+        runtime = opened_runtime(hand)
+        actor = runtime._actor
+        original_read_transaction = backend.read_transaction
+
+        # Rebuild the ANGLES read as two response-gated stages so runner.complete
+        # reaches a stage boundary and runs the interstage angle dispatch.
+        # Distinct request payloads (1,) / (2,) let the test tell which stages
+        # were actually sent on the wire.
+        def two_stage_angles(
+            semantic: TelemetrySemantic,
+            capabilities: DeviceCapabilities,
+        ) -> ProtocolTransaction:
+            if semantic is not TelemetrySemantic.ANGLES:
+                return original_read_transaction(semantic, capabilities)
+
+            def consume(message: object) -> ResponseProgress:
+                if (
+                    isinstance(message, WireMessage)
+                    and message.kind == "read_reply"
+                    and message.semantic == TelemetrySemantic.ANGLES.value
+                ):
+                    return ResponseProgress(
+                        matched=True,
+                        complete=True,
+                        result=SamplePayload(
+                            semantic=TelemetrySemantic.ANGLES,
+                            raw=message.values,
+                        ),
+                    )
+                return ResponseProgress(matched=False)
+
+            second_stage = ProtocolTransaction(
+                key=("read", "angles", "second"),
+                correlation_key=("read", "angles"),
+                request_messages=(
+                    WireMessage(
+                        backend.endpoint_id,
+                        "read",
+                        TelemetrySemantic.ANGLES.value,
+                        (2,),
+                    ),
+                ),
+                response_timeout_s=0.1,
+                estimated_duration_s=0.001,
+                response_consumer=consume,
+            )
+            return ProtocolTransaction(
+                key=("read", "angles", "first"),
+                correlation_key=("read", "angles"),
+                request_messages=(
+                    WireMessage(
+                        backend.endpoint_id,
+                        "read",
+                        TelemetrySemantic.ANGLES.value,
+                        (1,),
+                    ),
+                ),
+                response_timeout_s=0.1,
+                estimated_duration_s=0.001,
+                response_consumer=consume,
+                next_transaction=second_stage,
+                yield_after_response=True,
+            )
+
+        backend.read_transaction = two_stage_angles  # ty: ignore[invalid-assignment]
+
+        # Stand in for a nested command/read that hits a connection failure and
+        # ends the generation in place: disconnect exactly once at the first
+        # interstage boundary, then let the real loop and waiter boundary react.
+        disconnects: list[HandError] = []
+        original_dispatch_one = actor._dispatch_one_interstage_angle_transaction
+        original_disconnect = actor._disconnect
+
+        def counting_disconnect(error: HandError) -> None:
+            disconnects.append(error)
+            original_disconnect(error)
+
+        def disconnect_at_boundary(runner: object) -> bool:
+            if actor._state.ready():
+                actor._disconnect(
+                    DeviceNotReadyError("nested interstage command lost the link")
+                )
+            return True
+
+        actor._disconnect = counting_disconnect  # ty: ignore[invalid-assignment]
+        actor._dispatch_one_interstage_angle_transaction = (  # ty: ignore[invalid-assignment]
+            disconnect_at_boundary
+        )
+
+        sent_before = len(transport.sent)
+        with pytest.raises(DeviceNotReadyError):
+            hand.get_angles(timeout=1)
+
+        angle_reads = [
+            message
+            for message in transport.sent[sent_before:]
+            if isinstance(message, WireMessage)
+            and message.kind == "read"
+            and message.semantic == TelemetrySemantic.ANGLES.value
+        ]
+        # Only the first stage may reach the wire; the second stage would be a
+        # frame delivered to a generation that has already ended.
+        assert angle_reads == [
+            WireMessage(
+                backend.endpoint_id, "read", TelemetrySemantic.ANGLES.value, (1,)
+            )
+        ]
+        # The in-place disconnect must not be repeated by the outer waiter
+        # boundary — a second _disconnect would overwrite the saved polling plan.
+        assert len(disconnects) == 1
+    finally:
+        actor._dispatch_one_interstage_angle_transaction = (  # ty: ignore[invalid-assignment]
+            original_dispatch_one
+        )
+        actor._disconnect = original_disconnect  # ty: ignore[invalid-assignment]
         backend.read_transaction = (  # ty: ignore[invalid-assignment]
             original_read_transaction
         )

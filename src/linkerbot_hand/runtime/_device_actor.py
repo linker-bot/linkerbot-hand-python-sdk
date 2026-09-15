@@ -419,7 +419,11 @@ class DeviceActor:
                 )
                 self._commands.record_stage(handle, CommandStage.FAILED)
             if _connection_failure(classified):
-                self._disconnect(classified)
+                # Nested interstage work may already have ended this generation
+                # and disconnected; a second _disconnect would clobber the saved
+                # polling plan, so only disconnect the generation still running.
+                if self._state.ready():
+                    self._disconnect(classified)
             else:
                 self._metrics.record_error(classified)
 
@@ -613,7 +617,10 @@ class DeviceActor:
                 IdentityMismatchError,
             )
             if _connection_failure(classified) or identity_failure:
-                self._disconnect(classified)
+                # See _execute_command: interstage work may already have
+                # disconnected this generation, so avoid a second _disconnect.
+                if self._state.ready():
+                    self._disconnect(classified)
             else:
                 self._metrics.record_error(classified)
         finally:
@@ -640,6 +647,7 @@ class DeviceActor:
         dispatched = 0
         while dispatched < _MAX_INTERSTAGE_ANGLE_TRANSACTIONS:
             if self._dispatch_one_interstage_angle_transaction(runner):
+                self._raise_if_generation_ended()
                 dispatched += 1
                 continue
             if not self._wait_for_imminent_interstage_angle_command(
@@ -647,6 +655,25 @@ class DeviceActor:
                 next_stage_duration_s=next_stage_duration_s,
             ):
                 return
+
+    def _raise_if_generation_ended(self) -> None:
+        """Abort the outer transaction when nested work ended this generation.
+
+        Interstage angle work runs re-entrantly inside a multi-stage read's
+        stage boundary. A dispatched command or read that hits a connection
+        failure disconnects in place and returns normally, so this loop — and
+        the outer transaction that would otherwise submit its next stage — must
+        stop before either sends a frame to a generation that has ended.
+        """
+
+        if self._state.ready():
+            return
+        raise DeviceNotReadyError(
+            "connection generation ended during interstage angle work",
+            operation="recover",
+            model=self._state.declared.model,
+            generation=self._state.generation(),
+        )
 
     def _wait_for_imminent_interstage_angle_command(
         self,

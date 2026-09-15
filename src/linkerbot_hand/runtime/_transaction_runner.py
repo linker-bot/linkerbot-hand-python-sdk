@@ -602,7 +602,18 @@ class TransactionRunner:
             if now >= quarantined.deadline_at_s:
                 del self._quarantined[correlation_key]
                 continue
-            progress = quarantined.transaction.consume(message)
+            try:
+                progress = quarantined.transaction.consume(message)
+            except Exception as error:  # noqa: BLE001 - quarantine parse boundary
+                # A quarantined transaction's parse failure must never be
+                # attributed to whichever transaction is in flight now — the
+                # same invariant _publish_report holds for decode_report. Drop
+                # the entry as well: keeping it would re-raise on every later
+                # frame for the rest of the guard window, and would block the
+                # next transaction that shares this correlation key.
+                del self._quarantined[correlation_key]
+                self._report_error(error)
+                return True
             if not progress.matched:
                 continue
             if progress.complete:
