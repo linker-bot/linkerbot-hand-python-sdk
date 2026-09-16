@@ -1329,14 +1329,20 @@ def test_o30_left_hand_connects_and_reads_over_0x002_0x402() -> None:
         hand.close()
 
 
-@pytest.mark.parametrize("model", ("O30", "o30", "O30i", "o30i"))
-def test_o30_model_aliases_create_the_canonical_profile(model: str) -> None:
-    script = O30DeviceScript(product_model="O30i-20-001-R-B")
+@pytest.mark.parametrize("model", ("O30", "o30"))
+@pytest.mark.parametrize("product_model", ("O30-20-001-R-B", "O30i-20-001-R-B"))
+def test_o30_public_model_connects_with_current_and_legacy_product_codes(
+    model: str, product_model: str
+) -> None:
+    script = O30DeviceScript(product_model=product_model)
     transport = ScriptedO30Transport(script)
     hand = HandDevice(model=model, side="right", transport=transport)
     hand.open()
     try:
-        assert hand.get_capabilities().model == "O30"
+        capabilities = hand.get_capabilities()
+        assert capabilities.model == "O30"
+        assert capabilities.identity.product_code == product_model
+        assert hand.get_device_info(timeout=1.0).product_code == product_model
     finally:
         hand.close()
 

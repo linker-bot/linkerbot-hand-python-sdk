@@ -361,6 +361,18 @@ def test_initial_snapshot_and_health_are_shaped_from_capabilities(
     assert all(item.pending == 0 for item in health.command_families)
 
 
+@pytest.mark.parametrize("model", ("O30i", "o30i", "L25", "l25"))
+def test_historical_model_configuration_is_rejected_before_io(model: str) -> None:
+    transport = SpyDependency()
+    factory = RuntimeFactory()
+
+    with pytest.raises(ValidationError, match="unsupported hand model"):
+        make_device(model=model, transport=transport, runtime_factory=factory)
+
+    assert transport.calls == []
+    assert factory.calls == 0
+
+
 def test_l30_omits_side_and_rejects_any_side_argument() -> None:
     hand = make_device(model="l30", side=None)
 

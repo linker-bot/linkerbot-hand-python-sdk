@@ -19,6 +19,8 @@ from .types import DeviceCapabilities
 
 SUPPORTED_MODELS = ("L6", "O6", "L20Lite", "L20", "O20", "L30", "O30")
 
+# Public model spellings only. Historical product-code prefixes are handled by
+# each protocol's identity parser, not accepted as configuration aliases.
 _ALIASES = {
     "l6": "L6",
     "o6": "O6",
@@ -28,9 +30,6 @@ _ALIASES = {
     "o20": "O20",
     "l30": "L30",
     "o30": "O30",
-    # O30i was the historical product-code prefix.  Keep accepting it as an
-    # input alias while exposing only the canonical O30 model publicly.
-    "o30i": "O30",
 }
 
 _PROFILE_FACTORIES: dict[str, Callable[[HandSide], DeviceCapabilities]] = {
@@ -52,7 +51,8 @@ def get_declared_capabilities(
     """Return zero-I/O capability metadata for a configured model.
 
     Args:
-        model: Canonical name or supported case-insensitive alias.
+        model: Case-insensitive public model name, or ``l20-lite`` for L20Lite.
+            Historical product-code prefixes are not configuration aliases.
         side: ``left`` or ``right`` for sided models. L30 requires omission.
 
     Returns:

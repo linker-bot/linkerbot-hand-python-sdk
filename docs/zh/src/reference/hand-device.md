@@ -21,12 +21,17 @@ hand = HandDevice(
 
 | 参数 | 含义 |
 | --- | --- |
-| `model` | `l6`、`o6`、`l20lite`、`l20`、`o20`、`l30` 或 `o30`，不区分大小写 |
+| `model` | `l6`、`o6`、`l20lite`、`l20`、`o20`、`l30` 或 `o30`，不区分大小写；`l20-lite` 是 `L20Lite` 的拼写别名 |
 | `side` | 有左右手的型号必须为 `left` 或 `right`；L30 必须省略 |
 | `transport` | 实现 `linkerbot-transport` 消息 transport 契约的对象 |
 | `config` | 可选 `DeviceConfig`；控制队列容量、超时、关闭和恢复策略 |
 | `clock` | 可选虚拟时钟，供确定性测试注入 |
 | `protocol_backend` | 可选协议后端，供协议/runtime 隔离测试 |
+
+`HandDevice` 与 `get_declared_capabilities(model, side=...)` 使用相同的型号规则。
+历史名称 `o30i`、`l25`（包括其大小写变体）均不是配置别名，会抛出 `ValidationError`；
+应分别使用 `o30`、`l20`。设备上报的产品编号由身份解析器单独识别，历史产品编号仍可
+兼容并原样保留在 `product_code` 中，详见[发现文档](hand-discovery.md#探测顺序)。
 
 构造只做参数校验并创建不可变初始状态，不打开 socket、不读取身份、不启动线程、不发
 查询帧，也不产生运动。`runtime_factory` 是内部测试接缝，不是应用扩展协议的入口。

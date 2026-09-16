@@ -73,6 +73,47 @@ def test_supported_model_names_are_canonical_and_stable() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("model", "canonical"),
+    (
+        ("O30", "O30"),
+        ("o30", "O30"),
+        ("L20", "L20"),
+        ("l20", "L20"),
+        ("L20Lite", "L20Lite"),
+        ("l20lite", "L20Lite"),
+        ("l20-lite", "L20Lite"),
+        ("L20-LITE", "L20Lite"),
+    ),
+)
+def test_public_model_spellings_return_canonical_capabilities(
+    model: str, canonical: str
+) -> None:
+    assert get_declared_capabilities(model, side="left").model == canonical
+
+
+@pytest.mark.parametrize(
+    "model",
+    (
+        "O30i",
+        "o30i",
+        "L25",
+        "l25",
+        "LHT20",
+        "LHL25",
+        "LHG20",
+        "O30-20-001-R-B",
+        "O30i-20-001-R-B",
+        "LHT20-10-499-L-B-1-D",
+    ),
+)
+def test_product_codes_and_historical_names_are_not_configuration_aliases(
+    model: str,
+) -> None:
+    with pytest.raises(ValidationError, match="unsupported hand model"):
+        get_declared_capabilities(model, side="left")
+
+
 def test_side_is_required_for_sided_models() -> None:
     with pytest.raises(ValidationError, match="side is required"):
         get_declared_capabilities("l6")

@@ -42,6 +42,16 @@ hand = HandDevice(
 安装其他旧发行物后，Python 环境里仍可能存在一个外部 `linkerbot` namespace，但它不由
 新 `linkerbot-hand` 提供，也不属于 1.0 兼容契约。
 
+## 型号配置
+
+公共型号使用 `O30`、`L20`，不区分大小写。将配置中的 `model="o30i"` 改为
+`model="o30"`，将历史的 `model="l25"` 改为 `model="l20"`；旧名称现在都会在构造时
+抛出 `ValidationError`。这条规则同样适用于 `get_declared_capabilities()`。
+
+设备上报的旧 `O30i-...`、`L25-...` 等产品编号继续由发现与身份校验识别，原始编号
+保留在 `product_code` 中。无需改写设备产品编号。`l20-lite` 仍是 `L20Lite` 的受支持
+拼写别名。完整输入规则见 [HandDevice API](hand-device.md#构造)。
+
 ## 方法映射
 
 | 旧调用 | 1.0 调用 | 变化 |

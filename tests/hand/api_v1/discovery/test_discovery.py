@@ -614,11 +614,14 @@ def test_o30_legacy_product_prefix_is_discovered(product_model: str) -> None:
     candidate = report.require_one()
 
     assert candidate.model == "O30"
+    assert candidate.device_info is not None
+    assert candidate.device_info.product_code == product_model
     assert candidate.side is HandSide.RIGHT
     assert candidate.reported_side is HandSide.RIGHT
     assert candidate.status is DiscoveryStatus.VERIFIED
     assert candidate.problems == ()
     hand = candidate.create_hand_device()
+    assert hand.get_capabilities().model == "O30"
     assert hand.get_capabilities().side is HandSide.RIGHT
     assert script.identity_queries == 1
     assert len(script.sent_messages) == 15

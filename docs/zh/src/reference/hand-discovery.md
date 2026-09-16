@@ -126,7 +126,15 @@ print(caps.operations)                                          # 清错、使�
 
 L20 对外始终报告公共型号 `L20`。发现和身份校验接受常见的 `LHT20-...` 产品编号（例如
 `LHT20-10-499-L-B-1-D`），并继续兼容已部署设备上的 `L20-...`、`L25-...`、
-`LHL25-...` 和 `LHG20-...` 编号；这些线级前缀不是可传给 `HandDevice` 的型号别名。
+`LHL25-...` 和 `LHG20-...` 编号。
+
+O30 对外始终报告公共型号 `O30`。发现和身份校验接受 `O30`、`O30-...`，也兼容历史的
+`O30i`、`O30i-...` 产品编号，不区分大小写。L20 与 O30 都在 `product_code` 中原样保留
+设备上报的编号，`candidate.model` 和 capability 的 `model` 则始终使用规范型号。
+
+产品编号兼容与配置型号分开：`HandDevice` 和 `get_declared_capabilities()` 的 `model`
+应分别填写 `l20`、`o30`（不区分大小写）。历史名称 `l25`、`o30i`、其他工厂前缀及完整
+产品编号均不能作为配置值；传入这些值会在设备 I/O 前抛出 `ValidationError`。
 
 已知 nominal bitrate 不是 1 Mbit/s 的接口不会发送 Linkerbot 身份探针；元数据无法提供
 bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送 classic 探针。CAN FD
