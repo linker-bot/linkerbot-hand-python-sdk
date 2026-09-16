@@ -347,6 +347,75 @@ def test_baseline_includes_angles_faults_and_current_limits() -> None:
         )
 
 
+def _firmware_optional_active_reads(
+    backend: object,
+    capabilities: object,
+) -> frozenset[TelemetrySemantic]:
+    """Collect every active read the backend flags as firmware-optional."""
+
+    optional: set[TelemetrySemantic] = set()
+    for semantic in TelemetrySemantic:
+        try:
+            transaction = backend.read_transaction(semantic, capabilities)
+        except UnsupportedOperationError:
+            continue
+        if transaction.firmware_optional:
+            optional.add(semantic)
+    return frozenset(optional)
+
+
+def test_l6_firmware_optional_reads_match_the_documented_set() -> None:
+    """Pin the L6 optional-read set so the model doc must move with the code.
+
+    FORCE is intentionally excluded from ``firmware_optional_reads``: the
+    tactile transaction carries its own ``firmware_optional=True`` and reaches
+    the same degradation path, so it is verified separately below.
+    """
+
+    backend = L6ProtocolBackend(HandSide.LEFT)
+    capabilities = get_declared_capabilities("l6", side="left")
+
+    optional = _firmware_optional_active_reads(backend, capabilities)
+
+    assert optional - {TelemetrySemantic.FORCE} == frozenset(
+        {
+            TelemetrySemantic.TEMPERATURES,
+            TelemetrySemantic.CURRENTS,
+            TelemetrySemantic.LIMIT_COMPENSATIONS,
+            TelemetrySemantic.STALL_DETECTION_TIMES,
+            TelemetrySemantic.STALL_THRESHOLDS,
+            TelemetrySemantic.STALL_HOLD_CURRENTS,
+        }
+    )
+    assert TelemetrySemantic.FORCE in optional
+
+
+def test_o6_firmware_optional_reads_match_the_documented_set() -> None:
+    """Pin the O6 optional-read set so the model doc must move with the code.
+
+    FORCE is intentionally excluded from ``firmware_optional_reads``: the
+    tactile transaction carries its own ``firmware_optional=True`` and reaches
+    the same degradation path, so it is verified separately below.
+    """
+
+    backend = O6ProtocolBackend(HandSide.RIGHT)
+    capabilities = get_declared_capabilities("o6", side="right")
+
+    optional = _firmware_optional_active_reads(backend, capabilities)
+
+    assert optional - {TelemetrySemantic.FORCE} == frozenset(
+        {
+            TelemetrySemantic.CONFIGURED_SPEEDS,
+            TelemetrySemantic.CONFIGURED_ACCELERATIONS,
+            TelemetrySemantic.TEMPERATURES,
+            TelemetrySemantic.STALL_DETECTION_TIMES,
+            TelemetrySemantic.STALL_THRESHOLDS,
+            TelemetrySemantic.STALL_HOLD_CURRENTS,
+        }
+    )
+    assert TelemetrySemantic.FORCE in optional
+
+
 def _stray(side: HandSide, data: bytes) -> can.Message:
     return can.Message(
         arbitration_id=classic_route(side).arbitration_id,
