@@ -22,15 +22,23 @@ def basic_classic_identity_transaction(
     *,
     public_model: str,
     factory_models: tuple[str, ...],
+    l6_pcb_format: bool = False,
 ) -> ProtocolTransaction:
-    """Build identity verification for the common classic CAN wire format."""
+    """Build identity verification for the common classic CAN wire format.
+
+    ``l6_pcb_format`` is L6's one wire quirk: its PCB version object uses a
+    different layout, and its C1 request carries a subindex (``C1 01``) rather
+    than a bare ``C1``. The two switch together, so a single flag drives both
+    the collector's parsing and the request frame.
+    """
 
     if capabilities.model != public_model:
         raise ProtocolError(
             f"{public_model} identity transaction requires {public_model} capabilities"
         )
     route = classic_route(capabilities.side)
-    collector = ClassicIdentityCollector(route, l6_pcb_format=False)
+    collector = ClassicIdentityCollector(route, l6_pcb_format=l6_pcb_format)
+    version_request = b"\xc1\x01" if l6_pcb_format else b"\xc1"
 
     def consume(message: object) -> ResponseProgress:
         if not collector.offer(message):
@@ -82,8 +90,8 @@ def basic_classic_identity_transaction(
         key=("identity", route),
         correlation_key=("identity", route),
         request_messages=tuple(
-            build_classic_message(route, bytes((opcode,)))
-            for opcode in (0xC0, 0xC1, 0xC2, 0xC4)
+            build_classic_message(route, payload)
+            for payload in (b"\xc0", version_request, b"\xc2", b"\xc4")
         ),
         response_timeout_s=0.1,
         estimated_duration_s=0.03,

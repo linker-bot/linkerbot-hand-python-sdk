@@ -11,6 +11,10 @@ from ...capabilities.types import (
 )
 from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
+from ..common.classic_management import (
+    configuration_transaction,
+    save_parameters_transaction,
+)
 from ..common.six_axis import ClassicSixAxisBackend
 from .codec import (
     BASELINE_SEMANTICS,
@@ -19,7 +23,6 @@ from .codec import (
     TELEMETRY_OPCODES,
 )
 from .identity import o6_identity_transaction
-from .management import configuration_transaction, save_parameters_transaction
 from .tactile import o6_tactile_transaction
 
 

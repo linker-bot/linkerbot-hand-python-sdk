@@ -1,100 +1,22 @@
-"""L6 identity transaction and verified capability selection."""
+"""L6 identity profile."""
 
-from __future__ import annotations
-
-from dataclasses import replace
-
-from ...api.device_info import DeviceInfo
-from ...api.errors import ProtocolError
-from ...api.readings import SampleMeta
 from ...capabilities.types import DeviceCapabilities
-from ..base import IdentityResult, ProtocolTransaction, ResponseProgress
-from ..common.classic_can import (
-    ClassicIdentityCollector,
-    build_classic_message,
-    classic_route,
-    parse_factory_identity,
-)
+from ..base import ProtocolTransaction
+from ..common.classic_identity import basic_classic_identity_transaction
 
 
 def l6_identity_transaction(
     capabilities: DeviceCapabilities,
 ) -> ProtocolTransaction:
-    """Build the complete L6 product-code and version transaction."""
+    """Verify the L6 product code and versions over the classic wire profile."""
 
-    if capabilities.model != "L6":
-        raise ProtocolError("L6 identity transaction requires L6 capabilities")
-    route = classic_route(capabilities.side)
-    collector = ClassicIdentityCollector(route, l6_pcb_format=True)
-
-    def consume(message: object) -> ResponseProgress:
-        if not collector.offer(message):
-            return ResponseProgress(matched=False)
-        if not collector.complete:
-            return ResponseProgress(matched=True)
-        return ResponseProgress(
-            matched=True,
-            complete=True,
-            result=_identity_result(capabilities, collector),
-        )
-
-    requests = (
-        build_classic_message(route, b"\xc0"),
-        build_classic_message(route, b"\xc1\x01"),
-        build_classic_message(route, b"\xc2"),
-        build_classic_message(route, b"\xc4"),
-    )
-    return ProtocolTransaction(
-        key=("identity", route),
-        correlation_key=("identity", route),
-        request_messages=requests,
-        response_timeout_s=0.1,
-        estimated_duration_s=0.03,
-        response_consumer=consume,
-        request_interval_s=0.005,
-        late_response_guard_s=0.02,
-    )
-
-
-def _identity_result(
-    declared: DeviceCapabilities,
-    collector: ClassicIdentityCollector,
-) -> IdentityResult:
-    product = parse_factory_identity(
-        collector.product_code(),
-        expected_model="LHL6",
-        configured_side=declared.side,
-    )
-    pcb = collector.version(0xC1)
-    firmware = collector.version(0xC2)
-    mechanical = collector.version(0xC4)
-    identity = replace(
-        declared.identity,
-        verified=True,
-        firmware=firmware.text,
-        hardware_revision=pcb.text,
-        mechanical_revision=mechanical.text,
-        sensor_variant=product.sensor_variant,
-        serial_number=product.serial_number,
-        product_code=product.product_code,
-    )
-    verified = replace(declared, identity=identity)
-    info = DeviceInfo(
-        model=verified.model,
-        serial_number=product.serial_number,
-        pcb_version=pcb,
-        firmware_version=firmware,
-        mechanical_version=mechanical,
-        product_code=product.product_code,
-        sensor_variant=product.sensor_variant,
-        side=product.side,
-        raw_identity=collector.product_code_bytes,
-        meta=SampleMeta.unavailable(),
-    )
-    return IdentityResult(
-        capabilities=verified,
-        device_info=info,
-        fingerprint=product.product_code,
+    return basic_classic_identity_transaction(
+        capabilities,
+        public_model="L6",
+        factory_models=("LHL6",),
+        # L6's PCB version object and its C1 request (C1 01) differ from the
+        # rest of the classic family; the flag switches both.
+        l6_pcb_format=True,
     )
 
 

@@ -14,6 +14,10 @@ from .classic_layout import (
     ClassicObjectAssembler,
     ClassicObjectLayout,
 )
+from .classic_management import (
+    configuration_transaction,
+    save_parameters_transaction,
+)
 from .classic_multi_axis import ClassicMultiAxisBackend
 from .six_axis import ClassicSixAxisBackend
 from .tactile import TactileAssembler, tactile_transaction
@@ -30,7 +34,9 @@ __all__ = [
     "basic_classic_identity_transaction",
     "build_classic_message",
     "classic_route",
+    "configuration_transaction",
     "decode_u8_vector",
     "parse_factory_identity",
+    "save_parameters_transaction",
     "tactile_transaction",
 ]

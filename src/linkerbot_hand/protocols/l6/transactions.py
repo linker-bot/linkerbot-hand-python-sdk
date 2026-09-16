@@ -11,6 +11,10 @@ from ...capabilities.types import (
 )
 from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
+from ..common.classic_management import (
+    configuration_transaction,
+    save_parameters_transaction,
+)
 from ..common.six_axis import ClassicSixAxisBackend
 from .codec import (
     BASELINE_SEMANTICS,
@@ -20,11 +24,7 @@ from .codec import (
     TELEMETRY_OPCODES,
 )
 from .identity import l6_identity_transaction
-from .management import (
-    echoed_configuration_transaction,
-    limit_compensation_transaction,
-    save_parameters_transaction,
-)
+from .management import limit_compensation_transaction
 from .tactile import l6_tactile_transaction
 
 
@@ -99,7 +99,7 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
         }.get(semantic)
         if echoed is not None:
             telemetry_semantic, require_exact_echo = echoed
-            return echoed_configuration_transaction(
+            return configuration_transaction(
                 semantic,
                 telemetry_semantic,
                 COMMAND_OPCODES[semantic],

@@ -1,4 +1,4 @@
-"""O6 response-gated configuration and parameter-save transactions."""
+"""Echoed configuration and parameter-save transactions shared by L6/O6."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from ...capabilities.types import (
     TelemetrySemantic,
 )
 from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
-from ..common.classic_can import (
+from .classic_can import (
     build_classic_message,
     classic_route,
     decode_u8_vector,
@@ -28,8 +28,15 @@ def configuration_transaction(
     opcode: int,
     values: tuple[RawNumber, ...],
     capabilities: DeviceCapabilities,
+    *,
+    require_exact_echo: bool = True,
 ) -> ProtocolTransaction:
-    """Write one O6 raw vector and require the documented exact response."""
+    """Write one raw vector and publish the documented response as ACK.
+
+    ``require_exact_echo`` gates whether the echoed vector must equal what was
+    written: O6 always requires it, L6 relaxes it for a few configuration
+    writes whose devices acknowledge without echoing the values back.
+    """
 
     command = capabilities.command(semantic)
     if command is None:
@@ -52,8 +59,10 @@ def configuration_transaction(
         )
         if echoed is None:
             return ResponseProgress(matched=False)
-        if echoed != raw:
-            raise ProtocolError(f"O6 {semantic.value} response did not echo values")
+        if require_exact_echo and echoed != raw:
+            raise ProtocolError(
+                f"{capabilities.model} {semantic.value} response did not echo values"
+            )
         return ResponseProgress(
             matched=True,
             complete=True,
@@ -80,7 +89,7 @@ def configuration_transaction(
 def save_parameters_transaction(
     capabilities: DeviceCapabilities,
 ) -> ProtocolTransaction:
-    """Persist O6 configuration only after the explicit ``CF 01`` response."""
+    """Persist configuration only after the explicit ``CF 01`` response."""
 
     if not capabilities.operations.save_parameters:
         raise UnsupportedOperationError(
@@ -93,7 +102,9 @@ def save_parameters_transaction(
         if data is None or not data or data[0] != _SAVE_PARAMETERS_OPCODE:
             return ResponseProgress(matched=False)
         if data != b"\xcf\x01":
-            raise ProtocolError("O6 save-parameters response was not CF 01")
+            raise ProtocolError(
+                f"{capabilities.model} save-parameters response was not CF 01"
+            )
         return ResponseProgress(
             matched=True,
             complete=True,
@@ -125,4 +136,7 @@ def _validated_u8(
     return raw
 
 
-__all__ = ["configuration_transaction", "save_parameters_transaction"]
+__all__ = [
+    "configuration_transaction",
+    "save_parameters_transaction",
+]
