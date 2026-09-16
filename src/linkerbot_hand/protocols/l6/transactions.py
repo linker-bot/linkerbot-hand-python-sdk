@@ -71,39 +71,38 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
 
         if semantic is CommandSemantic.LIMIT_COMPENSATIONS:
             return limit_compensation_transaction(values, capabilities)
+        # Only the telemetry pairing and the echo strictness live here. The wire
+        # opcode comes from COMMAND_OPCODES so there is one source for it; a
+        # second copy here is what let the codec table drift without any test
+        # noticing, and L6 and O6 assign 0xC5/0xC6 to opposite semantics.
         echoed = {
             CommandSemantic.SPEEDS: (
                 TelemetrySemantic.CONFIGURED_SPEEDS,
-                0x05,
                 False,
             ),
             CommandSemantic.CURRENT_LIMITS: (
                 TelemetrySemantic.CURRENT_LIMITS,
-                0x02,
                 False,
             ),
             CommandSemantic.STALL_DETECTION_TIMES: (
                 TelemetrySemantic.STALL_DETECTION_TIMES,
-                0xC5,
                 True,
             ),
             CommandSemantic.STALL_THRESHOLDS: (
                 TelemetrySemantic.STALL_THRESHOLDS,
-                0xC6,
                 True,
             ),
             CommandSemantic.STALL_HOLD_CURRENTS: (
                 TelemetrySemantic.STALL_HOLD_CURRENTS,
-                0xC7,
                 True,
             ),
         }.get(semantic)
         if echoed is not None:
-            telemetry_semantic, opcode, require_exact_echo = echoed
+            telemetry_semantic, require_exact_echo = echoed
             return echoed_configuration_transaction(
                 semantic,
                 telemetry_semantic,
-                opcode,
+                COMMAND_OPCODES[semantic],
                 values,
                 capabilities,
                 require_exact_echo=require_exact_echo,
