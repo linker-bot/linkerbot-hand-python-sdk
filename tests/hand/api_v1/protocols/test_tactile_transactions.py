@@ -170,7 +170,20 @@ def test_tactile_transaction_rejects_wrong_dlc_and_row_marker() -> None:
         ).consume(_frame(HandSide.RIGHT, 0xB1, 0xF0, b"\x00" * 4))
 
 
-def test_o6_profile_without_04_b_sensor_rejects_tactile_query() -> None:
+def test_o6_tactile_response_of_another_layout_names_the_assembled_layout() -> None:
+    backend = O6ProtocolBackend(HandSide.RIGHT)
+    capabilities = get_declared_capabilities("o6", side="right")
+    transaction = backend.read_transaction(TelemetrySemantic.FORCE, capabilities)
+
+    # A hand whose matrix is not 10 by 4 answers with a different row width.
+    # That is a ProtocolError, which the firmware-optional path counts towards
+    # downgrading the channel rather than mis-slicing the data.
+    with pytest.raises(ProtocolError, match="10 by 4 layout"):
+        transaction.consume(_frame(HandSide.RIGHT, _FINGERS[0], 0, bytes(6)))
+    assert transaction.firmware_optional
+
+
+def test_o6_rejects_a_tactile_query_once_the_channel_is_unsupported() -> None:
     capabilities = get_declared_capabilities("o6", side="right")
     without_force = replace(
         capabilities,

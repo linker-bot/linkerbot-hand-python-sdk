@@ -361,7 +361,7 @@ def test_o30_writes_declare_matchable_hop_response_ack() -> None:
     )
 
 
-def test_o6_declared_sensor_shape_matches_04_b_contract() -> None:
+def test_o6_declared_sensor_shape_matches_the_assembled_layout() -> None:
     capabilities = get_declared_capabilities("o6", side="right")
     force = capabilities.telemetry_channel(TelemetrySemantic.FORCE)
 

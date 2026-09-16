@@ -36,7 +36,6 @@ class ClassicSixAxisBackend:
         telemetry_opcodes: Mapping[TelemetrySemantic, int],
         baseline: tuple[TelemetrySemantic, ...],
         operation_payloads: Mapping[str, bytes] | None = None,
-        command_cache: Mapping[CommandSemantic, TelemetrySemantic] | None = None,
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
         firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
     ) -> None:
@@ -46,7 +45,6 @@ class ClassicSixAxisBackend:
         self._telemetry_opcodes = dict(telemetry_opcodes)
         self._baseline = baseline
         self._operation_payloads = dict(operation_payloads or {})
-        self._command_cache = dict(command_cache or {})
         self._config_telemetry = frozenset(config_telemetry)
         self._firmware_optional_reads = frozenset(firmware_optional_reads)
 
@@ -103,16 +101,6 @@ class ClassicSixAxisBackend:
                 f"no protocol command for {semantic.value}"
             ) from error
         raw = _u8_vector(values, semantic.value)
-        publications: tuple[SamplePayload, ...] = ()
-        cached_semantic = self._command_cache.get(semantic)
-        if cached_semantic is not None:
-            publications = (
-                SamplePayload(
-                    semantic=cached_semantic,
-                    raw=raw,
-                    origin=DataOrigin.COMMAND_CACHE,
-                ),
-            )
         response_consumer = None
         response_timeout_s = 0.0
         late_response_guard_s = 0.0
@@ -156,7 +144,6 @@ class ClassicSixAxisBackend:
             response_timeout_s=response_timeout_s,
             estimated_duration_s=0.001,
             response_consumer=response_consumer,
-            dispatch_publications=publications,
             late_response_guard_s=late_response_guard_s,
         )
 

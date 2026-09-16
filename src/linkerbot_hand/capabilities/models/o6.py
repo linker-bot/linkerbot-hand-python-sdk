@@ -238,7 +238,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_unit="count",
                 raw_scale_note=(
                     "raw tactile normal-force sensor count; physical calibration "
-                    "is unknown; available only for a compatible identity profile"
+                    "is unknown; SDK assembles the five-finger 10 by 4 layout, and "
+                    "firmware that does not answer the query is downgraded at "
+                    "runtime"
                 ),
                 unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,

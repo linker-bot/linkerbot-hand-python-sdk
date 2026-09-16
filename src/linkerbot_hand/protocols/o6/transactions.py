@@ -49,7 +49,7 @@ class O6ProtocolBackend(ClassicSixAxisBackend):
         semantic: TelemetrySemantic,
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Build fixed-width state or an O6 04-B complete tactile read."""
+        """Build fixed-width state or one complete O6 tactile read."""
 
         if semantic is TelemetrySemantic.FORCE:
             return o6_tactile_transaction(capabilities)

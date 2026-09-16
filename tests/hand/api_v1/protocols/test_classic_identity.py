@@ -126,6 +126,41 @@ def test_identity_collector_rejects_conflicting_duplicate_fragment() -> None:
         collector.offer(_message(HandSide.LEFT, b"\xc0\x00UVWXYZ"))
 
 
+def test_serial_fragment_past_the_assembled_length_reports_the_sdk_limit() -> None:
+    collector = ClassicIdentityCollector(
+        classic_route(HandSide.RIGHT),
+        l6_pcb_format=False,
+    )
+
+    # A fifth fragment is beyond what this SDK assembles, not a device fault.
+    with pytest.raises(ProtocolError, match="24 bytes are not supported"):
+        collector.offer(_message(HandSide.RIGHT, b"\xc0\x04ABCDEF"))
+
+
+def test_serial_fragments_end_at_the_earliest_terminator() -> None:
+    collector = ClassicIdentityCollector(
+        classic_route(HandSide.RIGHT),
+        l6_pcb_format=False,
+    )
+    versions = (
+        _message(HandSide.RIGHT, b"\xc1\x04\x00\x01"),
+        _message(HandSide.RIGHT, b"\xc2\x03\x01\x02"),
+        _message(HandSide.RIGHT, b"\xc4\x01\x00\x02"),
+    )
+
+    assert collector.offer(_message(HandSide.RIGHT, b"\xc0\x00ABCDEF"))
+    # A short payload terminates the code at offset 6.
+    assert collector.offer(_message(HandSide.RIGHT, b"\xc0\x01GHI"))
+    for frame in versions:
+        assert collector.offer(frame)
+    assert collector.complete
+
+    # A further fragment past that terminator contradicts it, so the code must
+    # not be treated as complete with the terminator pushed out to offset 12.
+    assert collector.offer(_message(HandSide.RIGHT, b"\xc0\x02JKL"))
+    assert not collector.complete
+
+
 def test_l6_identity_verifies_versions_and_profile() -> None:
     declared = get_declared_capabilities("l6", side="left")
     transaction = l6_identity_transaction(declared)
@@ -236,7 +271,7 @@ def test_l6_identity_accepts_older_firmware_without_version_gating() -> None:
     assert result.capabilities.identity.firmware == "2.3.3"
 
 
-def test_o6_04_b_selects_complete_tactile_profile() -> None:
+def test_o6_identity_exposes_the_complete_tactile_profile() -> None:
     declared = get_declared_capabilities("o6", side="right")
     transaction = o6_identity_transaction(declared)
 
@@ -258,20 +293,34 @@ def test_o6_04_b_selects_complete_tactile_profile() -> None:
     assert result.capabilities.identity.sensor_variant == "B"
 
 
-def test_o6_non_b_variant_does_not_advertise_tactile() -> None:
+@pytest.mark.parametrize(
+    "product_code",
+    (
+        b"LHO6-02-731-R-B-1-D",
+        b"LHO6-03-731-R-B-1-D",
+        b"LHO6-05-731-R-B-1-D",
+        b"LHO6-04.1-731-R-Z-1-D",
+    ),
+)
+def test_o6_advertises_tactile_for_every_factory_code(product_code: bytes) -> None:
     transaction = o6_identity_transaction(get_declared_capabilities("o6", side="right"))
 
     result = _consume_identity(
         transaction,
         _identity_frames(
             HandSide.RIGHT,
-            b"LHO6-04.1-731-R-Z-1-D",
+            product_code,
             l6=False,
             firmware=(3, 1, 2),
         ),
     )
 
-    assert result.capabilities.telemetry_channel(TelemetrySemantic.FORCE) is None
+    # Other sensor variants carry tactile hardware too, and the factory code
+    # never described the matrix layout. Firmware that does not answer the
+    # tactile query is downgraded by the firmware-optional path at runtime.
+    force = result.capabilities.telemetry_channel(TelemetrySemantic.FORCE)
+    assert force is not None
+    assert force.shape == (5, 10, 4)
 
 
 def test_o6_identity_does_not_gate_connection_by_firmware_version() -> None:

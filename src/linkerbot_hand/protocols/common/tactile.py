@@ -80,8 +80,12 @@ class TactileAssembler:
             return _TACTILE_UNMATCHED
         expected_length = self._columns + 2
         if len(data) != expected_length:
+            # A hand whose matrix is not the layout this SDK assembles lands
+            # here, so name the layout rather than only the byte count.
             raise ProtocolError(
-                f"tactile response must contain {expected_length} bytes"
+                f"tactile response must contain {expected_length} bytes for the "
+                f"{self._rows} by {self._columns} layout this model assembles; "
+                f"got {len(data)}"
             )
         row_index = _row_index(data[1], self._rows)
         payload = data[2:]

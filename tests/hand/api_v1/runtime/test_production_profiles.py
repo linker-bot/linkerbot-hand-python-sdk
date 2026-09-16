@@ -270,6 +270,34 @@ def test_l6_optional_current_query_degrades_without_disconnecting() -> None:
         hand.close()
 
 
+def test_o6_tactile_degrades_on_a_hand_that_never_answers_the_query() -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    # The factory code no longer gates tactile, so a hand whose firmware never
+    # answers must resolve to a clear "unsupported" rather than being excluded
+    # up front by its sensor variant.
+    transport.script.unsupported_queries.add(0xA4)
+    hand.open()
+    try:
+        declared = hand.get_capabilities()
+        assert declared.telemetry_supported(TelemetrySemantic.FORCE)
+
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                hand.get_force(timeout=0.2)
+        with pytest.raises(UnsupportedFirmwareError, match="force"):
+            hand.get_force(timeout=0.2)
+
+        capabilities = hand.get_capabilities()
+        assert capabilities.firmware_unsupported_telemetry == (TelemetrySemantic.FORCE,)
+        assert not capabilities.telemetry_supported(TelemetrySemantic.FORCE)
+        # The declaration itself is retained, so callers can still read the
+        # channel metadata and see why it is unavailable.
+        assert capabilities.telemetry_channel(TelemetrySemantic.FORCE) is not None
+        assert hand.get_health().connected
+    finally:
+        hand.close()
+
+
 @pytest.mark.parametrize("response", (b"\x36", b"\x36\x01"))
 def test_l6_malformed_optional_current_reply_degrades_after_three_failures(
     response: bytes,

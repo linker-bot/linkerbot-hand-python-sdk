@@ -157,14 +157,24 @@ class _SerialFragments:
     def add(self, marker: int, payload: bytes) -> None:
         offset = _serial_offset(marker)
         if offset is None:
-            raise ProtocolError("serial fragment marker is neither an index nor offset")
+            raise ProtocolError(
+                f"serial fragment marker 0x{marker:02X} is outside the "
+                f"{len(_SERIAL_OFFSETS)} fragments this SDK assembles, so factory "
+                f"codes longer than {_SERIAL_OFFSETS[-1] + _SERIAL_FRAGMENT_SIZE} "
+                "bytes are not supported"
+            )
         if not 1 <= len(payload) <= _SERIAL_FRAGMENT_SIZE:
             raise ProtocolError("serial fragment must contain 1..6 payload bytes")
         previous = self.fragments.get(offset)
         if previous is not None and previous != payload:
             raise ProtocolError("serial fragment conflicts with a duplicate")
         self.fragments[offset] = payload
-        if len(payload) < _SERIAL_FRAGMENT_SIZE or b"\x00" in payload:
+        # The code ends at the earliest terminator, so a later one must not push
+        # the boundary back out.
+        is_terminal = len(payload) < _SERIAL_FRAGMENT_SIZE or b"\x00" in payload
+        if is_terminal and (
+            self.terminal_offset is None or offset < self.terminal_offset
+        ):
             self.terminal_offset = offset
 
     @property

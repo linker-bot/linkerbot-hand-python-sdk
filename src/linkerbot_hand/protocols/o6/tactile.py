@@ -1,4 +1,4 @@
-"""O6 04-B five-finger 10 by 4 tactile transaction."""
+"""O6 five-finger 10 by 4 tactile transaction."""
 
 from dataclasses import replace
 

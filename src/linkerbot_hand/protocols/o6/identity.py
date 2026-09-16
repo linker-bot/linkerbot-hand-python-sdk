@@ -7,7 +7,7 @@ from dataclasses import replace
 from ...api.device_info import DeviceInfo
 from ...api.errors import ProtocolError
 from ...api.readings import SampleMeta
-from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
+from ...capabilities.types import DeviceCapabilities
 from ..base import IdentityResult, ProtocolTransaction, ResponseProgress
 from ..common.classic_can import (
     ClassicIdentityCollector,
@@ -76,16 +76,11 @@ def _identity_result(
         serial_number=product.serial_number,
         product_code=product.product_code,
     )
+    # The factory code does not gate the tactile channel. Sensor variants other
+    # than 04-B carry tactile hardware too, and the code never described the
+    # matrix layout anyway. A hand whose firmware does not answer the tactile
+    # query is downgraded at runtime by the firmware-optional path instead.
     verified = replace(declared, identity=identity)
-    if not _is_04_b(product.product_version, product.sensor_variant):
-        verified = replace(
-            verified,
-            telemetry=tuple(
-                channel
-                for channel in verified.telemetry
-                if channel.semantic is not TelemetrySemantic.FORCE
-            ),
-        )
     info = DeviceInfo(
         model=verified.model,
         serial_number=product.serial_number,
@@ -103,10 +98,6 @@ def _identity_result(
         device_info=info,
         fingerprint=product.product_code,
     )
-
-
-def _is_04_b(product_version: str, sensor_variant: str | None) -> bool:
-    return product_version.split(".", 1)[0] == "04" and sensor_variant == "B"
 
 
 __all__ = ["o6_identity_transaction"]

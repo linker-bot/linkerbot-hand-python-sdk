@@ -68,8 +68,6 @@ def _identity_result(
     pcb = collector.version(0xC1)
     firmware = collector.version(0xC2)
     mechanical = collector.version(0xC4)
-    if firmware.major is None or firmware.minor is None or firmware.patch is None:
-        raise ProtocolError("L6 firmware response is not semantic version data")
     identity = replace(
         declared.identity,
         verified=True,
