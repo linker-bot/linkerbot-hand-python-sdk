@@ -98,7 +98,10 @@ assert verified.identity.verified
 
 角度、速度、电流上限、effort limit 和真实扭矩各有独立容量为 1 的 latest slot。新目标会
 把同命令族尚未被 transport claim 的旧目标标记为 `SUPERSEDED`。加速度、运动时间、堵转
-配置和离散操作进入独立有界 FIFO，满时抛出 `QueueFullError`。
+配置、限位补偿（`CommandFamily.LIMIT_COMPENSATION`）和离散操作共用有界 FIFO，
+容量由 `DeviceConfig.discrete_queue_capacity` 控制。已接纳的 FIFO 配置按顺序处理，
+不会因同类新配置到来而标记为 `SUPERSEDED`；队列满时新提交抛出 `QueueFullError`，
+不创建 handle。
 
 ### CommandHandle
 
