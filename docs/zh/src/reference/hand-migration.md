@@ -127,7 +127,7 @@ ROS 不再创建传感器查询 timer，也不维护 `MODEL_SPECS`。
 | 未确认 effort limit | `snapshot.effort_limits.raw` |
 | 真实扭矩 | `snapshot.torques.raw`，仅 capability 明确支持时存在 |
 | 温度 | `snapshot.temperatures.raw` |
-| 触觉/力 | `snapshot.force.raw / tactile` |
+| 触觉/力 | `snapshot.force.raw / tactile / sensors`，按 `payload_projection` 判断 |
 | 故障 | `snapshot.faults.raw` |
 | 设备信息 | `snapshot.device_info` |
 | 堵转配置 | 三个独立 `snapshot.stall_*` 字段 |

@@ -147,6 +147,7 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 | `get_currents(timeout)` | `CurrentSample` |
 | `get_temperatures(timeout)` | `TemperatureSample` |
 | `get_force(timeout)` | `ForceSample`，完整触觉作为一个原子事务 |
+| `get_normal_force_resultant(timeout)` | `NormalForceResultantSample`；当前仅 O30，五指设备 FnS 原值及各自单位 |
 | `get_faults(timeout)` | `FaultSample` |
 | `get_voltages(timeout)` | `VoltageSample` |
 | `get_motion_times(timeout)` | `MotionTimeSample` |
@@ -159,6 +160,11 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 某些配置状态由 capability 声明为 `COMMAND_CACHE`，另一些是
 `COMMAND_RESPONSE`。例如 L6 配置速度来自设备 `0x05` 写响应，标记为
 `DEVICE_CONFIG_RESPONSE`；它既不是本地主机目标，也不会伪装成设备实测速度。
+
+`ForceSample.raw`、`tactile`、`sensors` 分别承载标量、矩阵、descriptor 触觉，按 force
+capability 的 `payload_projection` 判断，不能由关节数量或 `raw_encoding` 猜测。
+O30 的 `sensors` 保留五指身份、设备 metadata、完整 raw_data 与解码字段；使用说明见
+[O30 触觉与合力](./models/o30.md#触觉与合力)。
 
 ROS command、publisher 和 diagnostics callback 不应调用主动 getter。ROS 应让 SDK
 轮询，并从 snapshot 发布。

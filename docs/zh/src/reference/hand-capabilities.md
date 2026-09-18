@@ -57,7 +57,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
-| O30 | 必填 | CAN FD 1M/1M | 20 | angles, speeds, accelerations, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, effort_limits, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
+| O30 | 必填 | CAN FD 1M；BRS off，接口 dbitrate 不作型号限制 | 20 | angles, speeds, accelerations, current_limits, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, current_limits, effort_limits, torques, force（descriptor/合力）, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
 
 `L30` 的 side 为 `NOT_APPLICABLE`，不是 unknown。向 L30 构造传 `left` 或 `right`
 会抛出 `ValidationError`。
@@ -80,7 +80,8 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
 | O30 | thumb_rotation, thumb_roll, index_abd, middle_abd, ring_abd, pinky_abd, thumb_root1, index_root1, middle_root1, ring_root1, pinky_root1, index_root2, middle_root2, ring_root2, pinky_root2, thumb_tip, index_tip, middle_tip, ring_tip, pinky_tip |
 
 不要按关节数猜顺序，也不要把线上 reserved slot 暴露为公共关节。O20 公共接口只有 16 个
-实际自由度；O30 的 36 槽协议对象由 profile 映射为 20 个安装关节。
+实际自由度；O30 当前批量路径从 25 个帧槽投影出 20 个公共通道，并不返回全部
+36 个协议槽或原始 CAN 数据。逐项映射及物理核实边界见 [O30](./models/o30.md)。
 
 ## 推荐轮询频率
 
@@ -94,7 +95,7 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
 | L20 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
 | O20 | 30 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | L30 | 60 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
-| O30 | 30 Hz | 不支持 | 1 Hz | 10 Hz | 5 Hz |
+| O30 | 30 Hz | 10 Hz（descriptor） | 1 Hz | 10 Hz | 5 Hz |
 
 设备实测速度推荐频率为 O20/L30/O30 30 Hz。配置速度不是实测速度：
 
@@ -116,8 +117,8 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
   `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
 - L30 使用 `current_limits`，协议原值为 count，文档比例为 `6.5 mA/count`（范围 `60..800` count，即约 `390..5200 mA`）。SDK 只返回 count，不做换算；比例记录在 `raw_scale_note` 中。
 - L20Lite/L20/O20/O30 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
-- 当前七型号没有 profile 声明真实 `torques` 通道，因此
-  `set_torques()` / `get_torques()` 会返回 unsupported。
+- O30 提供 `get_torques()`，读取协议转矩字段的原值，物理比例未知，不能当作 N·m。
+  当前七型号均未声明 `set_torques()` 写命令；读取支持不代表写入支持。
 
 `raw_unit` 表示返回数字本身的协议单位。若协议数字是 count，即使资料提供
 “0.732 rpm/count”或近似 mA 比例，SDK 仍返回 count；比例只在
@@ -148,3 +149,5 @@ SDK 按五指 `10x4` 组装 O6 触觉，并且**不按出厂编码或传感器�
 `IdentityMismatchError`。逐接口和版本证据见 [L6 型号文档](./models/l6.md)、
 [L6 固件支持证据](./models/l6-firmware-support.md)、[O6 型号文档](./models/o6.md) 与
 [O6 固件支持证据](./models/o6-firmware-support.md)。
+
+O30 的已实现接口、descriptor/合力、单位置信度和固件实测边界见 [O30 型号说明](./models/o30.md)。
