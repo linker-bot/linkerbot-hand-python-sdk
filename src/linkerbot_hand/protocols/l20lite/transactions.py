@@ -26,6 +26,9 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
             telemetry_layouts=TELEMETRY_LAYOUTS,
             baseline=BASELINE_SEMANTICS,
             config_telemetry=CONFIG_TELEMETRY,
+            # LHT10 specifies 1 ms between vector frames. Firmware 4.6.10
+            # intermittently omits replies at the shared 0.5 ms default.
+            request_interval_s=0.001,
         )
 
     def read_transaction(

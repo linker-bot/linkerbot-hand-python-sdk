@@ -77,7 +77,8 @@ def test_l20lite_commands_preserve_documented_split_and_public_order() -> None:
     assert echo.raw == values
     assert echo.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
     assert not angles.terminal_acknowledges_command
-    assert angles.request_interval_s == pytest.approx(0.0005)
+    for transaction in (angles, speeds, effort):
+        assert transaction.request_interval_s == pytest.approx(0.001)
 
 
 @pytest.mark.parametrize(
@@ -109,6 +110,7 @@ def test_l20lite_reads_publish_only_complete_out_of_order_objects(
     transaction = L20LiteProtocolBackend(HandSide.LEFT).read_transaction(
         semantic, capabilities
     )
+    assert transaction.request_interval_s == pytest.approx(0.001)
 
     first = transaction.consume(_message(HandSide.LEFT, responses[0]))
     assert first.matched and not first.complete
