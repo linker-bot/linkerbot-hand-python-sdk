@@ -214,9 +214,16 @@ class _SerialFragments:
 class ClassicIdentityCollector:
     """Collect one C0/C1/C2/C4 identity transaction without I/O ownership."""
 
-    def __init__(self, route: CANRouteKey, *, l6_pcb_format: bool) -> None:
+    def __init__(
+        self,
+        route: CANRouteKey,
+        *,
+        l6_pcb_format: bool,
+        allow_short_product_code: bool = False,
+    ) -> None:
         self._route = route
         self._l6_pcb_format = l6_pcb_format
+        self._allow_short_product_code = allow_short_product_code
         self._serial = _SerialFragments()
         self._versions: dict[int, VersionField] = {}
 
@@ -241,16 +248,35 @@ class ClassicIdentityCollector:
     def complete(self) -> bool:
         """Return whether product code and all supported versions are complete."""
 
-        serial_complete = self._serial.complete or (
-            self._l6_pcb_format and self._serial.legacy_short_complete
-        )
+        serial_complete = self._serial.complete or (self._short_product_code_complete())
         return serial_complete and set(self._versions) == {0xC1, 0xC2, 0xC4}
 
     @property
     def product_code_bytes(self) -> bytes:
         """Return the exact assembled factory product code bytes."""
 
-        return self._serial.result(allow_legacy_short=self._l6_pcb_format)
+        return self._serial.result(
+            allow_legacy_short=self._short_product_code_complete()
+        )
+
+    def _short_product_code_complete(self) -> bool:
+        if not self._serial.legacy_short_complete:
+            return False
+        if self._l6_pcb_format:
+            return True
+        if not self._allow_short_product_code:
+            return False
+        # LHT10 devices may send exactly 18 ASCII bytes without a terminal
+        # frame. Require all seven factory fields and the one-byte factory
+        # suffix, so a longer code missing its last frame is still incomplete.
+        data = self._serial.result(allow_legacy_short=True)
+        fields = data.split(b"-")
+        return (
+            len(data) == 18
+            and len(fields) == 7
+            and all(fields)
+            and len(fields[-1]) == 1
+        )
 
     def product_code(self) -> str:
         """Decode the complete factory product code as strict ASCII."""

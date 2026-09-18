@@ -429,6 +429,23 @@ def test_discovery_maps_l20_factory_product_codes_to_public_l20(
     assert candidate.create_hand_device().get_capabilities().model == "L20"
 
 
+def test_l20lite_short_hardware_code_is_verified_and_candidate_is_constructible() -> (
+    None
+):
+    script = make_script("L20Lite", HandSide.LEFT)
+    script.product_code = "LHT10-07-0-L-B-1-A"
+    source = _Source(
+        _classic_channel(),
+        {TransportKind.CAN: lambda: ScriptedClassicCANTransport(script)},
+    )
+    report = discover_hands(_FAST, source=source)
+    candidate = report.require_one()
+    assert candidate.model == "L20Lite"
+    assert candidate.device_info is not None
+    assert candidate.device_info.product_code == script.product_code
+    assert candidate.create_hand_device().get_capabilities().model == "L20Lite"
+
+
 def test_malformed_classic_product_response_returns_partial_candidate() -> None:
     script = ClassicCANDeviceScript(
         model="L6",

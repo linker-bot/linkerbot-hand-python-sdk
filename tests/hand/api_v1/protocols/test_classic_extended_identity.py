@@ -108,3 +108,43 @@ def test_l20_identity_rejects_a_different_factory_family() -> None:
     with pytest.raises(IdentityMismatchError, match="factory model"):
         for frame in _frames(HandSide.LEFT, "LHO6-04-001-L-B-1-A"):
             transaction.consume(frame)
+
+
+@pytest.mark.parametrize("reversed_frames", (False, True))
+def test_l20lite_accepts_captured_18_byte_identity_without_terminator(
+    reversed_frames: bool,
+) -> None:
+    transaction = l20lite_identity_transaction(
+        get_declared_capabilities("l20lite", side="left")
+    )
+    # Captured on can3: firmware omits a fourth C0 fragment or NUL when the
+    # seven-field factory code ends exactly at the third six-byte boundary.
+    payloads = [
+        bytes.fromhex("c0 00 4c 48 54 31 30 2d"),
+        bytes.fromhex("c0 06 30 37 2d 30 2d 4c"),
+        bytes.fromhex("c0 0c 2d 42 2d 31 2d 41"),
+        b"\xc1\x01\x01\x01",
+        b"\xc2\x04\x06\x0a",
+        b"\xc4\x00\x00\x07",
+    ]
+    if reversed_frames:
+        payloads.reverse()
+    for data in payloads:
+        progress = transaction.consume(_message(HandSide.LEFT, data))
+    assert progress.complete
+    assert isinstance(progress.result, IdentityResult)
+    assert progress.result.device_info.product_code == "LHT10-07-0-L-B-1-A"
+    assert progress.result.device_info.raw_identity == b"LHT10-07-0-L-B-1-A"
+
+
+def test_l20lite_does_not_treat_a_truncated_long_factory_code_as_complete() -> None:
+    transaction = l20lite_identity_transaction(
+        get_declared_capabilities("l20lite", side="left")
+    )
+    frames = _frames(HandSide.LEFT, "LHT10-07-123-L-B-1-A")
+    for frame in frames:
+        if frame.data[0] == 0xC0 and frame.data[1] == 3:
+            terminal = frame
+        else:
+            assert not transaction.consume(frame).complete
+    assert transaction.consume(terminal).complete

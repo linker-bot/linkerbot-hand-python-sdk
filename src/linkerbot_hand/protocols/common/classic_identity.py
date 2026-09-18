@@ -23,6 +23,7 @@ def basic_classic_identity_transaction(
     public_model: str,
     factory_models: tuple[str, ...],
     l6_pcb_format: bool = False,
+    allow_short_product_code: bool = False,
 ) -> ProtocolTransaction:
     """Build identity verification for the common classic CAN wire format.
 
@@ -37,7 +38,11 @@ def basic_classic_identity_transaction(
             f"{public_model} identity transaction requires {public_model} capabilities"
         )
     route = classic_route(capabilities.side)
-    collector = ClassicIdentityCollector(route, l6_pcb_format=l6_pcb_format)
+    collector = ClassicIdentityCollector(
+        route,
+        l6_pcb_format=l6_pcb_format,
+        allow_short_product_code=allow_short_product_code,
+    )
     version_request = b"\xc1\x01" if l6_pcb_format else b"\xc1"
 
     def consume(message: object) -> ResponseProgress:

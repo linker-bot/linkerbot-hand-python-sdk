@@ -14,6 +14,7 @@ def l20lite_identity_transaction(
         capabilities,
         public_model="L20Lite",
         factory_models=("LHT10",),
+        allow_short_product_code=True,
     )
 
 
