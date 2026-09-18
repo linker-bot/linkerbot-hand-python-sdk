@@ -5,16 +5,16 @@ from __future__ import annotations
 from linkerbot_transport import CANRouteKey
 
 from ...api.enums import HandSide
-from ...api.errors import ProtocolError, UnsupportedOperationError
+from ...api.errors import ProtocolError, UnsupportedOperationError, ValidationError
 from ...api.readings import RawNumber, TactileSensorMetadata
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
     TelemetrySemantic,
 )
-from ..base import ProtocolTransaction, SamplePayload
+from ..base import IdentityResult, ProtocolTransaction, SamplePayload
 from .control import command_transaction
-from .framing import addressing_for_side, response_route
+from .framing import HOPAddressing, addressing_for_side, response_route
 from .identity import o30_identity_transaction
 from .sensors import tactile_transaction
 from .telemetry import read_transaction
@@ -29,13 +29,19 @@ _BASELINE = (
 
 
 class O30ProtocolBackend:
-    """O30 HOP profile; CAN ID pair is fixed per side (right 0x001, left 0x002)."""
+    """O30 standard HOP endpoint; default request IDs are right 1, left 2."""
 
-    def __init__(self, side: HandSide) -> None:
+    def __init__(self, side: HandSide, *, request_id: int | None = None) -> None:
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
             raise ProtocolError("O30 protocol requires a left or right side")
         self._side = side
-        self._addressing = addressing_for_side(side)
+        if request_id is not None and type(request_id) is not int:
+            raise ValidationError("O30 request_id must be int or None")
+        self._addressing = (
+            addressing_for_side(side)
+            if request_id is None
+            else HOPAddressing(request_id, request_id | 0x400)
+        )
         self._endpoint_id = (
             "o30",
             self._addressing.request_id,
@@ -43,6 +49,7 @@ class O30ProtocolBackend:
         )
         self._route_keys = (response_route(self._addressing.response_id),)
         self._sensor_metadata: dict[int, TactileSensorMetadata] = {}
+        self._identity_fingerprint: object | None = None
 
     @property
     def endpoint_id(self) -> tuple[str, int, int]:
@@ -64,10 +71,19 @@ class O30ProtocolBackend:
 
         if capabilities.side is not self._side:
             raise ProtocolError("O30 capability side changed after backend creation")
-        # Identity runs once per connection generation. Force the next tactile
-        # read to re-probe metadata after reconnect or firmware replacement.
-        self._sensor_metadata.clear()
-        return o30_identity_transaction(capabilities, self._addressing)
+        # Initialization always supplies the unverified declared profile;
+        # same-generation get_device_info() supplies the verified profile.
+        if not capabilities.identity.verified:
+            self._sensor_metadata.clear()
+            self._identity_fingerprint = None
+        return o30_identity_transaction(
+            capabilities, self._addressing, on_identity=self._observe_identity
+        )
+
+    def _observe_identity(self, identity: IdentityResult) -> None:
+        if identity.fingerprint != self._identity_fingerprint:
+            self._sensor_metadata.clear()
+        self._identity_fingerprint = identity.fingerprint
 
     def baseline_semantics(
         self,

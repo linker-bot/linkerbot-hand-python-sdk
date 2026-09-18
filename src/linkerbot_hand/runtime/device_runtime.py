@@ -59,7 +59,7 @@ class DeviceRuntime:
         if not isinstance(config, DeviceConfig):
             raise ValidationError("config must be DeviceConfig")
         self._clock = resolve_clock(clock)
-        self._backend = _resolve_backend(protocol_backend, capabilities)
+        self._backend = _resolve_backend(protocol_backend, capabilities, config)
         self._config = config
         self._state = RuntimeState(capabilities)
         self._wake = threading.Event()
@@ -456,9 +456,12 @@ class DeviceRuntime:
 def _resolve_backend(
     backend: object | None,
     capabilities: DeviceCapabilities,
+    config: DeviceConfig,
 ) -> ProtocolBackend:
     if backend is None:
-        backend = create_protocol_backend(capabilities)
+        backend = create_protocol_backend(
+            capabilities, o30_request_id=config.o30_request_id
+        )
     for name in (
         "identity_transaction",
         "baseline_semantics",

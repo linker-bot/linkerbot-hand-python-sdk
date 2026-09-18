@@ -68,6 +68,8 @@ _DOCUMENTED_FIELDS = (
 def o30_identity_transaction(
     capabilities: DeviceCapabilities,
     addressing: HOPAddressing,
+    *,
+    on_identity: Callable[[IdentityResult], None] | None = None,
 ) -> ProtocolTransaction:
     """Read identity without imposing a firmware-version connection gate."""
 
@@ -80,7 +82,9 @@ def o30_identity_transaction(
         capabilities,
         values,
         addressing,
-        next_factory=lambda: _layout_transaction(capabilities, values, addressing),
+        next_factory=lambda: _layout_transaction(
+            capabilities, values, addressing, on_identity=on_identity
+        ),
     )
 
 
@@ -88,20 +92,25 @@ def _layout_transaction(
     capabilities: DeviceCapabilities,
     values: dict[str, bytes],
     addressing: HOPAddressing,
+    *,
+    on_identity: Callable[[IdentityResult], None] | None,
 ) -> ProtocolTransaction:
     layout = _select_layout(values)
     fields = _DEPLOYED_FIELDS if layout == "deployed" else _DOCUMENTED_FIELDS
+
+    def result_factory() -> IdentityResult:
+        result = _identity_result(capabilities, values, layout=layout)
+        if on_identity is not None:
+            on_identity(result)
+        return result
+
     return _field_transaction(
         fields,
         0,
         capabilities,
         values,
         addressing,
-        result_factory=lambda: _identity_result(
-            capabilities,
-            values,
-            layout=layout,
-        ),
+        result_factory=result_factory,
     )
 
 
@@ -116,10 +125,19 @@ def _field_transaction(
     result_factory: Callable[[], IdentityResult] | None = None,
 ) -> ProtocolTransaction:
     field = fields[index]
+    # In the compact layout, the probe is the first eight bytes of build_time.
+    # Reuse those bytes instead of asking the device twice.
+    prefix = (
+        values["version_layout_probe"]
+        if field.name == "build_time" and field.sub_index == 0x99
+        else b""
+    )
+    request_start = field.sub_index + len(prefix)
+    request_length = field.length - len(prefix)
     assembler = HOPRangeAssembler(
         MI_PRODUCT_INFO,
-        sub_index=field.sub_index,
-        length=field.length,
+        sub_index=request_start,
+        length=request_length,
         rts=False,
         response_id=addressing.response_id,
     )
@@ -144,7 +162,8 @@ def _field_transaction(
         matched, complete = assembler.consume(message)
         if complete is None:
             return ResponseProgress(matched=matched)
-        text = _decode_ascii(complete, field.name)
+        complete = prefix + complete
+        text = _decode_text(complete, field.name)
         if field.required and text is None:
             raise ProtocolError(f"O30 {field.name} is empty")
         if text is not None:
@@ -164,8 +183,8 @@ def _field_transaction(
         request_messages=(
             build_read_message(
                 MI_PRODUCT_INFO,
-                sub_index=field.sub_index,
-                length=field.length,
+                sub_index=request_start,
+                length=request_length,
                 request_id=addressing.request_id,
             ),
         ),
@@ -178,23 +197,20 @@ def _field_transaction(
 
 
 def _select_layout(values: dict[str, bytes]) -> str:
-    protocol_version = _required_text(values, "protocol_version")
     board_probe = values["board_layout_probe"]
-    version_probe = _decode_ascii(
+    version_probe = _decode_text(
         values["version_layout_probe"],
         "version_layout_probe",
     )
-    second_board_field = _decode_ascii(
-        board_probe[8:],
-        "adapter_board_version_probe",
+    # Splitting a documented UTF-8 board name at byte eight may cut a code
+    # point. Only the observed layout contains two NUL-padded ASCII versions.
+    second_board_bytes = board_probe[8:].split(b"\x00", 1)[0]
+    second_board_field = (
+        second_board_bytes.decode("ascii") if second_board_bytes.isascii() else None
     )
-    if (
-        _semantic_version(protocol_version) == (0, 0, 3)
-        or _looks_like_version(second_board_field)
-        or (
-            version_probe is not None
-            and _DATE_PREFIX_PATTERN.match(version_probe) is not None
-        )
+    if _looks_like_version(second_board_field) or (
+        version_probe is not None
+        and _DATE_PREFIX_PATTERN.match(version_probe) is not None
     ):
         return "deployed"
     return "documented"
@@ -213,11 +229,11 @@ def _identity_result(
     board_probe = values["board_layout_probe"]
 
     if layout == "deployed":
-        interface_text = _decode_ascii(
+        interface_text = _decode_text(
             board_probe[:8],
             "interface_board_version",
         )
-        adapter_text = _decode_ascii(
+        adapter_text = _decode_text(
             board_probe[8:],
             "adapter_board_version",
         )
@@ -225,11 +241,11 @@ def _identity_result(
         adapter_raw = board_probe[8:]
         bootloader_raw = values["bootloader_version"]
     else:
-        interface_text = _decode_ascii(
+        interface_text = _decode_text(
             board_probe,
             "interface_board_version",
         )
-        adapter_text = _decode_ascii(
+        adapter_text = _decode_text(
             values["adapter_board_version"],
             "adapter_board_version",
         )
@@ -238,7 +254,7 @@ def _identity_result(
         bootloader_raw = values["version_layout_probe"]
 
     control_text = _optional_text(values, "control_board_version")
-    bootloader_text = _decode_ascii(bootloader_raw, "bootloader_version")
+    bootloader_text = _decode_text(bootloader_raw, "bootloader_version")
     application_text = _required_text(values, "application_version")
     mechanical_text = _optional_text(values, "mechanical_version")
     build_time = _optional_text(values, "build_time")
@@ -359,24 +375,15 @@ def _required_text(values: dict[str, bytes], name: str) -> str:
 
 
 def _optional_text(values: dict[str, bytes], name: str) -> str | None:
-    return _decode_ascii(values[name], name)
+    return _decode_text(values[name], name)
 
 
-def _decode_ascii(data: bytes, name: str) -> str | None:
+def _decode_text(data: bytes, name: str) -> str | None:
     try:
-        value = data.split(b"\x00", 1)[0].decode("ascii").strip()
+        value = data.split(b"\x00", 1)[0].decode("utf-8").strip()
     except UnicodeDecodeError as error:
-        raise ProtocolError(f"O30 {name} is not ASCII") from error
+        raise ProtocolError(f"O30 {name} is not UTF-8") from error
     return value or None
-
-
-def _semantic_version(value: str) -> tuple[int, int, int] | None:
-    semantic = value.removeprefix("V").removeprefix("v")
-    parts = semantic.split(".")
-    if len(parts) != 3 or any(not part.isdigit() for part in parts):
-        return None
-    major, minor, patch = (int(part) for part in parts)
-    return major, minor, patch
 
 
 def _looks_like_version(value: str | None) -> bool:

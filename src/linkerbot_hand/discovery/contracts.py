@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Hashable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -40,6 +40,7 @@ class DiscoveryConfig:
     inter_request_delay_s: float = 0.002
     route_queue_capacity: int = 256
     l30_node_ids: tuple[int, ...] = tuple(range(1, 32))
+    o30_request_ids: tuple[int, ...] = (0x001, 0x002)
 
     def __post_init__(self) -> None:
         if self.channels is not None:
@@ -87,6 +88,19 @@ class DiscoveryConfig:
             raise ValidationError("l30_node_ids must contain node IDs within 1..31")
         if len(set(self.l30_node_ids)) != len(self.l30_node_ids):
             raise ValidationError("l30_node_ids must not contain duplicates")
+        if (
+            not isinstance(self.o30_request_ids, tuple)
+            or not self.o30_request_ids
+            or any(
+                type(value) is not int or not 0 <= value <= 0x3FE
+                for value in self.o30_request_ids
+            )
+        ):
+            raise ValidationError(
+                "o30_request_ids must contain IDs within 0x000..0x3FE"
+            )
+        if len(set(self.o30_request_ids)) != len(self.o30_request_ids):
+            raise ValidationError("o30_request_ids must not contain duplicates")
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +390,31 @@ class DiscoveryCandidate:
                 model=model,
             )
         resolved_side = _resolved_candidate_side(self, side)
+        if model == "O30":
+            from ..protocols.o30.framing import HOPAddressing
+
+            if self.address.scheme != "o30_hop_endpoint" or self.address.is_extended_id:
+                raise IncompleteIdentityError(
+                    "O30 candidate has no standard HOP endpoint"
+                )
+            addressing = HOPAddressing(
+                self.address.request_id, self.address.response_id
+            )
+            if config is not None and config.o30_request_id not in (
+                None,
+                addressing.request_id,
+            ):
+                raise ValidationError(
+                    "o30_request_id disagrees with discovered endpoint"
+                )
+            return HandDevice(
+                model=model,
+                side=resolved_side.value,
+                transport=self.transport.create_transport(),
+                config=replace(
+                    config or DeviceConfig(), o30_request_id=addressing.request_id
+                ),
+            )
         transport = self.transport.create_transport()
         if model == "L30":
             from ..protocols.l30 import L30ProtocolBackend

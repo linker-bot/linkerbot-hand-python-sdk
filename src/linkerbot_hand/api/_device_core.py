@@ -105,6 +105,13 @@ class _DeviceCore:
         capabilities = get_declared_capabilities(model, side=side)
         self._transport = transport
         self._config = DeviceConfig() if config is None else config
+        if self._config.o30_request_id is not None:
+            if capabilities.model != "O30":
+                raise ValidationError("o30_request_id is only valid for O30")
+            if protocol_backend is not None:
+                raise ValidationError(
+                    "use o30_request_id or protocol_backend, not both"
+                )
         self._clock = clock
         self._protocol_backend = protocol_backend
         self._runtime_factory = (

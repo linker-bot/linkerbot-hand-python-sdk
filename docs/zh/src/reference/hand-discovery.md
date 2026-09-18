@@ -28,7 +28,7 @@ hand.open()
 
 最后三行是三个独立步骤：扫描得到信息、按信息构造关闭状态的设备、显式打开连接。详见下一节。
 
-可以限制扫描接口及 L30 Node ID：
+可以限制扫描接口、L30 Node ID 及 O30 标准帧请求 ID：
 
 ```python
 from linkerbot_hand import DiscoveryConfig, discover_hands
@@ -37,9 +37,34 @@ report = discover_hands(
     DiscoveryConfig(
         channels=("can0", "can1"),
         l30_node_ids=(1, 2, 3),
+        o30_request_ids=(0x001, 0x002, 0x123),
     )
 )
 ```
+
+O30 默认只探测 `0x001`、`0x002`；已改地址的设备应显式加入
+`o30_request_ids`（`0x000..0x3FE`），不会广播或遍历整个地址空间。
+`candidate.create_hand_device()` 保留实际发现的请求/回复 ID，左右手来自身份字段；
+请求 ID 本身不能证明侧别。无侧别信息的候选仍需调用方明确指定。
+
+已知 O30 地址时也可直接构造，不必运行发现：
+
+```python
+from linkerbot_hand import DeviceConfig, HandDevice
+
+hand = HandDevice(
+    model="O30",
+    side="left",
+    transport=transport,
+    config=DeviceConfig(o30_request_id=0x123),
+)
+```
+
+这里仅配置 SDK 端点，不会写设备 CAN ID；回复 ID 固定为 `request_id | 0x400`。
+`o30_request_id=None` 使用对应侧别的默认地址；其他型号不接受该配置。
+扩展帧地址和特殊广播 ID 不属于此入口。普通身份刷新保留同一连接的触觉元数据，
+重连或识别到身份变化后重新读取。当前实机与最新表格同为 249 字节身份布局，
+SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 
 ## 返回什么
 
@@ -103,10 +128,10 @@ for name, hand in hands.items():
 
 ```python
 caps = candidate.capabilities
-print(caps.joint_names)                                        # 关节顺序
-print([command.semantic.value for command in caps.commands])    # 可写命令
-print([channel.semantic.value for channel in caps.telemetry])   # 可读状态
-print(caps.operations)                                          # 清错、使能、标定等
+print(caps.joint_names)  # 关节顺序
+print([command.semantic.value for command in caps.commands])  # 可写命令
+print([channel.semantic.value for channel in caps.telemetry])  # 可读状态
+print(caps.operations)  # 清错、使能、标定等
 ```
 
 其余字段各有用途但不在正常流程里：序列号、产品编号与各版本号用于记录和排查；`address`、`transport`、`raw_identity`、`fingerprint` 是发现内部选路与去重用的，`create_hand_device()` 会自己消费它们，应用不需要读，也不应基于它们自行拼装设备。

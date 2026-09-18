@@ -40,12 +40,6 @@ from ..protocols.o20.codec import (
 from ..protocols.o20.identity import o20_identity_transaction
 from ..protocols.o30.codec import MI_PRODUCT_INFO
 from ..protocols.o30.framing import (
-    LEFT_ADDRESSING as O30_LEFT_ADDRESSING,
-)
-from ..protocols.o30.framing import (
-    RIGHT_ADDRESSING as O30_RIGHT_ADDRESSING,
-)
-from ..protocols.o30.framing import (
     HOPAddressing,
     matching_response_frame,
 )
@@ -721,11 +715,10 @@ def _probe_o30(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
-    # O30 assigns a fixed CAN ID pair per hand side; probe both so left hands
-    # (0x002/0x402) are discovered as well as right hands (0x001/0x401).
-    for addressing in (O30_RIGHT_ADDRESSING, O30_LEFT_ADDRESSING):
+    # Defaults cover both sides; custom configured IDs do not encode a side.
+    for request_id in config.o30_request_ids:
         _probe_o30_endpoint(
-            addressing,
+            HOPAddressing(request_id, request_id | 0x400),
             source,
             channel,
             transport,
@@ -806,7 +799,7 @@ def _probe_o30_endpoint(
                 side=None,
                 problem=DiscoveryProblem(
                     "address_collision",
-                    "multiple O30 product responses used the fixed HOP endpoint",
+                    "multiple O30 product responses used the same HOP endpoint",
                 ),
             )
         )

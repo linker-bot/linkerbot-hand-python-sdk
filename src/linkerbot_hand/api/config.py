@@ -65,7 +65,7 @@ class PollingPlan:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConfig:
-    """Runtime limits and recovery policy for one hand endpoint."""
+    """Runtime limits, optional O30 endpoint and recovery policy for one hand."""
 
     command_rate_hz: float = 250.0
     discrete_queue_capacity: int = 16
@@ -77,8 +77,14 @@ class DeviceConfig:
     auto_reconnect: bool = False
     reconnect_initial_delay_s: float = 0.1
     reconnect_max_delay_s: float = 2.0
+    o30_request_id: int | None = None
 
     def __post_init__(self) -> None:
+        if self.o30_request_id is not None and (
+            type(self.o30_request_id) is not int
+            or not 0 <= self.o30_request_id <= 0x3FE
+        ):
+            raise ValidationError("o30_request_id must be within 0x000..0x3FE or None")
         for name in (
             "discrete_queue_capacity",
             "mailbox_capacity",

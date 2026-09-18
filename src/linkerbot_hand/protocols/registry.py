@@ -39,7 +39,9 @@ _TRANSPORT_KINDS = {
 }
 
 
-def create_protocol_backend(capabilities: DeviceCapabilities) -> ProtocolBackend:
+def create_protocol_backend(
+    capabilities: DeviceCapabilities, *, o30_request_id: int | None = None
+) -> ProtocolBackend:
     """Create the stateless backend declared by one capability profile.
 
     Args:
@@ -78,6 +80,10 @@ def create_protocol_backend(capabilities: DeviceCapabilities) -> ProtocolBackend
         raise ValidationError(
             f"{capabilities.model} protocol backend has an invalid side"
         )
+    if o30_request_id is not None:
+        if capabilities.model != "O30":
+            raise ValidationError("o30_request_id is only valid for O30")
+        return O30ProtocolBackend(capabilities.side, request_id=o30_request_id)
     return factory(capabilities.side)
 
 

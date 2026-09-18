@@ -401,7 +401,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             # connect and be discovered.
             data_bitrate=None,
             addressing_note=(
-                "HOP standard-frame CAN ID pair is fixed per hand side: right "
+                "HOP default standard-frame CAN ID pair: right "
                 "hand request 0x001 / response 0x401, left hand request 0x002 / "
                 "response 0x402. CAN FD BRS disabled, so the data phase equals "
                 "the 1 Mbit nominal rate and any interface data bitrate works."

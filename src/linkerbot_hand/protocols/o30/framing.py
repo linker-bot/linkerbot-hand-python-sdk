@@ -10,7 +10,7 @@ from linkerbot_transport.canfd import CANFDMessage
 from ...api.enums import HandSide
 from ...api.errors import ProtocolError, ValidationError
 
-# O30 assigns each hand side a fixed standard-frame CAN ID pair. The response
+# O30 defaults to a standard-frame CAN ID pair per side. The response
 # ID is the request ID with the top standard-frame bit (0x400) set.
 RIGHT_REQUEST_ID = 0x001
 RIGHT_RESPONSE_ID = 0x401
@@ -42,6 +42,8 @@ class HOPAddressing:
         ):
             if type(value) is not int or not 0 <= value <= _STANDARD_ID_MAX:
                 raise ValidationError(f"HOP {name} must be a standard CAN ID")
+        if self.request_id > 0x3FE:
+            raise ValidationError("HOP unicast request_id must be within 0x000..0x3FE")
         if self.response_id != self.request_id | 0x400:
             raise ValidationError("HOP response_id must be request_id | 0x400")
 
@@ -51,7 +53,7 @@ LEFT_ADDRESSING = HOPAddressing(LEFT_REQUEST_ID, LEFT_RESPONSE_ID)
 
 
 def addressing_for_side(side: HandSide) -> HOPAddressing:
-    """Return the fixed CAN ID pair O30 assigns to ``side``."""
+    """Return the default CAN ID pair for ``side``; IDs may be configured."""
 
     if side is HandSide.RIGHT:
         return RIGHT_ADDRESSING
