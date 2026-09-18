@@ -374,7 +374,9 @@ def test_o30_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
     assert not unrelated.matched
     acknowledged = transaction.consume(_response(MI_POSITION, 0, bytes(25)))
     assert acknowledged.complete and acknowledged.acknowledged
-    assert acknowledged.result is None
+    assert isinstance(acknowledged.result, SamplePayload)
+    assert acknowledged.result.raw == (0,) * 20
+    assert acknowledged.result.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
 
 
 def test_o30_device_error_object_has_stable_fault_classification() -> None:

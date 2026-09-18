@@ -128,7 +128,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 joints,
                 _RAW_ENCODING,
                 ack_support=AckSupport.SUPPORTED,
-                returns_current_state=False,
+                returns_current_state=True,
             ),
             command(
                 CommandSemantic.SPEEDS,

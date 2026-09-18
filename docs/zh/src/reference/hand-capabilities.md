@@ -63,7 +63,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 会抛出 `ValidationError`。
 
 角度命令的 `returns_current_state` 表示写响应是否已被该型号协议验证为当前实际角度。
-L6、O6、L20Lite、L20 当前为 `True`；O20、L30、O30 为 `False`。后者不代表不能读取
+L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者不代表不能读取
 角度，而是写入本身不能代替闭环状态查询。
 
 ## 关节顺序

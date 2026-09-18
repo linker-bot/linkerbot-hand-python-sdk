@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
 from ...api.readings import RawNumber
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
+    TelemetrySemantic,
 )
-from ..base import ProtocolTransaction, ResponseProgress
+from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
 from .codec import (
     MI_ACCELERATION,
     MI_CURRENT,
@@ -22,6 +24,7 @@ from .codec import (
     MI_STALL_THRESHOLD,
     MI_STALL_TIME,
     WIRE_SLOT_COUNT,
+    decode_v25,
     encode_v25,
 )
 from .framing import HOPAddressing, build_write_message
@@ -30,12 +33,12 @@ from .response import HOPRangeAssembler
 
 @dataclass(frozen=True, slots=True)
 class _CommandObject:
-    """One writable V25 object and the RTS its write must carry."""
+    """One writable V25 object and the view requested in its response."""
 
     main_index: int
-    # RTS=1 writes a set-point/limit (actual per 0.0.4 devices, e.g. current
-    # limit 0x04). RTS=0 writes are only meaningful where the device accepts a
-    # setpoint without the return-switch (kept as-is until on-device review).
+    # RTS selects returned actual state (0) or configured values (1); the
+    # payload performs the write in either case. Only verified angle feedback
+    # is published as current state; config acknowledgements are kept separate.
     rts: bool = False
 
 
@@ -79,10 +82,27 @@ def command_transaction(
 
     def consume(message: object) -> ResponseProgress:
         matched, complete = assembler.consume(message)
+        if complete is None:
+            return ResponseProgress(matched=matched)
+        feedback = None
+        if semantic is CommandSemantic.ANGLES:
+            # RTS=0 selects actual state, which can differ from the target
+            # while the hand is moving. ACK is not a mechanical arrival test.
+            raw = decode_v25(complete)
+            feedback = SamplePayload(
+                semantic=TelemetrySemantic.ANGLES,
+                raw=raw,
+                origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+                within_declared_range=all(
+                    joint.raw_angle_range.contains(value)
+                    for joint, value in zip(capabilities.joints, raw, strict=True)
+                ),
+            )
         return ResponseProgress(
-            matched=matched,
-            complete=complete is not None,
-            acknowledged=complete is not None,
+            matched=True,
+            complete=True,
+            acknowledged=True,
+            result=feedback,
         )
 
     return ProtocolTransaction(

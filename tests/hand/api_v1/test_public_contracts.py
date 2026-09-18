@@ -109,11 +109,11 @@ def test_angle_command_declares_only_verified_current_state_responses() -> None:
         ("o6", "right"),
         ("l20lite", "left"),
         ("l20", "right"),
+        ("o30", "right"),
     }
     dispatch_or_ack_profiles = {
         ("o20", "right"),
         ("l30", None),
-        ("o30", "right"),
     }
 
     for model, side in response_profiles:
