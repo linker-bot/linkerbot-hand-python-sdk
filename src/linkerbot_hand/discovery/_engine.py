@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -9,7 +10,9 @@ from typing import cast
 
 import can
 
-from linkerbot_transport import CANRouteKey, SendOutcome
+from linkerbot_transport import CANRouteKey, SendOutcome, TransportState
+from linkerbot_transport import ClosedError as TransportClosedError
+from linkerbot_transport import DeviceNotReadyError as TransportNotReadyError
 from linkerbot_transport import TimeoutError as RxTimeout
 from linkerbot_transport.canfd import CANFDMessage
 
@@ -425,12 +428,53 @@ def _probe_can_fd(
     try:
         transport = source.create_transport(channel, TransportKind.CAN_FD)
         _open_transport(transport)
-        if compatible_o20:
-            _probe_o20(source, channel, transport, config, candidates)
-        if compatible_l30:
-            _probe_l30(source, channel, transport, config, candidates, failures)
-        if compatible_o30:
-            _probe_o30(source, channel, transport, config, candidates, failures)
+        probes = (
+            (
+                "o20",
+                compatible_o20,
+                lambda: _probe_o20(source, channel, transport, config, candidates),
+            ),
+            (
+                "l30",
+                compatible_l30,
+                lambda: _probe_l30(
+                    source, channel, transport, config, candidates, failures
+                ),
+            ),
+            (
+                "o30",
+                compatible_o30,
+                lambda: _probe_o30(
+                    source, channel, transport, config, candidates, failures
+                ),
+            ),
+        )
+        for model, compatible, probe in probes:
+            if not compatible:
+                continue
+            if not _probe_transport_open(transport):
+                break
+            try:
+                probe()
+            except Exception as error:  # noqa: BLE001 - per-model probe boundary
+                _record_failure(
+                    failures,
+                    operation=f"probe_{model}_identity",
+                    error=error,
+                    channel=channel,
+                    wire_protocol=TransportKind.CAN_FD,
+                )
+                cause = (
+                    error.error if isinstance(error, _TransportProbeError) else error
+                )
+                if isinstance(
+                    cause, (TransportClosedError, TransportNotReadyError)
+                ) or (
+                    isinstance(cause, OSError)
+                    and cause.errno
+                    in {errno.ENETDOWN, errno.ENODEV, errno.EBADF, errno.ENXIO}
+                ):
+                    break
     except Exception as error:  # noqa: BLE001 - discovery source boundary
         _record_failure(
             failures,
@@ -451,6 +495,15 @@ def _probe_can_fd(
                     channel=channel,
                     wire_protocol=TransportKind.CAN_FD,
                 )
+
+
+def _probe_transport_open(transport: object) -> bool:
+    """Stop a dead managed link; custom sources may omit health inspection."""
+
+    get_health = getattr(transport, "get_health", None)
+    if not callable(get_health):
+        return True
+    return get_health().state is TransportState.OPEN
 
 
 def _probe_o20(
