@@ -14,6 +14,8 @@ from linkerbot_hand.capabilities.types import TelemetrySemantic
 from linkerbot_hand.protocols import SamplePayload
 from linkerbot_hand.protocols.common.classic_can import classic_route
 from linkerbot_hand.protocols.l6 import L6ProtocolBackend
+from linkerbot_hand.protocols.l20 import L20ProtocolBackend
+from linkerbot_hand.protocols.l20lite import L20LiteProtocolBackend
 from linkerbot_hand.protocols.o6 import O6ProtocolBackend
 
 _FINGERS = (0xB1, 0xB2, 0xB3, 0xB4, 0xB5)
@@ -89,15 +91,26 @@ def test_o6_tactile_transaction_gates_each_finger_and_assembles_atomically(
 
 
 @pytest.mark.parametrize("nibble_markers", (False, True))
-def test_l6_tactile_transaction_waits_for_each_finger_before_requesting_next(
+@pytest.mark.parametrize(
+    ("model", "backend_type"),
+    (
+        ("l6", L6ProtocolBackend),
+        ("l20", L20ProtocolBackend),
+        ("l20lite", L20LiteProtocolBackend),
+    ),
+)
+def test_12_by_6_tactile_waits_for_each_finger_before_requesting_next(
     nibble_markers: bool,
+    model,
+    backend_type,
 ) -> None:
-    capabilities = get_declared_capabilities("l6", side="left")
-    transaction = L6ProtocolBackend(HandSide.LEFT).read_transaction(
+    capabilities = get_declared_capabilities(model, side="left")
+    transaction = backend_type(HandSide.LEFT).read_transaction(
         TelemetrySemantic.FORCE,
         capabilities,
     )
-    assert transaction.firmware_optional
+    if model == "l6":
+        assert transaction.firmware_optional
 
     progress = None
     stage = transaction
