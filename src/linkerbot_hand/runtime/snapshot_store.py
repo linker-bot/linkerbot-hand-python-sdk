@@ -570,6 +570,8 @@ def _build_view(
                 capabilities=capabilities,
                 generation=generation,
             )
+        else:
+            updates[attribute] = None
     device_info = snapshot.device_info
     if device_info is not None:
         updates["device_info"] = age_device_info(
@@ -578,8 +580,8 @@ def _build_view(
             collected_monotonic=device_info_collected_monotonic,
             generation=generation,
         )
-    view = replace(snapshot, **updates)
-    return replace(view, joints=joint_projection.get(view, capabilities))
+    updates["joints"] = joint_projection.get(snapshot, capabilities, samples=updates)
+    return replace(snapshot, **updates)
 
 
 def _validate_wait_arguments(

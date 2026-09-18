@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import math
 import threading
-from dataclasses import replace
-from typing import cast
+from dataclasses import fields, replace
+from functools import lru_cache
+from typing import TypeVar, cast
 
 from ..api.device_info import DeviceInfo
 from ..api.errors import ProtocolError
@@ -78,6 +79,14 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
     TelemetrySemantic.STALL_HOLD_CURRENTS: StallHoldCurrentSample,
     TelemetrySemantic.LIMIT_COMPENSATIONS: LimitCompensationSample,
 }
+
+
+_SAMPLE_TYPES = frozenset(
+    (AngleSample, ForceSample, DeviceInfo, *_VECTOR_TYPES.values())
+)
+_SampleT = TypeVar(
+    "_SampleT", bound=AngleSample | ForceSample | _RawVectorSample | DeviceInfo
+)
 
 
 def build_sample(
@@ -209,14 +218,14 @@ def age_sample(
     if not typed.meta.valid:
         return typed
     if collected_monotonic is None:
-        return replace(
+        return _with_meta(
             typed,
-            meta=SampleMeta.unavailable(connection_generation=generation),
+            SampleMeta.unavailable(connection_generation=generation),
         )
     age = max(0.0, monotonic_now - collected_monotonic)
     telemetry = capabilities.telemetry_channel(semantic)
     stale = telemetry is None or age > telemetry.stale_after_s
-    return replace(typed, meta=replace(typed.meta, age_s=age, stale=stale))
+    return _with_meta(typed, replace(typed.meta, age_s=age, stale=stale))
 
 
 def age_device_info(
@@ -231,13 +240,13 @@ def age_device_info(
     if not device_info.meta.valid:
         return device_info
     if collected_monotonic is None:
-        return replace(
+        return _with_meta(
             device_info,
-            meta=SampleMeta.unavailable(connection_generation=generation),
+            SampleMeta.unavailable(connection_generation=generation),
         )
-    return replace(
+    return _with_meta(
         device_info,
-        meta=replace(
+        replace(
             device_info.meta,
             age_s=max(0.0, monotonic_now - collected_monotonic),
             stale=False,
@@ -245,26 +254,57 @@ def age_device_info(
     )
 
 
+@lru_cache(maxsize=32)
+def _sample_fields(
+    cls: type[AngleSample | ForceSample | _RawVectorSample | DeviceInfo],
+) -> tuple[str, ...]:
+    return tuple(field.name for field in fields(cls) if field.name != "meta")
+
+
+def _with_meta(sample: _SampleT, meta: SampleMeta) -> _SampleT:
+    """Age an already validated immutable sample without revalidating its data.
+
+    Only this module's aging paths use this helper: metadata is constructed via
+    the normal validator, and validity can only stay valid or become invalid.
+    Data fields are shared immutable values, never user-supplied replacements.
+    Public constructors/replace retain their full input validation.
+    """
+    cls = type(sample)
+    if cls not in _SAMPLE_TYPES:
+        return replace(sample, meta=meta)
+    result = object.__new__(cls)
+    for name in _sample_fields(cls):
+        object.__setattr__(result, name, getattr(sample, name))
+    object.__setattr__(result, "meta", meta)
+    return result
+
+
 def build_joints(
-    snapshot: HandSnapshot, capabilities: DeviceCapabilities
+    snapshot: HandSnapshot,
+    capabilities: DeviceCapabilities,
+    *,
+    samples: dict[str, object] | None = None,
 ) -> tuple[JointState, ...]:
     """Project canonical vector samples into the convenient joint view."""
+
+    def sample(name: str):
+        return getattr(snapshot, name) if samples is None else samples[name]
 
     return tuple(
         JointState(
             index=joint.index,
             name=joint.name,
-            angle_raw=_value(snapshot.angles, index, "raw"),
-            angle_percent=_value(snapshot.angles, index, "percent"),
-            physical_rad=_value(snapshot.angles, index, "physical_rad"),
-            measured_speed_raw=_value(snapshot.measured_speeds, index),
-            configured_speed_raw=_value(snapshot.configured_speeds, index),
-            current_raw=_value(snapshot.currents, index),
-            current_limit_raw=_value(snapshot.current_limits, index),
-            effort_limit_raw=_value(snapshot.effort_limits, index),
-            torque_raw=_value(snapshot.torques, index),
-            temperature_raw=_value(snapshot.temperatures, index),
-            fault_raw=_fault_value(snapshot.faults, index),
+            angle_raw=_value(sample("angles"), index, "raw"),
+            angle_percent=_value(sample("angles"), index, "percent"),
+            physical_rad=_value(sample("angles"), index, "physical_rad"),
+            measured_speed_raw=_value(sample("measured_speeds"), index),
+            configured_speed_raw=_value(sample("configured_speeds"), index),
+            current_raw=_value(sample("currents"), index),
+            current_limit_raw=_value(sample("current_limits"), index),
+            effort_limit_raw=_value(sample("effort_limits"), index),
+            torque_raw=_value(sample("torques"), index),
+            temperature_raw=_value(sample("temperatures"), index),
+            fault_raw=_fault_value(sample("faults"), index),
         )
         for index, joint in enumerate(capabilities.joints)
     )
@@ -284,9 +324,16 @@ class JointProjection:
         self._joints: tuple[JointState, ...] = ()
 
     def get(
-        self, snapshot: HandSnapshot, capabilities: DeviceCapabilities
+        self,
+        snapshot: HandSnapshot,
+        capabilities: DeviceCapabilities,
+        *,
+        samples: dict[str, object] | None = None,
     ) -> tuple[JointState, ...]:
-        angles = snapshot.angles
+        def sample(name):
+            return getattr(snapshot, name) if samples is None else samples[name]
+
+        angles = cast(AngleSample | None, sample("angles"))
         sources = (
             capabilities.joints,
             angles.percent if angles is not None and angles.meta.valid else None,
@@ -295,14 +342,14 @@ class JointProjection:
                 sample.raw if sample is not None and sample.meta.valid else None
                 for sample in (
                     angles,
-                    snapshot.measured_speeds,
-                    snapshot.configured_speeds,
-                    snapshot.currents,
-                    snapshot.current_limits,
-                    snapshot.effort_limits,
-                    snapshot.torques,
-                    snapshot.temperatures,
-                    snapshot.faults,
+                    sample("measured_speeds"),
+                    sample("configured_speeds"),
+                    sample("currents"),
+                    sample("current_limits"),
+                    sample("effort_limits"),
+                    sample("torques"),
+                    sample("temperatures"),
+                    sample("faults"),
                 )
             ),
         )
@@ -311,7 +358,8 @@ class JointProjection:
                 current is cached for current, cached in zip(sources, self._sources)
             ):
                 return self._joints
-        joints = build_joints(snapshot, capabilities)
+        # Projection only needs attributes, not another validated HandSnapshot.
+        joints = build_joints(snapshot, capabilities, samples=samples)
         with self._lock:
             self._sources, self._joints = sources, joints
         return joints
