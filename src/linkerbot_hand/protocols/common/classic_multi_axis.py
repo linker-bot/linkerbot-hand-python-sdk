@@ -36,6 +36,7 @@ class ClassicMultiAxisBackend:
         baseline: tuple[TelemetrySemantic, ...],
         operation_payloads: Mapping[str, tuple[bytes, ...]] | None = None,
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
+        firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
         request_interval_s: float = 0.0005,
     ) -> None:
         self._route = route
@@ -45,6 +46,7 @@ class ClassicMultiAxisBackend:
         self._baseline = baseline
         self._operation_payloads = dict(operation_payloads or {})
         self._config_telemetry = frozenset(config_telemetry)
+        self._firmware_optional_reads = frozenset(firmware_optional_reads)
         self._request_interval_s = request_interval_s
 
     @property
@@ -193,6 +195,7 @@ class ClassicMultiAxisBackend:
             response_consumer=consume,
             request_interval_s=self._request_interval_s,
             late_response_guard_s=0.005,
+            firmware_optional=semantic in self._firmware_optional_reads,
         )
 
     def operation_transaction(

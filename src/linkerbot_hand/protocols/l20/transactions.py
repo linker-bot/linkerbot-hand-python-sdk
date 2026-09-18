@@ -1,5 +1,7 @@
 """L20 protocol backend."""
 
+from dataclasses import replace
+
 from ...api.enums import HandSide
 from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction
@@ -28,6 +30,10 @@ class L20ProtocolBackend(ClassicMultiAxisBackend):
             baseline=BASELINE_SEMANTICS,
             operation_payloads={"clear_faults": CLEAR_FAULT_PAYLOADS},
             config_telemetry=CONFIG_TELEMETRY,
+            firmware_optional_reads=(
+                TelemetrySemantic.MEASURED_SPEEDS,
+                TelemetrySemantic.TEMPERATURES,
+            ),
         )
 
     def read_transaction(
@@ -38,7 +44,7 @@ class L20ProtocolBackend(ClassicMultiAxisBackend):
         """Build a vector read or one complete five-finger tactile read."""
 
         if semantic is TelemetrySemantic.FORCE:
-            return tactile_transaction(
+            transaction = tactile_transaction(
                 capabilities,
                 route=classic_route(capabilities.side),
                 selector=0xC6,
@@ -48,6 +54,7 @@ class L20ProtocolBackend(ClassicMultiAxisBackend):
                 response_timeout_s=0.15,
                 late_response_guard_s=0.1,
             )
+            return replace(transaction, firmware_optional=True)
         return super().read_transaction(semantic, capabilities)
 
 

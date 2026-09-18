@@ -181,3 +181,28 @@ def test_matching_multi_axis_fragment_rejects_a_wrong_dlc() -> None:
 
     with pytest.raises(ProtocolError, match="7 bytes"):
         transaction.consume(_message(HandSide.LEFT, b"\x01\x00"))
+
+
+@pytest.mark.parametrize(
+    ("model", "backend_type"),
+    (("l20", L20ProtocolBackend), ("l20lite", L20LiteProtocolBackend)),
+)
+def test_l20_family_optional_queries_exclude_required_baseline(model, backend_type):
+    capabilities = get_declared_capabilities(model, side="left")
+    backend = backend_type(HandSide.LEFT)
+    optional = {
+        channel.semantic
+        for channel in capabilities.telemetry
+        if backend.read_transaction(channel.semantic, capabilities).firmware_optional
+    }
+    assert optional == {
+        TelemetrySemantic.MEASURED_SPEEDS,
+        TelemetrySemantic.TEMPERATURES,
+        TelemetrySemantic.FORCE,
+    }
+    assert backend.baseline_semantics(capabilities) == (
+        TelemetrySemantic.ANGLES,
+        TelemetrySemantic.FAULTS,
+        TelemetrySemantic.EFFORT_LIMITS,
+    )
+    assert optional.isdisjoint(backend.baseline_semantics(capabilities))

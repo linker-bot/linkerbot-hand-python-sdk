@@ -1,5 +1,7 @@
 """L20Lite protocol backend."""
 
+from dataclasses import replace
+
 from ...api.enums import HandSide
 from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction
@@ -26,6 +28,10 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
             telemetry_layouts=TELEMETRY_LAYOUTS,
             baseline=BASELINE_SEMANTICS,
             config_telemetry=CONFIG_TELEMETRY,
+            firmware_optional_reads=(
+                TelemetrySemantic.MEASURED_SPEEDS,
+                TelemetrySemantic.TEMPERATURES,
+            ),
             # LHT10 specifies 1 ms between vector frames. Firmware 4.6.10
             # intermittently omits replies at the shared 0.5 ms default.
             request_interval_s=0.001,
@@ -39,7 +45,7 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
         """Build a vector read or one complete five-finger tactile read."""
 
         if semantic is TelemetrySemantic.FORCE:
-            return tactile_transaction(
+            transaction = tactile_transaction(
                 capabilities,
                 route=classic_route(capabilities.side),
                 selector=0xC6,
@@ -49,6 +55,7 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
                 response_timeout_s=0.15,
                 late_response_guard_s=0.1,
             )
+            return replace(transaction, firmware_optional=True)
         return super().read_transaction(semantic, capabilities)
 
 
