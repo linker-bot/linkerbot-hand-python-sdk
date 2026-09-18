@@ -18,9 +18,9 @@ from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import SamplePayload
 from ._snapshot_samples import (
     SAMPLE_ATTRIBUTES,
+    JointProjection,
     age_device_info,
     age_sample,
-    build_joints,
     build_sample,
     invalidate_snapshot,
     payload_within_range,
@@ -63,6 +63,7 @@ class SnapshotStore:
         self._changed_without_command_feedback = threading.Condition(self._lock)
         self._current = _generation_state(capabilities, initial_snapshot)
         self._candidate: _GenerationState | None = None
+        self._joint_projection = JointProjection()
 
     def begin_generation(
         self,
@@ -328,6 +329,7 @@ class SnapshotStore:
             generation = state.generation
         return _build_view(
             snapshot,
+            joint_projection=self._joint_projection,
             capabilities=capabilities,
             generation=generation,
             collected_monotonic=collected_monotonic,
@@ -374,10 +376,11 @@ class SnapshotStore:
                 snapshot = state.last_change
             else:
                 snapshot = state.last_non_command_feedback_change
-            return replace(
-                snapshot,
-                joints=build_joints(snapshot, state.capabilities),
-            )
+            capabilities = state.capabilities
+        return replace(
+            snapshot,
+            joints=self._joint_projection.get(snapshot, capabilities),
+        )
 
     def view(self, *, captured_at: float, monotonic_now: float) -> HandSnapshot:
         """Return an immutable cache-only view with current age and stale flags."""
@@ -394,6 +397,7 @@ class SnapshotStore:
 
         return _build_view(
             snapshot,
+            joint_projection=self._joint_projection,
             capabilities=capabilities,
             generation=generation,
             collected_monotonic=collected_monotonic,
@@ -413,9 +417,23 @@ class SnapshotStore:
 
         if not isinstance(semantic, TelemetrySemantic):
             raise ValidationError("semantic must be TelemetrySemantic")
-        return getattr(
-            self.view(captured_at=captured_at, monotonic_now=monotonic_now),
-            SAMPLE_ATTRIBUTES[semantic],
+        _validate_time(captured_at)
+        _validate_time(monotonic_now)
+        with self._lock:
+            state = self._current
+            sample = getattr(state.snapshot, SAMPLE_ATTRIBUTES[semantic])
+            capabilities = state.capabilities
+            generation = state.generation
+            collected_monotonic = state.collected_monotonic.get(semantic)
+        if sample is None:
+            return None
+        return age_sample(
+            semantic,
+            sample,
+            monotonic_now=monotonic_now,
+            collected_monotonic=collected_monotonic,
+            capabilities=capabilities,
+            generation=generation,
         )
 
     def sequence(self, semantic: TelemetrySemantic) -> int:
@@ -530,6 +548,7 @@ def _record_visible_change(
 def _build_view(
     snapshot: HandSnapshot,
     *,
+    joint_projection: JointProjection,
     capabilities: DeviceCapabilities,
     generation: int,
     collected_monotonic: dict[TelemetrySemantic, float],
@@ -560,7 +579,7 @@ def _build_view(
             generation=generation,
         )
     view = replace(snapshot, **updates)
-    return replace(view, joints=build_joints(view, capabilities))
+    return replace(view, joints=joint_projection.get(view, capabilities))
 
 
 def _validate_wait_arguments(

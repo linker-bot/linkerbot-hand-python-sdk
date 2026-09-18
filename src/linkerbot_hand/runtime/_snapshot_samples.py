@@ -1,8 +1,9 @@
-"""Pure typed-sample construction and snapshot projection helpers."""
+"""Typed-sample construction and immutable snapshot projection helpers."""
 
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import replace
 from typing import cast
 
@@ -269,6 +270,53 @@ def build_joints(
     )
 
 
+class JointProjection:
+    """One bounded, read-side cache of an immutable per-joint projection.
+
+    Only the vector identities and validity affect JointState, not age, sequence
+    or tactile data. Retaining the vectors makes identity comparison safe even
+    when a concurrent publisher replaces the canonical snapshot.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sources: tuple[object, ...] = ()
+        self._joints: tuple[JointState, ...] = ()
+
+    def get(
+        self, snapshot: HandSnapshot, capabilities: DeviceCapabilities
+    ) -> tuple[JointState, ...]:
+        angles = snapshot.angles
+        sources = (
+            capabilities.joints,
+            angles.percent if angles is not None and angles.meta.valid else None,
+            angles.physical_rad if angles is not None and angles.meta.valid else None,
+            *(
+                sample.raw if sample is not None and sample.meta.valid else None
+                for sample in (
+                    angles,
+                    snapshot.measured_speeds,
+                    snapshot.configured_speeds,
+                    snapshot.currents,
+                    snapshot.current_limits,
+                    snapshot.effort_limits,
+                    snapshot.torques,
+                    snapshot.temperatures,
+                    snapshot.faults,
+                )
+            ),
+        )
+        with self._lock:
+            if len(sources) == len(self._sources) and all(
+                current is cached for current, cached in zip(sources, self._sources)
+            ):
+                return self._joints
+        joints = build_joints(snapshot, capabilities)
+        with self._lock:
+            self._sources, self._joints = sources, joints
+        return joints
+
+
 def snapshot_with_generation(
     snapshot: HandSnapshot, generation: int, captured_at: float
 ) -> HandSnapshot:
@@ -330,6 +378,7 @@ def _fault_value(sample: FaultSample | None, index: int) -> int | None:
 
 __all__ = [
     "SAMPLE_ATTRIBUTES",
+    "JointProjection",
     "age_device_info",
     "age_sample",
     "build_joints",

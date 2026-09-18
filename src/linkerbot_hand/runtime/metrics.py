@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import threading
+from bisect import bisect_left, insort
 from collections import deque
 
 from linkerbot_transport import TransportHealth
@@ -40,6 +42,8 @@ class RuntimeMetrics:
         self._consecutive_errors = initial.consecutive_errors
         self._recent_error = initial.recent_error
         self._latencies: deque[float] = deque(maxlen=2048)
+        self._ordered_latencies: list[float] = []
+        self._latency_cache: LatencyMetrics | None = None
 
     def opening(self) -> None:
         """Publish the synchronous open transition."""
@@ -126,11 +130,20 @@ class RuntimeMetrics:
     def transaction_completed(self, *, timestamp: float, duration_s: float) -> None:
         """Record one complete logical response and its latency."""
 
-        if duration_s < 0:
-            raise ValidationError("duration_s must be non-negative")
+        if not math.isfinite(duration_s) or duration_s < 0:
+            raise ValidationError("duration_s must be finite and non-negative")
         with self._lock:
             self._last_transaction = timestamp
+            # Keep the same bounded window, but avoid sorting it on every read.
+            # Moving at most 2048 list entries costs much less than a full sort.
+            if len(self._latencies) == self._latencies.maxlen:
+                oldest = self._latencies[0]
+                self._ordered_latencies.pop(
+                    bisect_left(self._ordered_latencies, oldest)
+                )
             self._latencies.append(duration_s)
+            insort(self._ordered_latencies, duration_s)
+            self._latency_cache = None
             self._consecutive_errors = 0
 
     def record_error(self, error: HandError) -> None:
@@ -167,7 +180,9 @@ class RuntimeMetrics:
             last_transaction = self._last_transaction
             consecutive_errors = self._consecutive_errors
             recent_error = self._recent_error
-            latencies = tuple(self._latencies)
+            if self._latency_cache is None:
+                self._latency_cache = _latency_metrics(self._ordered_latencies)
+            latency = self._latency_cache
         data_ages = snapshot_store.data_ages(
             captured_at=captured_at,
             monotonic_now=now,
@@ -189,7 +204,7 @@ class RuntimeMetrics:
             command_families=commands.metrics(),
             discrete_queue_depth=commands.discrete_depth,
             channels=channels,
-            transaction_latency=_latency_metrics(latencies),
+            transaction_latency=latency,
             transport=_transport_metrics(transport, arbiter),
         )
 
@@ -212,15 +227,15 @@ class RuntimeMetrics:
         self._recent_error = ErrorInfo.from_exception(error)
 
 
-def _latency_metrics(values: tuple[float, ...]) -> LatencyMetrics:
+def _latency_metrics(values: list[float]) -> LatencyMetrics:
+    """Project the already ordered latency window while its owner is locked."""
     if not values:
         return LatencyMetrics()
-    ordered = sorted(values)
     return LatencyMetrics(
-        count=len(ordered),
-        p50_s=_percentile(ordered, 0.50),
-        p95_s=_percentile(ordered, 0.95),
-        p99_s=_percentile(ordered, 0.99),
+        count=len(values),
+        p50_s=_percentile(values, 0.50),
+        p95_s=_percentile(values, 0.95),
+        p99_s=_percentile(values, 0.99),
     )
 
 
