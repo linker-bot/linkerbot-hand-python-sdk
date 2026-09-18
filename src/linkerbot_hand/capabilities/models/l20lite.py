@@ -106,6 +106,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 U8_RANGE,
                 "u8",
                 raw_unit="count",
+                raw_scale_note="raw speed setting; physical scale is unverified",
                 unit_confidence=Confidence.UNKNOWN,
             ),
             command(
@@ -114,7 +115,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 U8_RANGE,
                 "u8",
                 raw_unit=None,
-                raw_scale_note="physical meaning remains unverified",
+                raw_scale_note=(
+                    "raw limit setting; physical quantity and scale are unverified"
+                ),
                 unit_confidence=Confidence.UNKNOWN,
             ),
         ),
@@ -132,6 +135,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(10,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
+                raw_scale_note="real-time speed; physical scale is unverified",
                 unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
@@ -161,7 +165,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(5, 12, 6),
                 raw_range=U8_RANGE,
                 raw_unit="count",
-                unit_confidence=Confidence.DOCUMENTED,
+                raw_scale_note=(
+                    "raw tactile sensor count; physical calibration unknown; "
+                    "scalar force object units do not apply to this matrix"
+                ),
+                unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.02,
@@ -174,6 +182,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(10,),
                 raw_range=U8_RANGE,
                 raw_unit="degree_celsius",
+                raw_scale_note="1 degree Celsius/count",
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=1,
                 stale_after_s=3,
@@ -186,6 +195,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(10,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
+                raw_scale_note=(
+                    "bit5 load overload; bit3 overcurrent; bit2 overtemperature; "
+                    "bit1 magnetic encoder; bit0 over/undervoltage; "
+                    "bits7/6/4 undefined"
+                ),
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=5,
                 stale_after_s=0.5,

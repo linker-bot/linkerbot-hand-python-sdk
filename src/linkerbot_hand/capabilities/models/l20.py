@@ -126,7 +126,10 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 U8_RANGE,
                 "u8",
                 raw_unit=None,
-                raw_scale_note="configured field remains dimensionless in the API",
+                raw_scale_note=(
+                    "raw limit setting; physical quantity and per-axis scale "
+                    "are unverified"
+                ),
                 unit_confidence=Confidence.UNKNOWN,
             ),
         ),
@@ -144,6 +147,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(16,),
                 raw_range=U8_RANGE,
                 raw_unit="count",
+                raw_scale_note=(
+                    "real-time speed; per-axis physical scale is unverified"
+                ),
                 unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
@@ -173,7 +179,11 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(5, 12, 6),
                 raw_range=U8_RANGE,
                 raw_unit="count",
-                unit_confidence=Confidence.DOCUMENTED,
+                raw_scale_note=(
+                    "raw tactile sensor count; physical calibration unknown; "
+                    "not newtons or pressure"
+                ),
+                unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,
                 stale_after_s=0.1,
                 estimated_transaction_s=0.02,
@@ -186,6 +196,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(16,),
                 raw_range=U8_RANGE,
                 raw_unit="degree_celsius",
+                raw_scale_note="1 degree Celsius/count",
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=1,
                 stale_after_s=3,
@@ -198,6 +209,12 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 shape=(16,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
+                raw_scale_note=(
+                    "bit7 motor communication; bit6 soft rotor lock while "
+                    "grasping (self-clears after release); bit5 overtemperature; "
+                    "bit4 motor self-test; bit3 motor voltage; bit2 stall; "
+                    "bit1 overcurrent; bit0 rotor lock"
+                ),
                 unit_confidence=Confidence.DOCUMENTED,
                 recommended_hz=5,
                 stale_after_s=0.5,

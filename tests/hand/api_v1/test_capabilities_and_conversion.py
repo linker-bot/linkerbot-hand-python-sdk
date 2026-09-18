@@ -193,6 +193,21 @@ def test_l20_family_reads_are_device_responses_not_config_responses(model: str) 
     assert TelemetrySemantic.CONFIGURED_SPEEDS not in codec.TELEMETRY_LAYOUTS
 
 
+@pytest.mark.parametrize("model", ("l20lite", "l20"))
+def test_l20_family_units_distinguish_sensor_counts_from_documented_celsius(
+    model: str,
+) -> None:
+    capabilities = get_declared_capabilities(model, side="left")
+    force = capabilities.telemetry_channel(TelemetrySemantic.FORCE)
+    temperature = capabilities.telemetry_channel(TelemetrySemantic.TEMPERATURES)
+    assert force is not None and force.raw_unit == "count"
+    assert force.unit_confidence is Confidence.UNKNOWN
+    assert "physical calibration unknown" in (force.raw_scale_note or "")
+    assert temperature is not None and temperature.raw_unit == "degree_celsius"
+    assert temperature.unit_confidence is Confidence.DOCUMENTED
+    assert temperature.raw_scale_note == "1 degree Celsius/count"
+
+
 def test_decoded_statuses_matches_the_o30_read_table() -> None:
     """The capability flag and the protocol read table must not drift apart.
 

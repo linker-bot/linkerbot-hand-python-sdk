@@ -151,3 +151,8 @@ SDK 按五指 `10x4` 组装 O6 触觉，并且**不按出厂编码或传感器�
 [O6 固件支持证据](./models/o6-firmware-support.md)。
 
 O30 的已实现接口、descriptor/合力、单位置信度和固件实测边界见 [O30 型号说明](./models/o30.md)。
+
+L20/L20Lite 的接口、拆帧、故障位与原始单位见 [L20](./models/l20.md)、
+[L20Lite](./models/l20lite.md)，连接、发现、查询与并发测试证据见
+[固件支持记录](./models/l20-family-firmware-support.md)。两型触觉返回的是未标定矩阵 count，
+不能套用标量传感器的 N 范围；100 Hz 角度与 30 Hz 触觉并发也不是七型通用保证。
