@@ -145,8 +145,8 @@ def validate_payload_shape(
                 != telemetry.channels
             ):
                 raise ProtocolError("tactile sensor names do not match capability")
-            if any(not sensor.metadata.available for sensor in payload.sensors):
-                raise ProtocolError("tactile payload contains an unavailable sensor")
+            if not any(sensor.metadata.available for sensor in payload.sensors):
+                raise ProtocolError("tactile payload has no available sensor")
             if any(
                 sensor.metadata.available
                 and len(sensor.raw_data) != sensor.metadata.total_data_length

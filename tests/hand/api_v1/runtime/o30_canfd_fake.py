@@ -263,9 +263,9 @@ class O30DeviceScript:
         if main_index == codec.MI_SENSOR_DATA_1:
             return self._sensor_finger(self.selected_sensor).data[0:255]
         if main_index == codec.MI_SENSOR_DATA_2:
-            return self._sensor_finger(self.selected_sensor).data[255:511]
+            return self._sensor_finger(self.selected_sensor).data[255:510]
         if main_index == codec.MI_SENSOR_DATA_3:
-            return self._sensor_finger(self.selected_sensor).data[511:]
+            return self._sensor_finger(self.selected_sensor).data[510:765]
         return None
 
     def _sensor_finger(self, selected_sensor: int) -> SensorFinger:
@@ -283,9 +283,9 @@ class O30DeviceScript:
         finger = self._sensor_finger(selected_sensor)
         descriptor = finger.descriptor_text.encode("ascii")
         data = bytearray(_SENSOR_OBJECT_LENGTH)
-        sensor_type = finger.sensor_type.encode("ascii")
+        sensor_type = finger.sensor_type.encode("utf-8")
         data[_SI_SENSOR_TYPE : _SI_SENSOR_TYPE + len(sensor_type)] = sensor_type
-        unit = finger.data_unit.encode("ascii")
+        unit = finger.data_unit.encode("utf-8")
         data[_SI_DATA_UNIT : _SI_DATA_UNIT + len(unit)] = unit
         data[_SI_DATA_RANGE] = finger.data_range
         data[_SI_MAXIMUM_ROWS] = finger.maximum_rows

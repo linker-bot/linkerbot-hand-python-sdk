@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from ...api.errors import (
-    DeviceFaultError,
-    ProtocolError,
-    UnsupportedFirmwareError,
-)
+from ...api.errors import ProtocolError, UnsupportedFirmwareError
 from .framing import ERROR_MAIN_INDEX, matching_response_frame
 
 _DEVICE_ERROR_MESSAGES = {
-    0x02: "sub-index does not exist or is out of range",
-    0x40: "illegal data value",
+    0x01: "main index does not exist",
+    0x02: "sub-index does not exist",
+    0x04: "register is not writable",
+    0x08: "data length mismatch",
+    0x10: "permission denied",
+    0x20: "returned data contains zero padding",
 }
 
 
@@ -50,14 +50,28 @@ class HOPRangeAssembler:
             if len(frame.payload) != 1:
                 raise ProtocolError("O30 HOP error response must contain one byte")
             code = frame.payload[0]
-            description = _DEVICE_ERROR_MESSAGES.get(code, "unknown device error")
-            if code == 0x02 and self._object_unavailable_is_unsupported:
+            if code == 0:
+                return False, None
+            descriptions = [
+                message for bit, message in _DEVICE_ERROR_MESSAGES.items() if code & bit
+            ]
+            if code & ~0x3F:
+                descriptions.append(f"unknown flags 0x{code & ~0x3F:02X}")
+            description = "; ".join(descriptions)
+            if (
+                self._object_unavailable_is_unsupported
+                and code & 0x03
+                and not code & ~0x23
+            ):
                 raise UnsupportedFirmwareError(
                     f"O30 HOP object 0x{self._main_index:02X}/"
-                    f"0x{self._sub_index:02X} is unavailable: {description}"
+                    f"0x{self._sub_index:02X} is unavailable "
+                    f"(error 0x{code:02X}): {description}"
                 )
-            raise DeviceFaultError(
-                f"O30 HOP error 0x{code:02X} at index "
+            # 0x4F reports communication flags, not joint/mechanical faults.
+            # Its SI is an error-history slot, not the rejected object's SI.
+            raise ProtocolError(
+                f"O30 HOP communication error 0x{code:02X} at history slot "
                 f"0x{frame.sub_index:02X}: {description}"
             )
         if frame.main_index != self._main_index or frame.rts != self._rts:
@@ -67,6 +81,10 @@ class HOPRangeAssembler:
         start = frame.sub_index - self._sub_index
         end = start + len(frame.payload)
         if start < 0 or end > self._length:
+            if end > 0 and start < self._length:
+                raise ProtocolError(
+                    "O30 HOP response fragment overlaps requested range but exceeds it"
+                )
             return False, None
         for offset, value in enumerate(frame.payload, start=start):
             if self._received[offset] and self._buffer[offset] != value:

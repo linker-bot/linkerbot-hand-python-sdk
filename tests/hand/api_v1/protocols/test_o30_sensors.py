@@ -100,21 +100,21 @@ def test_sensor_chunks_span_channels_two_and_three_for_large_streams() -> None:
     assert sum(length for _channel, _sub_index, length in chunks) == 400
     # Every channel-two fragment addresses global byte 255 onward.
     assert all(
-        sub_index + length <= 256
+        sub_index + length <= 255
         for channel, sub_index, length in chunks
         if channel == MI_SENSOR_DATA_2
     )
 
-    wide = sensor_data_chunks(767)
+    wide = sensor_data_chunks(765)
     assert {channel for channel, _s, _l in wide} == {
         MI_SENSOR_DATA_1,
         MI_SENSOR_DATA_2,
         MI_SENSOR_DATA_3,
     }
-    assert sum(length for _c, _s, length in wide) == 767
+    assert sum(length for _c, _s, length in wide) == 765
 
 
-@pytest.mark.parametrize("length", (0, 768))
+@pytest.mark.parametrize("length", (0, 766, 767, 768))
 def test_sensor_chunks_reject_out_of_range_lengths(length: int) -> None:
     with pytest.raises(ProtocolError):
         sensor_data_chunks(length)

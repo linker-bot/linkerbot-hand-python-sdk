@@ -6,7 +6,6 @@ import pytest
 
 from linkerbot_hand.api import (
     DataOrigin,
-    DeviceFaultError,
     HandSide,
     IdentityMismatchError,
     ProtocolError,
@@ -379,13 +378,13 @@ def test_o30_command_is_one_v25_frame_and_waits_for_correlated_ack() -> None:
     assert acknowledged.result.origin is DataOrigin.DEVICE_COMMAND_FEEDBACK
 
 
-def test_o30_device_error_object_has_stable_fault_classification() -> None:
+def test_o30_device_error_object_is_a_communication_error() -> None:
     transaction = O30ProtocolBackend(HandSide.RIGHT).read_transaction(
         TelemetrySemantic.ANGLES,
         _capabilities(),
     )
 
-    with pytest.raises(DeviceFaultError, match="0x40"):
+    with pytest.raises(ProtocolError, match="unknown flags 0x40"):
         transaction.consume(_response(0x4F, 0x01, b"\x40"))
 
 

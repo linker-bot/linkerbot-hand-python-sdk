@@ -8,7 +8,11 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from ...api.enums import DataOrigin
-from ...api.errors import ProtocolError, UnsupportedOperationError
+from ...api.errors import (
+    ProtocolError,
+    UnsupportedFirmwareError,
+    UnsupportedOperationError,
+)
 from ...api.readings import (
     TactileFieldDescriptor,
     TactileFieldSample,
@@ -50,13 +54,13 @@ _SI_RECTANGLE_FILL = 0x72
 _METADATA_PREFIX_LENGTH = _SI_DESCRIPTOR - _SI_SENSOR_TYPE
 _MAX_DESCRIPTOR_LENGTH = _SI_TOTAL_DATA_LENGTH - _SI_DESCRIPTOR
 _SENSOR_CONTROL_LENGTH = 5
-_MAX_SENSOR_DATA_LENGTH = 767
+_MAX_SENSOR_DATA_LENGTH = 765
 _STAGE_ESTIMATE_S = 0.003
 _RESPONSE_TIMEOUT_S = 0.1
 _LATE_RESPONSE_GUARD_S = 0.01
 
 _SEMANTICS = frozenset(
-    {"Fn", "Ft", "Fd", "Px", "FnS", "FtS", "FdS", "x", "y", "z", "xyz"}
+    {"Fn", "Ft", "Fd", "Px", "FnS", "FtS", "FdS", "Rsv", "x", "y", "z", "xyz"}
 )
 _DATA_TYPES = {
     "U8": ("B", 1),
@@ -201,10 +205,10 @@ def sensor_data_chunks(total_data_length: int) -> tuple[tuple[int, int, int], ..
     while global_offset < total_data_length:
         if global_offset < 255:
             main_index, channel_start, channel_end = MI_SENSOR_DATA_1, 0, 255
-        elif global_offset < 511:
-            main_index, channel_start, channel_end = MI_SENSOR_DATA_2, 255, 511
+        elif global_offset < 510:
+            main_index, channel_start, channel_end = MI_SENSOR_DATA_2, 255, 510
         else:
-            main_index, channel_start, channel_end = MI_SENSOR_DATA_3, 511, 767
+            main_index, channel_start, channel_end = MI_SENSOR_DATA_3, 510, 765
         length = min(
             MAX_FRAGMENT_LENGTH,
             total_data_length - global_offset,
@@ -227,13 +231,10 @@ def tactile_transaction(
     if telemetry is None or not telemetry.device_queried:
         raise UnsupportedOperationError("O30 has no active tactile query")
     if set(metadata_cache) == set(range(1, len(SENSOR_NAMES) + 1)):
-        if not all(value.available for value in metadata_cache.values()):
-            metadata_cache.clear()
-        else:
-            return replace(
-                _data_transaction(metadata_cache, addressing=addressing),
-                firmware_optional=True,
-            )
+        return replace(
+            _data_transaction(metadata_cache, addressing=addressing),
+            firmware_optional=True,
+        )
 
     metadata: dict[int, TactileSensorMetadata] = {}
     first = _metadata_select_transaction(
@@ -396,10 +397,6 @@ def _metadata_controls_transaction(
         parsed = _build_metadata(selected_sensor, values, data)
         metadata[selected_sensor] = parsed
         if final_sensor:
-            if not all(value.available for value in metadata.values()):
-                raise ProtocolError(
-                    "O30 did not report all five fingertip sensors as available"
-                )
             metadata_cache.clear()
             metadata_cache.update(metadata)
 
@@ -430,10 +427,10 @@ def _build_metadata(
     controls: bytes,
 ) -> TactileSensorMetadata:
     prefix = values["prefix"]
-    sensor_type = _decode_padded_ascii(prefix[:_SI_DATA_UNIT], "sensor type")
+    sensor_type = _decode_padded_text(prefix[:_SI_DATA_UNIT], "sensor type")
     if sensor_type is None:
         raise ProtocolError("O30 tactile sensor type is empty")
-    data_unit = _decode_padded_ascii(
+    data_unit = _decode_padded_text(
         prefix[_SI_DATA_UNIT:_SI_DATA_RANGE],
         "data unit",
     )
@@ -456,6 +453,8 @@ def _build_metadata(
     if descriptor_text is None:
         if total_data_length != 0:
             raise ProtocolError("O30 tactile sensor reports data without a descriptor")
+        if sensor_type != "NO_SENSOR":
+            raise ProtocolError("O30 installed tactile sensor has no descriptor")
         descriptors: tuple[TactileFieldDescriptor, ...] = ()
     else:
         if sensor_type == "NO_SENSOR":
@@ -464,6 +463,8 @@ def _build_metadata(
             descriptor_text,
             total_data_length=total_data_length,
         )
+        if total_data_length > _MAX_SENSOR_DATA_LENGTH:
+            raise ProtocolError("O30 tactile data exceeds three 255-byte pages")
     return TactileSensorMetadata(
         selected_sensor=selected_sensor,
         sensor_name=SENSOR_NAMES[selected_sensor - 1],
@@ -492,9 +493,15 @@ def _data_transaction(
         for selected_sensor in range(1, len(SENSOR_NAMES) + 1)
         if metadata[selected_sensor].available
     )
-    if available != tuple(range(1, len(SENSOR_NAMES) + 1)):
-        raise ProtocolError("O30 tactile read requires all five fingertip sensors")
-    samples: dict[int, TactileSensorSample] = {}
+    if not available:
+        raise UnsupportedFirmwareError("O30 reports no available fingertip sensors")
+    # Keep five stable identities. An absent sensor has no bytes or fields;
+    # it is distinct from a present sensor that measured zero force.
+    samples = {
+        index: TactileSensorSample(metadata=value, raw_data=b"", fields=())
+        for index, value in metadata.items()
+        if not value.available
+    }
     return _data_select_transaction(
         available,
         0,
@@ -710,11 +717,11 @@ def _write_stage(
     )
 
 
-def _decode_padded_ascii(data: bytes, label: str) -> str | None:
+def _decode_padded_text(data: bytes, label: str) -> str | None:
     try:
-        value = data.split(b"\x00", 1)[0].decode("ascii").strip()
+        value = data.split(b"\x00", 1)[0].decode("utf-8").strip()
     except UnicodeDecodeError as error:
-        raise ProtocolError(f"O30 tactile {label} is not ASCII") from error
+        raise ProtocolError(f"O30 tactile {label} is not UTF-8") from error
     return value or None
 
 
