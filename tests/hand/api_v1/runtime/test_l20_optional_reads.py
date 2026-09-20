@@ -63,6 +63,8 @@ def test_missing_fragment_disables_only_the_unsupported_read(
     opcode = _opcode(transport.script.model, semantic)
     transport.script.unsupported_queries.add(opcode)
     getter = getattr(hand, getter_name)
+    if semantic is TelemetrySemantic.FORCE:
+        getter = lambda *, timeout: hand.get_force("fn", timeout=timeout)
     generation = hand.get_health().connection_generation
 
     for _ in range(2):

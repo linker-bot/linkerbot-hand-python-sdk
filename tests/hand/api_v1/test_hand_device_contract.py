@@ -22,6 +22,7 @@ from linkerbot_hand.api import (
     UnsupportedOperationError,
     ValidationError,
 )
+from linkerbot_hand.api.readings import ForceFieldSample, ForceSample
 from linkerbot_hand.capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -168,6 +169,7 @@ class FakeRuntime:
         self.polling_plans: list[PollingPlan] = []
         self.operations: list[str] = []
         self.snapshot_wait_options: list[bool] = []
+        self.reads: list[TelemetrySemantic] = []
         self._opened = False
         self._close_pending = False
         self._polling_plan: PollingPlan | None = None
@@ -233,6 +235,28 @@ class FakeRuntime:
         assert timeout > 0
         with self._state_lock:
             self._require_open_locked()
+        self.reads.append(semantic)
+        telemetry = self.capabilities.telemetry_channel(semantic)
+        if telemetry is not None and telemetry.force_fields:
+            meta = self.snapshot.force.meta
+            return ForceSample(
+                raw=(0,) * 5,
+                tactile=(),
+                meta=meta,
+                fields=(
+                    ForceFieldSample(
+                        name=telemetry.force_fields[0],
+                        sensor_names=telemetry.channels,
+                        raw=((0,),) * 5,
+                        units=("count",) * 5,
+                        encodings=("u8",) * 5,
+                        valid_values=((False,),) * 5,
+                        meta=meta,
+                        query_channel=semantic.value,
+                    ),
+                ),
+                query_channel=semantic.value,
+            )
         return getattr(self.snapshot, _SNAPSHOT_ATTRIBUTES[semantic])
 
     def operate(self, operation: str) -> CommandHandle:
@@ -559,6 +583,11 @@ def test_every_declared_telemetry_channel_has_one_typed_facade_route(
     hand = make_device(model=model, side=side, runtime_factory=factory).open()
 
     for telemetry in hand.get_capabilities().telemetry:
+        if telemetry.force_fields:
+            sample = hand.get_force(telemetry.force_fields[0], timeout=0.1)
+            assert sample.field(telemetry.force_fields[0]) is not None
+            assert factory.runtime.reads[-1] is telemetry.semantic
+            continue
         sample = getattr(hand, _TELEMETRY_METHODS[telemetry.semantic])(timeout=0.1)
         cached = getattr(
             hand.get_snapshot(),

@@ -33,7 +33,7 @@ L20Lite、L20、O20、L30 和 O30 共用唯一的 `HandDevice` 接口；型号�
 | 型号 | `fn` 点阵 | `fns` 合力/汇总 | `ft/fts/fd/fds/px` |
 | --- | --- | --- | --- |
 | L6 / O6 / L20 / L30 / O20 | 支持 | 不支持 | 不支持 |
-| L20Lite | 支持 | 工单 #175 补充 | 工单 #175 补充 |
+| L20Lite | 支持 | `0x20` 五指原始汇总 | `fts/fds/px` 支持（`0x21/22/23`）；`ft/fd` 不支持 |
 | O30 | 按 descriptor | 按 descriptor | 按 descriptor，没有字段时不伪造 |
 
 `PollingPlan(force_fn_hz=20)` 沿用现有调度器；`force_hz` 保留为默认两字段的频率简写。

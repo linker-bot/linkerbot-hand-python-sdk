@@ -1,5 +1,7 @@
 """Declared L20Lite capability profile."""
 
+from collections.abc import Iterator
+
 from ...api.enums import (
     Confidence,
     HandSide,
@@ -11,6 +13,7 @@ from ..types import (
     CommandSemantic,
     DeviceCapabilities,
     OperationCapabilities,
+    TelemetryCapability,
     TelemetrySemantic,
 )
 from ._common import (
@@ -62,6 +65,60 @@ _JOINT_SPECS = (
     ),
 )
 _FINGERS = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def _force_scalar_capabilities() -> Iterator[TelemetryCapability]:
+    """Category U8 objects retain documented meaning without guessed scaling."""
+    for semantic, field, note, confidence in (
+        (
+            TelemetrySemantic.FORCE_FNS,
+            "fns",
+            (
+                "0x20: five fingertip normal-force scalars; documented span 0..20 N, "
+                "raw-to-N scale unverified. Not a sum of B1..B5 matrices."
+            ),
+            Confidence.UNKNOWN,
+        ),
+        (
+            TelemetrySemantic.FORCE_FTS,
+            "fts",
+            (
+                "0x21: five fingertip tangential-force scalars; documented span 0..20 N, "
+                "raw-to-N scale unverified. No per-point Ft object."
+            ),
+            Confidence.UNKNOWN,
+        ),
+        (
+            TelemetrySemantic.FORCE_FDS,
+            "fds",
+            (
+                "0x22: direction codes 0..127; 255 means undefined, 128..254 reserved. "
+                "Text says 0..359 degrees but formula 2.834645669291339/code implies "
+                "0..360; no conversion. Top=0, right=90, bottom=180, left=270 degrees."
+            ),
+            Confidence.CONFLICTING,
+        ),
+        (
+            TelemetrySemantic.FORCE_PX,
+            "px",
+            "0x23: five raw proximity values; no verified distance scale or boolean threshold.",
+            Confidence.UNKNOWN,
+        ),
+    ):
+        yield telemetry(
+            semantic,
+            _FINGERS,
+            "u8",
+            shape=(5,),
+            raw_range=U8_RANGE,
+            raw_unit="count",
+            raw_scale_note=note,
+            unit_confidence=confidence,
+            recommended_hz=30,
+            stale_after_s=0.1,
+            estimated_transaction_s=0.002,
+            force_fields=(field,),
+        )
 
 
 def declared_capabilities(side: HandSide) -> DeviceCapabilities:
@@ -175,6 +232,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.02,
                 payload_projection=SampleProjection.TACTILE_MATRIX,
             ),
+            *_force_scalar_capabilities(),
             telemetry(
                 TelemetrySemantic.TEMPERATURES,
                 names,

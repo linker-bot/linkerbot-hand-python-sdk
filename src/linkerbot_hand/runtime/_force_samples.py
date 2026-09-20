@@ -94,7 +94,7 @@ def build_force_sample(
                                 not payload.tactile
                                 or payload.tactile[index].online is not False
                             )
-                            and (name != "fds" or value != 0xFF)
+                            and (name != "fds" or 0 <= value <= 0x7F)
                             for value in finger
                         )
                         for index, finger in enumerate(values)

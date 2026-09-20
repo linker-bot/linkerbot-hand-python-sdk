@@ -55,7 +55,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
-| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | 无 |
+| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, force_fns, force_fts, force_fds, force_px, temperatures, faults | 无 |
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
@@ -156,5 +156,6 @@ O30 的已实现接口、descriptor/合力、单位置信度和固件实测边�
 
 L20/L20Lite 的接口、拆帧、故障位与原始单位见 [L20](./models/l20.md)、
 [L20Lite](./models/l20lite.md)，连接、发现、查询与并发测试证据见
-[固件支持记录](./models/l20-family-firmware-support.md)。两型触觉返回的是未标定矩阵 count，
-不能套用标量传感器的 N 范围；100 Hz 角度与 30 Hz 触觉并发也不是七型通用保证。
+[固件支持记录](./models/l20-family-firmware-support.md)。两型的点阵触觉返回未标定 count，
+不能套用标量传感器的 N 范围。L20Lite 另支持 `fns/fts/fds/px` 独立原值查询与轮询，
+当前设备是否响应由实际查询判定；100 Hz 角度与 30 Hz 触觉并发也不是七型通用保证。

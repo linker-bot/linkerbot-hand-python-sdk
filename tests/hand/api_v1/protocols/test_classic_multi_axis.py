@@ -195,11 +195,21 @@ def test_l20_family_optional_queries_exclude_required_baseline(model, backend_ty
         for channel in capabilities.telemetry
         if backend.read_transaction(channel.semantic, capabilities).firmware_optional
     }
-    assert optional == {
+    expected_optional = {
         TelemetrySemantic.MEASURED_SPEEDS,
         TelemetrySemantic.TEMPERATURES,
         TelemetrySemantic.FORCE,
     }
+    if model == "l20lite":
+        expected_optional.update(
+            (
+                TelemetrySemantic.FORCE_FNS,
+                TelemetrySemantic.FORCE_FTS,
+                TelemetrySemantic.FORCE_FDS,
+                TelemetrySemantic.FORCE_PX,
+            )
+        )
+    assert optional == expected_optional
     assert backend.baseline_semantics(capabilities) == (
         TelemetrySemantic.ANGLES,
         TelemetrySemantic.FAULTS,

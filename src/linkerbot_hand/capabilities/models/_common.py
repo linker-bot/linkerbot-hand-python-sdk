@@ -165,6 +165,7 @@ def telemetry(
     device_queried: bool = True,
     decoded_statuses: bool = False,
     payload_projection: SampleProjection = SampleProjection.RAW_VECTOR,
+    force_fields: tuple[str, ...] = (),
 ) -> TelemetryCapability:
     """Build one typed raw telemetry declaration."""
 
@@ -186,6 +187,7 @@ def telemetry(
         device_queried=device_queried,
         decoded_statuses=decoded_statuses,
         payload_projection=payload_projection,
+        force_fields=force_fields,
     )
 
 

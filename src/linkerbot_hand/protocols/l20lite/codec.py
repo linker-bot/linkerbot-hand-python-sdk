@@ -32,12 +32,28 @@ FAULT_LAYOUT = _layout(
     (0x36, (5, 6, 7, 8, 9)),
 )
 
+# LHT10 fingertip quantities are five sensor values, not ten joint channels.
+# Only the category queries are used; per-finger 0x28..0x32 are alternatives.
+FORCE_SCALAR_LAYOUTS = {
+    semantic: ClassicObjectLayout(
+        channel_count=5,
+        frames=(ClassicFrameLayout(opcode, (0, 1, 2, 3, 4)),),
+    )
+    for semantic, opcode in (
+        (TelemetrySemantic.FORCE_FNS, 0x20),
+        (TelemetrySemantic.FORCE_FTS, 0x21),
+        (TelemetrySemantic.FORCE_FDS, 0x22),
+        (TelemetrySemantic.FORCE_PX, 0x23),
+    )
+}
+
 COMMAND_LAYOUTS = {
     CommandSemantic.ANGLES: ANGLE_LAYOUT,
     CommandSemantic.SPEEDS: SPEED_LAYOUT,
     CommandSemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
 }
 TELEMETRY_LAYOUTS = {
+    **FORCE_SCALAR_LAYOUTS,
     TelemetrySemantic.ANGLES: ANGLE_LAYOUT,
     TelemetrySemantic.MEASURED_SPEEDS: SPEED_LAYOUT,
     TelemetrySemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
@@ -59,5 +75,6 @@ __all__ = [
     "BASELINE_SEMANTICS",
     "COMMAND_LAYOUTS",
     "CONFIG_TELEMETRY",
+    "FORCE_SCALAR_LAYOUTS",
     "TELEMETRY_LAYOUTS",
 ]

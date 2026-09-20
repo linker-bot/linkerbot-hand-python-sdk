@@ -12,6 +12,7 @@ from .codec import (
     BASELINE_SEMANTICS,
     COMMAND_LAYOUTS,
     CONFIG_TELEMETRY,
+    FORCE_SCALAR_LAYOUTS,
     TELEMETRY_LAYOUTS,
 )
 from .identity import l20lite_identity_transaction
@@ -31,6 +32,7 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
             firmware_optional_reads=(
                 TelemetrySemantic.MEASURED_SPEEDS,
                 TelemetrySemantic.TEMPERATURES,
+                *FORCE_SCALAR_LAYOUTS,
             ),
             # LHT10 specifies 1 ms between vector frames. Firmware 4.6.10
             # intermittently omits replies at the shared 0.5 ms default.

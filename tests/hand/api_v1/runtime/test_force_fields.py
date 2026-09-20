@@ -23,10 +23,11 @@ from .test_o30_tactile_availability import MixedSensors
 
 
 @pytest.mark.parametrize("model", ["L6", "O6", "L20", "L20Lite", "L30", "O20"])
-def test_matrix_models_expose_only_normal_points_with_existing_shape(model):
+def test_matrix_models_expose_normal_points_with_existing_shape(model):
     caps = get_declared_capabilities(model, side=None if model == "L30" else "left")
-    assert tuple(field.name for field in caps.force_fields if field.supported) == (
-        "fn",
+    expected = ("fn", "fns", "fts", "fds", "px") if model == "L20Lite" else ("fn",)
+    assert (
+        tuple(field.name for field in caps.force_fields if field.supported) == expected
     )
     force = caps.telemetry_channel(TelemetrySemantic.FORCE)
     assert force is not None
@@ -55,7 +56,7 @@ def test_matrix_models_expose_only_normal_points_with_existing_shape(model):
     assert sample.fn.units == (force.raw_unit,) * 5
     assert sample.fn.sensor_names == force.channels
     assert sample.tactile is matrices
-    assert sample.status("fns") == "unsupported"
+    assert sample.status("fns") == ("not_read" if model == "L20Lite" else "unsupported")
     assert sample.px is None
     if model == "O20":
         assert not any(sample.fn.valid_values[1])

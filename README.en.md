@@ -10,7 +10,7 @@ This API is not included in the published 2.0.0 installation examples below.
 | Model | `fn` points/matrix | `fns` normal summary | `ft/fts/fd/fds/px` |
 | --- | --- | --- | --- |
 | L6 / O6 / L20 / L30 / O20 | Supported | Unsupported | Unsupported |
-| L20Lite | Supported | Follow-up issue #175 | Follow-up issue #175 |
+| L20Lite | Supported | Five raw summaries (`0x20`) | `fts/fds/px` via `0x21/22/23`; `ft/fd` unsupported |
 | O30 | Descriptor-defined | Descriptor-defined | Descriptor-defined |
 
 `PollingPlan(force_fn_hz=20)` uses the SDK scheduler. `force_hz` remains shorthand

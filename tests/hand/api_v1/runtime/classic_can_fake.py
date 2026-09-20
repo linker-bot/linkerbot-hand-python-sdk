@@ -256,6 +256,10 @@ def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
         return readings
     if model == "L20Lite":
         return {
+            0x20: (0, 1, 2, 127, 255),
+            0x21: (5, 4, 3, 2, 1),
+            0x22: (0, 32, 64, 127, 255),
+            0x23: (0, 64, 127, 128, 255),
             0x01: tuple(range(10, 16)),
             0x04: tuple(range(16, 20)),
             0x02: (80,) * 5,
