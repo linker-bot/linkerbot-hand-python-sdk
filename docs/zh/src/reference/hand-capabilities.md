@@ -37,6 +37,8 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | `joints` | 稳定 index/name 顺序、运动类型、raw 角度范围、percent 端点、可选物理角度和耦合 |
 | `commands` | 命令语义、通道、逐通道 raw 范围、编码、raw 单位/说明、percent 映射、ACK、是否返回当前状态 |
 | `telemetry` | 状态语义、读取模式、shape、raw 编码/范围/单位、推荐频率、过期和事务成本 |
+| `force_fields` / `force_field(name)` | 小写触觉字段支持情况、共享查询、传感器名称、单位与运行时禁用；O30 未读 descriptor 前 supported=None |
+| `tactile_sensors` | 本连接已经取得的 O30 descriptor 元数据，未读时为空；不会因此触发 I/O |
 | `transport` | CAN/CAN FD、仲裁/数据速率和地址说明 |
 | `operations` | 身份读取、清错、使能、失能、标定和堵转配置支持情况 |
 | `stall_protection` | 堵转判定时间、阈值、维持电流的 raw 契约和安全范围可信度 |

@@ -560,10 +560,16 @@ def test_every_declared_telemetry_channel_has_one_typed_facade_route(
 
     for telemetry in hand.get_capabilities().telemetry:
         sample = getattr(hand, _TELEMETRY_METHODS[telemetry.semantic])(timeout=0.1)
-        assert sample is getattr(
+        cached = getattr(
             hand.get_snapshot(),
             _SNAPSHOT_ATTRIBUTES[telemetry.semantic],
         )
+        if telemetry.semantic is TelemetrySemantic.FORCE:
+            assert sample.meta is cached.meta
+            assert sample.tactile is cached.tactile
+            assert sample.requested_fields == ("fn", "fns")
+        else:
+            assert sample is cached
 
 
 def test_unsupported_capability_is_reported_before_closed_state() -> None:

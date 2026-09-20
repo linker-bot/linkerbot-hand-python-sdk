@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..api._force_names import validate_force_field
 from ..api.enums import HandSide, JointMotionType, TransportKind
 from ..api.errors import ValidationError
+from ..api.readings import TactileSensorMetadata
+from .force import ForceFieldCapability, force_field_capabilities
 from .ranges import NumericRange, PercentMapping, PhysicalAngleMapping
 from .values import (
     CommandCapability,
@@ -219,6 +222,7 @@ class DeviceCapabilities:
     transport: TransportCapability
     operations: OperationCapabilities
     firmware_unsupported_telemetry: tuple[TelemetrySemantic, ...] = ()
+    tactile_sensors: tuple[TactileSensorMetadata, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity, IdentityCapability):
@@ -262,6 +266,11 @@ class DeviceCapabilities:
         if not isinstance(self.operations, OperationCapabilities):
             raise ValidationError("operations must be OperationCapabilities")
         self._validate_firmware_unsupported()
+        if not isinstance(self.tactile_sensors, tuple) or any(
+            not isinstance(sensor, TactileSensorMetadata)
+            for sensor in self.tactile_sensors
+        ):
+            raise ValidationError("tactile_sensors must contain TactileSensorMetadata")
         angle_command = self.command(CommandSemantic.ANGLES)
         angle_telemetry = self.telemetry_channel(TelemetrySemantic.ANGLES)
         if angle_command is None or angle_command.channels != joint_names:
@@ -335,6 +344,16 @@ class DeviceCapabilities:
             and semantic not in self.firmware_unsupported_telemetry
         )
 
+    @property
+    def force_fields(self) -> tuple[ForceFieldCapability, ...]:
+        """Describe field support and shared queries without device I/O."""
+        return force_field_capabilities(self)
+
+    def force_field(self, name: str) -> ForceFieldCapability:
+        """Return one field, including an explicit unsupported declaration."""
+        validate_force_field(name)
+        return next(field for field in self.force_fields if field.name == name)
+
     def _validate_firmware_unsupported(self) -> None:
         telemetry_values = self.firmware_unsupported_telemetry
         if not isinstance(telemetry_values, tuple) or any(
@@ -355,6 +374,7 @@ __all__ = [
     "CommandCapability",
     "CommandSemantic",
     "DeviceCapabilities",
+    "ForceFieldCapability",
     "IdentityCapability",
     "JointCapability",
     "NumericRange",

@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from ..api._force import merge_force_samples
 from ..api._initial_state import make_initial_snapshot
 from ..api.device_info import DeviceInfo
 from ..api.enums import DataOrigin
@@ -14,6 +15,7 @@ from ..api.errors import ProtocolError, ValidationError
 from ..api.health import DataAge
 from ..api.readings import AngleSample, ForceSample, SampleMeta, _RawVectorSample
 from ..api.snapshot import HandSnapshot
+from ..capabilities.force import FORCE_QUERIES
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import SamplePayload
 from ._snapshot_samples import (
@@ -123,6 +125,36 @@ class SnapshotStore:
             self._changed.notify_all()
             self._changed_without_command_feedback.notify_all()
 
+    def observe_force_capabilities(
+        self, capabilities: DeviceCapabilities, *, generation: int
+    ) -> None:
+        """Expose support changes without inventing a new sensor acquisition."""
+        with self._lock:
+            state = self._state_for_generation_locked(generation)
+            if state.capabilities is capabilities:
+                return
+            state.capabilities = capabilities
+            force = state.snapshot.force
+            if force is None:
+                return
+            available = {field.name for field in force.fields}
+            unsupported = tuple(
+                field.name
+                for field in capabilities.force_fields
+                if field.supported is False and field.name not in available
+            )
+            if force.unsupported_fields == unsupported:
+                return
+            state.snapshot = replace(
+                state.snapshot,
+                snapshot_sequence=state.snapshot.snapshot_sequence + 1,
+                force=replace(force, unsupported_fields=unsupported),
+            )
+            _record_visible_change(state, command_feedback=False)
+            if state is self._current:
+                self._changed.notify_all()
+                self._changed_without_command_feedback.notify_all()
+
     def publish(
         self,
         payload: SamplePayload,
@@ -158,11 +190,16 @@ class SnapshotStore:
             )
             sample = build_sample(payload, meta, state.capabilities)
             attribute = SAMPLE_ATTRIBUTES[payload.semantic]
+            cached = (
+                merge_force_samples(state.snapshot.force, sample)
+                if isinstance(sample, ForceSample)
+                else sample
+            )
             state.snapshot = replace(
                 state.snapshot,
                 captured_at=collected_at,
                 snapshot_sequence=state.snapshot.snapshot_sequence + 1,
-                **{attribute: sample},
+                **{attribute: cached},
             )
             state.sequences[payload.semantic] = sequence
             state.collected_monotonic[payload.semantic] = collected_monotonic
@@ -425,6 +462,9 @@ class SnapshotStore:
             capabilities = state.capabilities
             generation = state.generation
             collected_monotonic = state.collected_monotonic.get(semantic)
+            force_collected = (
+                dict(state.collected_monotonic) if semantic in FORCE_QUERIES else None
+            )
         if sample is None:
             return None
         return age_sample(
@@ -434,6 +474,7 @@ class SnapshotStore:
             collected_monotonic=collected_monotonic,
             capabilities=capabilities,
             generation=generation,
+            force_collected=force_collected,
         )
 
     def sequence(self, semantic: TelemetrySemantic) -> int:
@@ -464,12 +505,27 @@ class SnapshotStore:
             collected_monotonic = dict(state.collected_monotonic)
         result: dict[TelemetrySemantic, DataAge] = {}
         for semantic, attribute in SAMPLE_ATTRIBUTES.items():
+            if capabilities.telemetry_channel(semantic) is None:
+                continue
             sample = getattr(snapshot, attribute)
             if sample is None:
                 continue
+            meta = sample.meta
+            if (
+                isinstance(sample, ForceSample)
+                and sample.query_channel != semantic.value
+            ):
+                meta = next(
+                    (
+                        field.meta
+                        for field in sample.fields
+                        if field.query_channel == semantic.value
+                    ),
+                    SampleMeta.unavailable(connection_generation=generation),
+                )
             result[semantic] = _data_age(
                 semantic,
-                sample.meta,
+                meta,
                 monotonic_now=monotonic_now,
                 collected_monotonic=collected_monotonic.get(semantic),
                 capabilities=capabilities,
@@ -560,6 +616,8 @@ def _build_view(
     _validate_time(monotonic_now)
     updates: dict[str, object] = {"captured_at": captured_at}
     for semantic, attribute in SAMPLE_ATTRIBUTES.items():
+        if attribute in updates:
+            continue
         sample = getattr(snapshot, attribute)
         if sample is not None:
             updates[attribute] = age_sample(
@@ -569,6 +627,9 @@ def _build_view(
                 collected_monotonic=collected_monotonic.get(semantic),
                 capabilities=capabilities,
                 generation=generation,
+                force_collected=collected_monotonic
+                if semantic in FORCE_QUERIES
+                else None,
             )
         else:
             updates[attribute] = None

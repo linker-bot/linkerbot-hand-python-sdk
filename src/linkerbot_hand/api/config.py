@@ -37,6 +37,13 @@ class PollingPlan:
     torques_hz: float = 0.0
     voltage_hz: float = 0.0
     angle_feedback: AngleFeedbackPolicy = AngleFeedbackPolicy.ADAPTIVE
+    force_fn_hz: float = 0.0
+    force_fns_hz: float = 0.0
+    force_ft_hz: float = 0.0
+    force_fts_hz: float = 0.0
+    force_fd_hz: float = 0.0
+    force_fds_hz: float = 0.0
+    force_px_hz: float = 0.0
 
     def __post_init__(self) -> None:
         for item in fields(self):
@@ -52,6 +59,10 @@ class PollingPlan:
                 raise ValidationError(f"{item.name} must be finite and non-negative")
         if not isinstance(self.angle_feedback, AngleFeedbackPolicy):
             raise ValidationError("angle_feedback must be AngleFeedbackPolicy")
+        if self.force_hz > 0 and (self.force_fn_hz > 0 or self.force_fns_hz > 0):
+            raise ValidationError(
+                "force_hz cannot be combined with positive force_fn_hz or force_fns_hz"
+            )
 
     def enabled_rates(self) -> tuple[tuple[str, float], ...]:
         """Return enabled channels in stable scheduler order."""

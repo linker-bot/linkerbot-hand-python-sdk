@@ -14,6 +14,7 @@
 5. [经典 CAN](./can.md) / [CAN FD](./canfd.md)：Linux 总线配置和 transport 构造。
 6. [迁移说明](./hand-migration.md)：从已删除的旧型号类和双接口迁移。
 7. [型号协议能力](./models/README.md)：逐型号维护接口、opcode、单位、解释、固件证据和限制。
+8. [全型号触觉字段](./force.md)：统一字段、默认读取、独立频率、共享查询与原始单位。
 
 程序必须以 `hand.get_capabilities()` 返回的当前 profile 为准。文档矩阵用于阅读和评审，
 不能复制到 ROS 或应用中形成另一份 `MODEL_SPECS`。

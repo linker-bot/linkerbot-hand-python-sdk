@@ -18,6 +18,8 @@ from ..api.errors import (
     TransportError,
     UnsupportedFirmwareError,
 )
+from ..api.readings import ForceSample
+from ..capabilities.force import FORCE_QUERIES
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import ProtocolBackend, ProtocolTransaction
 from ._clock import RuntimeClock
@@ -579,6 +581,12 @@ class DeviceActor:
                     f"read transaction did not publish {semantic.value}"
                 )
             sequence = self._snapshot_store.sequence(semantic)
+            if isinstance(published, ForceSample):
+                observed = self._state.observe_force_sample(published)
+                self._snapshot_store.observe_force_capabilities(
+                    observed, generation=published.meta.connection_generation
+                )
+                self._polling.observe_force_capabilities(observed)
             self._transactions.complete(semantic, published, sequence=sequence)
             if transaction.firmware_optional:
                 self._firmware_optional_failures.pop(semantic, None)
@@ -788,6 +796,10 @@ class DeviceActor:
         self._firmware_optional_failures.pop(semantic, None)
         try:
             capabilities = self._state.mark_firmware_unsupported_telemetry(semantic)
+            if semantic in FORCE_QUERIES:
+                self._snapshot_store.observe_force_capabilities(
+                    capabilities, generation=self._state.generation()
+                )
         except HandError as error:
             # This runs inside an ``except`` handler, so raising here would
             # escape the caller entirely. A generation that can no longer accept

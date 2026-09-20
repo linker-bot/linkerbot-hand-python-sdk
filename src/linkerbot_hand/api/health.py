@@ -74,6 +74,22 @@ class ChannelMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class ForceFieldMetrics:
+    """Requested field rate versus its shared physical query and sample rate.
+
+    Query counts live once in ``HealthStatus.channels[query_channel]``; never
+    sum the shared field rates to estimate bus traffic.
+    """
+
+    field: str
+    requested_hz: float
+    query_hz: float
+    achieved_hz: float
+    query_channel: str | None
+    supported: bool | None
+
+
+@dataclass(frozen=True, slots=True)
 class LatencyMetrics:
     """Completed transaction latency distribution in seconds."""
 
@@ -120,6 +136,7 @@ class HealthStatus:
     channels: tuple[ChannelMetrics, ...]
     transaction_latency: LatencyMetrics
     transport: TransportMetrics
+    force_fields: tuple[ForceFieldMetrics, ...] = ()
 
     @classmethod
     def initial(cls) -> HealthStatus:
@@ -163,6 +180,7 @@ __all__ = [
     "CommandFamilyMetrics",
     "ConnectionState",
     "DataAge",
+    "ForceFieldMetrics",
     "HealthStatus",
     "LatencyMetrics",
     "LifecycleState",

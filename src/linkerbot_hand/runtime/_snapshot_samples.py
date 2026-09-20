@@ -18,6 +18,7 @@ from ..api.readings import (
     CurrentSample,
     EffortLimitSample,
     FaultSample,
+    ForceFieldSample,
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
@@ -34,6 +35,7 @@ from ..api.stall import (
     StallHoldCurrentSample,
     StallThresholdSample,
 )
+from ..capabilities.force import FORCE_QUERIES
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..conversion.percent import (
     raw_angles_to_percent,
@@ -41,6 +43,7 @@ from ..conversion.percent import (
     raw_angles_within_declared_range,
 )
 from ..protocols.base import SamplePayload
+from ._force_samples import build_force_sample
 
 SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.ANGLES: "angles",
@@ -53,6 +56,12 @@ SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.TORQUES: "torques",
     TelemetrySemantic.TEMPERATURES: "temperatures",
     TelemetrySemantic.FORCE: "force",
+    TelemetrySemantic.FORCE_FNS: "force",
+    TelemetrySemantic.FORCE_FT: "force",
+    TelemetrySemantic.FORCE_FTS: "force",
+    TelemetrySemantic.FORCE_FD: "force",
+    TelemetrySemantic.FORCE_FDS: "force",
+    TelemetrySemantic.FORCE_PX: "force",
     TelemetrySemantic.FAULTS: "faults",
     TelemetrySemantic.VOLTAGES: "voltages",
     TelemetrySemantic.MOTION_TIMES: "motion_times",
@@ -82,10 +91,11 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
 
 
 _SAMPLE_TYPES = frozenset(
-    (AngleSample, ForceSample, DeviceInfo, *_VECTOR_TYPES.values())
+    (AngleSample, ForceSample, ForceFieldSample, DeviceInfo, *_VECTOR_TYPES.values())
 )
 _SampleT = TypeVar(
-    "_SampleT", bound=AngleSample | ForceSample | _RawVectorSample | DeviceInfo
+    "_SampleT",
+    bound=AngleSample | ForceSample | ForceFieldSample | _RawVectorSample | DeviceInfo,
 )
 
 
@@ -103,13 +113,8 @@ def build_sample(
             physical_rad=raw_angles_to_physical_rad(payload.raw, capabilities),
             meta=meta,
         )
-    if payload.semantic is TelemetrySemantic.FORCE:
-        return ForceSample(
-            raw=payload.raw,
-            tactile=payload.tactile,
-            sensors=payload.sensors,
-            meta=meta,
-        )
+    if payload.semantic in FORCE_QUERIES:
+        return build_force_sample(payload, meta, capabilities)
     if payload.semantic is TelemetrySemantic.FAULTS:
         return FaultSample(
             raw=payload.raw,
@@ -211,10 +216,42 @@ def age_sample(
     collected_monotonic: float | None,
     capabilities: DeviceCapabilities,
     generation: int,
+    force_collected: dict[TelemetrySemantic, float] | None = None,
 ) -> object:
     """Return one sample with an age derived from monotonic time only."""
 
     typed = cast(AngleSample | ForceSample | _RawVectorSample, sample)
+    if isinstance(typed, ForceSample) and force_collected is not None:
+        fields = tuple(
+            age_sample(
+                TelemetrySemantic(field.query_channel),
+                field,
+                monotonic_now=monotonic_now,
+                collected_monotonic=force_collected.get(
+                    TelemetrySemantic(field.query_channel)
+                ),
+                capabilities=capabilities,
+                generation=generation,
+            )
+            for field in typed.fields
+        )
+        aged = cast(
+            ForceSample,
+            age_sample(
+                TelemetrySemantic(typed.query_channel),
+                typed,
+                monotonic_now=monotonic_now,
+                collected_monotonic=force_collected.get(
+                    TelemetrySemantic(typed.query_channel)
+                ),
+                capabilities=capabilities,
+                generation=generation,
+            ),
+        )
+        if aged is typed:
+            aged = _with_meta(typed, typed.meta)
+        object.__setattr__(aged, "fields", fields)
+        return aged
     if not typed.meta.valid:
         return typed
     if collected_monotonic is None:
@@ -256,7 +293,9 @@ def age_device_info(
 
 @lru_cache(maxsize=32)
 def _sample_fields(
-    cls: type[AngleSample | ForceSample | _RawVectorSample | DeviceInfo],
+    cls: type[
+        AngleSample | ForceSample | ForceFieldSample | _RawVectorSample | DeviceInfo
+    ],
 ) -> tuple[str, ...]:
     return tuple(field.name for field in fields(cls) if field.name != "meta")
 
@@ -276,6 +315,10 @@ def _with_meta(sample: _SampleT, meta: SampleMeta) -> _SampleT:
     for name in _sample_fields(cls):
         object.__setattr__(result, name, getattr(sample, name))
     object.__setattr__(result, "meta", meta)
+    if isinstance(sample, ForceSample) and not meta.valid:
+        object.__setattr__(
+            result, "fields", tuple(_with_meta(field, meta) for field in sample.fields)
+        )
     return result
 
 
@@ -375,12 +418,11 @@ def snapshot_with_generation(
         "connection_generation": generation,
         "snapshot_sequence": snapshot.snapshot_sequence + 1,
     }
-    for attribute in SAMPLE_ATTRIBUTES.values():
+    for attribute in dict.fromkeys(SAMPLE_ATTRIBUTES.values()):
         sample = getattr(snapshot, attribute)
         if sample is not None:
-            updates[attribute] = replace(
-                sample,
-                meta=SampleMeta.unavailable(connection_generation=generation),
+            updates[attribute] = _with_meta(
+                sample, SampleMeta.unavailable(connection_generation=generation)
             )
     return replace(snapshot, **updates)
 
@@ -397,12 +439,11 @@ def invalidate_snapshot(
             JointState(index=joint.index, name=joint.name) for joint in snapshot.joints
         ),
     }
-    for attribute in SAMPLE_ATTRIBUTES.values():
+    for attribute in dict.fromkeys(SAMPLE_ATTRIBUTES.values()):
         sample = getattr(snapshot, attribute)
         if sample is not None:
-            updates[attribute] = replace(
-                sample,
-                meta=SampleMeta.unavailable(connection_generation=generation),
+            updates[attribute] = _with_meta(
+                sample, SampleMeta.unavailable(connection_generation=generation)
             )
     if snapshot.device_info is not None:
         updates["device_info"] = replace(

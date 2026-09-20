@@ -25,6 +25,21 @@ L20Lite、L20、O20、L30 和 O30 共用唯一的 `HandDevice` 接口；型号�
 
 ## 快速启动
 
+开发分支新增[统一触觉字段接口](./docs/zh/src/reference/force.md)：
+`hand.get_force(timeout=1.0)` 默认读取可用 `fn + fns`，
+`hand.get_force("fn", timeout=1.0)` 按类别选择，返回 `sample.fn.raw` 等原始值和单位。
+此接口尚未包含在下方安装示例的已发布 2.0.0 中。
+
+| 型号 | `fn` 点阵 | `fns` 合力/汇总 | `ft/fts/fd/fds/px` |
+| --- | --- | --- | --- |
+| L6 / O6 / L20 / L30 / O20 | 支持 | 不支持 | 不支持 |
+| L20Lite | 支持 | 工单 #175 补充 | 工单 #175 补充 |
+| O30 | 按 descriptor | 按 descriptor | 按 descriptor，没有字段时不伪造 |
+
+`PollingPlan(force_fn_hz=20)` 沿用现有调度器；`force_hz` 保留为默认两字段的频率简写。
+O30 单独选 fn 或 fns 都读取完整原生流，两者设置不同频率时取最大值，只查询一次。
+`hand.get_capabilities().force_field("fn")` 返回支持情况、共享查询与单位说明。
+
 Hand SDK 的唯一直接运行依赖是 `linkerbot-transport`；transport 的 `[all]` extra 会安装
 CAN/CAN FD 所需的 `python-can`。Hand 不依赖 ROS、机械臂、运动学或聚合 SDK。以下命令
 适用于 Ubuntu，创建独立环境、显式安装两层 Linkerbot 包并完成无硬件验证：

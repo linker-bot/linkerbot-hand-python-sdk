@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import TypeAlias
 
+from ._force_names import validate_force_field
 from .enums import DataOrigin
 from .errors import UnsupportedOperationError, ValidationError
 
@@ -502,13 +503,82 @@ class TactileMatrix:
 
 
 @dataclass(frozen=True, slots=True)
+class ForceFieldSample:
+    """One tactile quantity in finger order, retaining raw values and validity.
+
+    Every finger has a tuple, including scalar fields (length one). ``None``
+    means this sensor did not supply the field; it is never a synthetic zero.
+    Matrix geometry and descriptor offsets remain in ``ForceSample.tactile``
+    and ``ForceSample.sensors``. ``meta`` belongs to this physical query only.
+    """
+
+    name: str
+    sensor_names: tuple[str, ...]
+    raw: tuple[tuple[RawNumber, ...] | None, ...]
+    units: tuple[str | None, ...]
+    encodings: tuple[str | None, ...]
+    valid_values: tuple[tuple[bool, ...] | None, ...]
+    meta: SampleMeta
+    query_channel: str = "force"
+    scale_note: str | None = None
+
+    def __post_init__(self) -> None:
+        validate_force_field(self.name)
+        if not isinstance(self.meta, SampleMeta):
+            raise ValidationError("force field meta must be SampleMeta")
+        if (
+            not isinstance(self.sensor_names, tuple)
+            or not self.sensor_names
+            or any(not isinstance(name, str) or not name for name in self.sensor_names)
+        ):
+            raise ValidationError("force field requires ordered sensor_names")
+        if len(set(self.sensor_names)) != len(self.sensor_names):
+            raise ValidationError("force field sensor_names must be unique")
+        for name in ("raw", "units", "encodings", "valid_values"):
+            value = getattr(self, name)
+            if not isinstance(value, tuple) or len(value) != len(self.sensor_names):
+                raise ValidationError(f"force field {name} must match sensor_names")
+        for raw, valid in zip(self.raw, self.valid_values, strict=True):
+            if raw is None:
+                if valid is not None:
+                    raise ValidationError("missing field values cannot claim validity")
+                continue
+            if (
+                not isinstance(raw, tuple)
+                or not raw
+                or any(not _is_finite_number(value) for value in raw)
+            ):
+                raise ValidationError("force field raw must contain finite tuples")
+            if (
+                not isinstance(valid, tuple)
+                or len(valid) != len(raw)
+                or any(not isinstance(value, bool) for value in valid)
+            ):
+                raise ValidationError("force field validity must match raw values")
+        for value in (*self.units, *self.encodings, self.scale_note):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise ValidationError("force field metadata must be nonempty or None")
+        if not isinstance(self.query_channel, str) or not self.query_channel:
+            raise ValidationError("force field query_channel must be nonempty")
+
+
+@dataclass(frozen=True, slots=True)
 class ForceSample:
-    """Scalar force values and/or complete tactile matrices from one transaction."""
+    """Raw tactile results with independently timestamped public quantities.
+
+    ``meta`` describes the last query, not simultaneous acquisition of every
+    field. Snapshot fields may have different ages; getters contain only their
+    requested queries and any fields supplied by the same native response.
+    """
 
     raw: tuple[RawNumber, ...]
     tactile: tuple[TactileMatrix, ...]
     meta: SampleMeta
     sensors: tuple[TactileSensorSample, ...] = ()
+    fields: tuple[ForceFieldSample, ...] = ()
+    requested_fields: tuple[str, ...] = ()
+    unsupported_fields: tuple[str, ...] = ()
+    query_channel: str = "force"
 
     def __post_init__(self) -> None:
         if not isinstance(self.raw, tuple) or any(
@@ -525,8 +595,72 @@ class ForceSample:
             not isinstance(value, TactileSensorSample) for value in self.sensors
         ):
             raise ValidationError("sensors must contain TactileSensorSample values")
-        if self.meta.valid and not self.raw and not self.tactile and not self.sensors:
+        if not isinstance(self.fields, tuple) or any(
+            not isinstance(value, ForceFieldSample) for value in self.fields
+        ):
+            raise ValidationError("force fields must contain ForceFieldSample")
+        if len({value.name for value in self.fields}) != len(self.fields):
+            raise ValidationError("force field names must be unique")
+        for names in (self.requested_fields, self.unsupported_fields):
+            if not isinstance(names, tuple) or len(set(names)) != len(names):
+                raise ValidationError("force field selectors must be unique tuples")
+            for name in names:
+                validate_force_field(name)
+        if set(self.unsupported_fields) & {value.name for value in self.fields}:
+            raise ValidationError("available force fields cannot be unsupported")
+        if not isinstance(self.query_channel, str) or not self.query_channel:
+            raise ValidationError("force query_channel must be nonempty")
+        if self.meta.valid and not (
+            self.raw or self.tactile or self.sensors or self.fields
+        ):
             raise ValidationError("a valid force sample cannot be empty")
+
+    def field(self, name: str) -> ForceFieldSample | None:
+        """Look up a lowercase quantity without device I/O."""
+        validate_force_field(name)
+        return next((field for field in self.fields if field.name == name), None)
+
+    def status(self, name: str) -> str:
+        """Distinguish available, invalidated, unsupported and unread fields.
+
+        Failed reads raise; the snapshot retains its preceding complete sample.
+        A valid numeric zero is ``available``; inspect ``valid_values`` for
+        per-element sentinels such as an undefined direction.
+        """
+        value = self.field(name)
+        if value is not None:
+            return "available" if value.meta.valid else "invalidated"
+        if name in self.unsupported_fields:
+            return "unsupported"
+        return "not_read"
+
+    @property
+    def fn(self) -> ForceFieldSample | None:
+        return self.field("fn")
+
+    @property
+    def fns(self) -> ForceFieldSample | None:
+        return self.field("fns")
+
+    @property
+    def ft(self) -> ForceFieldSample | None:
+        return self.field("ft")
+
+    @property
+    def fts(self) -> ForceFieldSample | None:
+        return self.field("fts")
+
+    @property
+    def fd(self) -> ForceFieldSample | None:
+        return self.field("fd")
+
+    @property
+    def fds(self) -> ForceFieldSample | None:
+        return self.field("fds")
+
+    @property
+    def px(self) -> ForceFieldSample | None:
+        return self.field("px")
 
 
 @dataclass(frozen=True, slots=True)
@@ -606,6 +740,7 @@ __all__ = [
     "CurrentSample",
     "EffortLimitSample",
     "FaultSample",
+    "ForceFieldSample",
     "ForceSample",
     "JointFaultStatus",
     "MeasuredSpeedSample",

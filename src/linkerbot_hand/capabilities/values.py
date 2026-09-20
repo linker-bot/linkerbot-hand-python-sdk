@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from ..api._force_names import validate_force_field
 from ..api.commands import AckSupport
 from ..api.enums import Confidence, ReadMode, SampleProjection
 from ..api.errors import ValidationError
@@ -40,6 +41,12 @@ class TelemetrySemantic(str, Enum):
     TORQUES = "torques"
     TEMPERATURES = "temperatures"
     FORCE = "force"
+    FORCE_FNS = "force_fns"
+    FORCE_FT = "force_ft"
+    FORCE_FTS = "force_fts"
+    FORCE_FD = "force_fd"
+    FORCE_FDS = "force_fds"
+    FORCE_PX = "force_px"
     FAULTS = "faults"
     VOLTAGES = "voltages"
     MOTION_TIMES = "motion_times"
@@ -159,6 +166,7 @@ class TelemetryCapability:
     # are independent. Consumers deciding what to build before any I/O must read
     # this rather than reverse-engineer the format.
     payload_projection: SampleProjection = SampleProjection.RAW_VECTOR
+    force_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.semantic, TelemetrySemantic):
@@ -205,6 +213,12 @@ class TelemetryCapability:
             raise ValidationError("decoded_statuses must be bool")
         if not isinstance(self.payload_projection, SampleProjection):
             raise ValidationError("payload_projection must be SampleProjection")
+        if not isinstance(self.force_fields, tuple) or len(
+            set(self.force_fields)
+        ) != len(self.force_fields):
+            raise ValidationError("force_fields must be a unique tuple")
+        for name in self.force_fields:
+            validate_force_field(name)
         if (
             self.read_mode
             in {

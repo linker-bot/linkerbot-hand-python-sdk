@@ -1,5 +1,9 @@
 # L20Lite 接口、原始单位与实机边界
 
+公共触觉重构将现有点阵映射为 `fn`；`get_force("fn", timeout=1.0)` 与
+`PollingPlan(force_fn_hz=...)` 使用原查询。标量字段由独立工单 #175 补充，
+完整公共契约见[全型号触觉接口](../force.md)。
+
 本文对照 LHT10 协议和 L20Lite 左手实机描述当前 SDK。
 [固件支持记录](./l20-family-firmware-support.md) 仅记录证据，不是版本准入限制。
 
@@ -44,7 +48,7 @@
 | `get_effort_limits(timeout)` | 单字节 `02/03` | 十个实时负载原值，`DEVICE_RESPONSE`；保留既有命名，不等于限制设定值；不能直接解释为 mA 或 N·m |
 | `get_temperatures(timeout)` | 单字节 `33/34` | 十个 `u8`，`degree_celsius`，1 ℃/count；不额外换算 |
 | `get_faults(timeout)` | 单字节 `35/36` | 十个 `u8_bitmask`，无物理单位，位定义见下表 |
-| `get_force(timeout)` | `B1 C6` 至 `B5 C6` | 五指各 12×6 `u8` 原始矩阵；count，物理标定未知 |
+| `get_force("fn", timeout=...)` | `B1 C6` 至 `B5 C6` | 五指各 12×6 `u8` 原始矩阵；count，物理标定未知 |
 | `get_device_info(timeout)` | `C0/C1/C2/C4` | 产品编号、PCB/固件/机械版本与工厂字段；三个版本字节按 major/minor/patch 解释 |
 
 `get_snapshot()` 和 `get_capabilities()` 不发送请求；单位、解释和证据级别可分别通过

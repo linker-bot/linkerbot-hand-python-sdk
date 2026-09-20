@@ -1,5 +1,29 @@
 # linkerbot-hand
 
+## Unified tactile fields (development branch)
+
+`hand.get_force(timeout=1.0)` reads available `fn + fns` by default.
+Use `hand.get_force("fn", timeout=1.0)` to select a quantity, then inspect
+`sample.fn.raw`, `.units`, `.encodings`, `.valid_values` and `.meta` without I/O.
+This API is not included in the published 2.0.0 installation examples below.
+
+| Model | `fn` points/matrix | `fns` normal summary | `ft/fts/fd/fds/px` |
+| --- | --- | --- | --- |
+| L6 / O6 / L20 / L30 / O20 | Supported | Unsupported | Unsupported |
+| L20Lite | Supported | Follow-up issue #175 | Follow-up issue #175 |
+| O30 | Descriptor-defined | Descriptor-defined | Descriptor-defined |
+
+`PollingPlan(force_fn_hz=20)` uses the SDK scheduler. `force_hz` remains shorthand
+for available fn+fns; combining it with positive `force_fn_hz`/`force_fns_hz` is
+rejected. O30 reads its complete native stream for either selector and shares one
+schedule at the maximum requested field rate. Other models query supported
+categories independently. No implicit conversion or computed resultants.
+
+`hand.get_capabilities().force_field("fn")` describes support and shared queries.
+O30 support is `None` until descriptors are acquired. Explicit unsupported requests
+raise; defaults skip known absent fields. Each cached field keeps its own timestamp.
+See the [complete field contract](./docs/zh/src/reference/force.md).
+
 `linkerbot-hand` is the standalone Python SDK for the Linkerbot hand family.
 L6, O6, L20Lite, L20, O20, L30, and O30 all use one `HandDevice` API.
 Model differences are reported by `get_capabilities()`; model classes,

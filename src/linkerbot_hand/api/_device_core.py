@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from importlib import import_module
 from typing import NoReturn, TypeVar, cast
 
+from ..capabilities.polling import resolve_poll_rates
 from ..capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -31,17 +32,6 @@ from .readings import RawNumber
 from .snapshot import HandSnapshot
 
 _SampleT = TypeVar("_SampleT")
-
-_POLL_CHANNELS = {
-    "angles": TelemetrySemantic.ANGLES,
-    "speeds": TelemetrySemantic.MEASURED_SPEEDS,
-    "force": TelemetrySemantic.FORCE,
-    "temperature": TelemetrySemantic.TEMPERATURES,
-    "current": TelemetrySemantic.CURRENTS,
-    "faults": TelemetrySemantic.FAULTS,
-    "torques": TelemetrySemantic.TORQUES,
-    "voltage": TelemetrySemantic.VOLTAGES,
-}
 
 
 def _default_runtime_factory(
@@ -309,24 +299,7 @@ class _DeviceCore:
         return self._require_runtime(operation).operate(operation)
 
     def _validate_polling_plan(self, plan: PollingPlan) -> None:
-        capabilities = self.get_capabilities()
-        for channel, _rate in plan.enabled_rates():
-            semantic = _POLL_CHANNELS[channel]
-            telemetry = capabilities.telemetry_channel(semantic)
-            if semantic in capabilities.firmware_unsupported_telemetry:
-                raise UnsupportedFirmwareError(
-                    f"{capabilities.model} firmware "
-                    f"{capabilities.identity.firmware or 'unknown'} does not support "
-                    f"polling {channel}",
-                    operation="start_polling",
-                    model=capabilities.model,
-                )
-            if telemetry is None or not telemetry.device_queried:
-                raise UnsupportedOperationError(
-                    f"{capabilities.model} cannot poll {channel}",
-                    operation="start_polling",
-                    model=capabilities.model,
-                )
+        resolve_poll_rates(plan, self.get_capabilities())
 
     def _require_runtime(self, operation: str) -> DeviceRuntimeContract:
         runtime = self._runtime

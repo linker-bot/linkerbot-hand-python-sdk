@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 from dataclasses import dataclass
 
 from ..api.config import PollingPlan
 from ..api.enums import AngleFeedbackPolicy
-from ..api.errors import PollingPlanError, ValidationError
-from ..api.health import ChannelMetrics, DataAge
+from ..api.errors import (
+    PollingPlanError,
+    UnsupportedFirmwareError,
+    UnsupportedOperationError,
+    ValidationError,
+)
+from ..api.health import ChannelMetrics, DataAge, ForceFieldMetrics
+from ..capabilities.force import FORCE_QUERIES
+from ..capabilities.polling import (
+    POLL_CHANNELS,
+    requested_force_rates,
+    resolve_poll_rates,
+)
 from ..capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -17,19 +29,8 @@ from ..capabilities.types import (
 )
 from ._clock import RuntimeClock
 
-POLL_CHANNELS = {
-    "angles": TelemetrySemantic.ANGLES,
-    "speeds": TelemetrySemantic.MEASURED_SPEEDS,
-    "force": TelemetrySemantic.FORCE,
-    "temperature": TelemetrySemantic.TEMPERATURES,
-    "current": TelemetrySemantic.CURRENTS,
-    "faults": TelemetrySemantic.FAULTS,
-    "torques": TelemetrySemantic.TORQUES,
-    "voltage": TelemetrySemantic.VOLTAGES,
-}
-
-_CHANNEL_NAMES = {semantic: name for name, semantic in POLL_CHANNELS.items()}
 _DEADLINE_EPSILON_S = 1e-12
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -77,14 +78,13 @@ class PollScheduler:
         if not isinstance(plan, PollingPlan):
             raise ValidationError("plan must be PollingPlan")
         _validate_time(now)
-        self._validate_channels(plan)
         with self._lock:
+            self._validate_channels(plan)
             if plan == self._plan:
                 return False
             self._plan = plan
             states: dict[TelemetrySemantic, _PollState] = {}
-            for channel, rate in plan.enabled_rates():
-                semantic = POLL_CHANNELS[channel]
+            for semantic, rate in resolve_poll_rates(plan, self._capabilities).items():
                 period_s = 1.0 / rate
                 waits_for_first_period = semantic is TelemetrySemantic.ANGLES and (
                     plan.angle_feedback is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY
@@ -109,6 +109,65 @@ class PollScheduler:
             self._disabled_states.clear()
             return changed
 
+    def observe_force_capabilities(self, capabilities: DeviceCapabilities) -> None:
+        """Resolve unknown descriptor fields without restarting existing polls."""
+        with self._lock:
+            if capabilities is self._capabilities:
+                return
+            self._capabilities = capabilities
+            if self._plan is None:
+                return
+            requests = requested_force_rates(self._plan)
+            for field in capabilities.force_fields:
+                if (
+                    field.supported is False
+                    and requests[field.name] > 0
+                    and self._plan.force_hz == 0
+                ):
+                    _LOGGER.warning(
+                        "sensor descriptor does not expose %s; disabling its requested polling",
+                        field.name,
+                    )
+            rates = resolve_poll_rates(self._plan, capabilities, strict=False)
+            for semantic in tuple(self._states):
+                if semantic not in FORCE_QUERIES:
+                    continue
+                rate = rates.get(semantic, 0)
+                state = self._states[semantic]
+                if rate == 0:
+                    self._disabled_states[semantic] = self._states.pop(semantic)
+                elif rate != state.requested_hz:
+                    state.requested_hz = rate
+                    state.period_s = 1 / rate
+
+    def force_metrics(self, *, now: float) -> tuple[ForceFieldMetrics, ...]:
+        """Expose field intent without counting a shared query twice."""
+        with self._lock:
+            rates = requested_force_rates(self._plan or PollingPlan())
+            result = []
+            for field in self._capabilities.force_fields:
+                state = self._states.get(field.query_channel)
+                elapsed = 0 if state is None else max(0, now - state.started_at_s)
+                result.append(
+                    ForceFieldMetrics(
+                        field=field.name,
+                        requested_hz=rates[field.name],
+                        query_hz=0 if state is None else state.requested_hz,
+                        achieved_hz=(
+                            state.feedback_samples / elapsed
+                            if state is not None
+                            and elapsed > 0
+                            and field.supported is True
+                            else 0
+                        ),
+                        query_channel=None
+                        if field.query_channel is None
+                        else field.query_channel.value,
+                        supported=field.supported,
+                    )
+                )
+            return tuple(result)
+
     def take_due(self, *, now: float) -> TelemetrySemantic | None:
         """Take one most-overdue channel and advance directly into the future."""
 
@@ -125,7 +184,7 @@ class PollScheduler:
                 due,
                 key=lambda item: (
                     item[1].next_deadline_s,
-                    tuple(POLL_CHANNELS.values()).index(item[0]),
+                    tuple(TelemetrySemantic).index(item[0]),
                 ),
             )
             return self._advance_due_locked(semantic, state, now)
@@ -185,7 +244,7 @@ class PollScheduler:
         if not isinstance(requested_by_poll, bool):
             raise ValidationError("requested_by_poll must be bool")
         with self._lock:
-            state = self._states.get(semantic)
+            state = self._states.get(semantic) or self._disabled_states.get(semantic)
             if state is None:
                 return
             state.completed_reads += 1
@@ -405,19 +464,12 @@ class PollScheduler:
         return command is not None and command.returns_current_state
 
     def _validate_channels(self, plan: PollingPlan) -> None:
-        for channel, _rate in plan.enabled_rates():
-            semantic = POLL_CHANNELS[channel]
-            telemetry = self._capabilities.telemetry_channel(semantic)
-            if (
-                telemetry is None
-                or not telemetry.device_queried
-                or not self._capabilities.telemetry_supported(semantic)
-            ):
-                raise PollingPlanError(
-                    f"{self._capabilities.model} cannot poll {channel}",
-                    operation="start_polling",
-                    model=self._capabilities.model,
-                )
+        try:
+            resolve_poll_rates(plan, self._capabilities)
+        except (UnsupportedOperationError, UnsupportedFirmwareError) as error:
+            raise PollingPlanError(
+                str(error), operation="start_polling", model=self._capabilities.model
+            ) from error
         if (
             plan.angles_hz > 0
             and plan.angle_feedback is AngleFeedbackPolicy.COMMAND_FEEDBACK_ONLY

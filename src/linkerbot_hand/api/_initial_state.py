@@ -168,7 +168,16 @@ def _placeholder_value(telemetry: TelemetryCapability) -> int | float:
 def _unavailable_force(capabilities: DeviceCapabilities) -> ForceSample | None:
     if capabilities.telemetry_channel(TelemetrySemantic.FORCE) is None:
         return None
-    return ForceSample(raw=(), tactile=(), meta=SampleMeta.unavailable())
+    return ForceSample(
+        raw=(),
+        tactile=(),
+        meta=SampleMeta.unavailable(),
+        unsupported_fields=tuple(
+            field.name
+            for field in capabilities.force_fields
+            if field.supported is False
+        ),
+    )
 
 
 def make_initial_health(capabilities: DeviceCapabilities) -> HealthStatus:

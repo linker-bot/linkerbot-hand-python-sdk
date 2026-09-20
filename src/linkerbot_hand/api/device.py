@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
+from time import monotonic
 
 from ..capabilities.types import CommandSemantic, TelemetrySemantic
-from ._device_core import _DeviceCore
+from ._device_core import _coerce_timeout, _DeviceCore
+from ._force import age_force_fields, merge_force_samples
+from ._force_names import DEFAULT_FORCE_FIELDS, FORCE_FIELDS, validate_force_field
 from .commands import CommandHandle
 from .device_info import DeviceInfo
 from .enums import SampleProjection
-from .errors import ValidationError
+from .errors import (
+    DeviceNotReadyError,
+    TimeoutError,
+    UnsupportedFirmwareError,
+    UnsupportedOperationError,
+    ValidationError,
+)
 from .readings import (
     AngleSample,
     ConfiguredAccelerationSample,
@@ -231,14 +241,100 @@ class HandDevice(_DeviceCore):
             operation="get_temperatures",
         )
 
-    def get_force(self, timeout: float) -> ForceSample:
-        """Actively read one complete force or tactile transaction."""
+    def get_force(self, *fields: str, timeout: float = 1.0) -> ForceSample:
+        """Read lowercase tactile quantities, defaulting to ``fn`` + ``fns``.
 
-        return self._read(
-            TelemetrySemantic.FORCE,
-            timeout,
-            ForceSample,
-            operation="get_force",
+        Known absent default fields are skipped. Explicit absent fields raise.
+        Shared native streams (O30) are queried once and return all their fields.
+        ``timeout`` covers queueing and all reads; a failed read raises without
+        returning a partial aggregate. A complete round is not a hardware latch.
+        """
+        deadline = monotonic() + _coerce_timeout(timeout)
+        for name in fields:
+            validate_force_field(name)
+        requested = tuple(dict.fromkeys(fields or DEFAULT_FORCE_FIELDS))
+        capabilities = self.get_capabilities()
+        queries: dict[TelemetrySemantic, None] = {}
+        for name in requested:
+            field = capabilities.force_field(name)
+            if field.supported is False:
+                if fields:
+                    error_type = (
+                        UnsupportedFirmwareError
+                        if field.firmware_unsupported
+                        else UnsupportedOperationError
+                    )
+                    raise error_type(
+                        f"{capabilities.model} does not support get_force field {name}",
+                        operation="get_force",
+                        model=capabilities.model,
+                    )
+                continue
+            if field.query_channel is not None:
+                queries[field.query_channel] = None
+        if not queries:
+            if any(
+                capabilities.force_field(name).firmware_unsupported
+                for name in requested
+            ):
+                raise UnsupportedFirmwareError(
+                    "firmware does not support get_force requested fields",
+                    operation="get_force",
+                    model=capabilities.model,
+                )
+            self._raise_unsupported("get_force")
+        result: ForceSample | None = None
+        completed_at: dict[str, float] = {}
+        for semantic in queries:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    "get_force total timeout expired",
+                    operation="get_force",
+                    model=capabilities.model,
+                )
+            sample = self._read(semantic, remaining, ForceSample, operation="get_force")
+            completed_at[semantic.value] = monotonic()
+            result = merge_force_samples(result, sample)
+        assert result is not None
+        if len(completed_at) > 1:
+            result = age_force_fields(
+                result, completed_at, now=monotonic(), capabilities=capabilities
+            )
+        if (
+            self.get_snapshot().connection_generation
+            != result.meta.connection_generation
+        ):
+            raise DeviceNotReadyError("force queries crossed a connection generation")
+        if fields:
+            missing = tuple(name for name in requested if result.field(name) is None)
+            if missing:
+                raise UnsupportedOperationError(
+                    f"device sensors do not expose force fields: {', '.join(missing)}",
+                    operation="get_force",
+                    model=capabilities.model,
+                )
+        elif result.meta.valid and not any(
+            result.field(name) is not None for name in requested
+        ):
+            raise UnsupportedOperationError(
+                "device sensors do not expose fn or fns",
+                operation="get_force",
+                model=capabilities.model,
+            )
+        unsupported = set(result.unsupported_fields)
+        unsupported.update(
+            field.name
+            for field in self.get_capabilities().force_fields
+            if field.supported is False
+        )
+        unsupported.difference_update(field.name for field in result.fields)
+        return replace(
+            result,
+            requested_fields=requested,
+            unsupported_fields=tuple(
+                name for name in FORCE_FIELDS if name in unsupported
+            ),
         )
 
     def get_normal_force_resultant(

@@ -13,6 +13,7 @@ from ..api.errors import (
     ProtocolError,
     ValidationError,
 )
+from ..api.readings import ForceSample
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import IdentityResult
 
@@ -122,6 +123,21 @@ class RuntimeState:
         with self._lock:
             self._ready = False
             self._admitting = False
+
+    def observe_force_sample(self, sample: ForceSample) -> DeviceCapabilities:
+        """Publish descriptor evidence only for the active generation."""
+        with self._lock:
+            if sample.meta.connection_generation != self._generation or not self._ready:
+                raise DeviceNotReadyError(
+                    "tactile sample belongs to an inactive generation"
+                )
+            if sample.sensors:
+                metadata = tuple(sensor.metadata for sensor in sample.sensors)
+                if metadata != self._capabilities.tactile_sensors:
+                    self._capabilities = replace(
+                        self._capabilities, tactile_sensors=metadata
+                    )
+            return self._capabilities
 
     def mark_firmware_unsupported_telemetry(
         self,

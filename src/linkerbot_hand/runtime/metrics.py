@@ -206,6 +206,7 @@ class RuntimeMetrics:
             channels=channels,
             transaction_latency=latency,
             transport=_transport_metrics(transport, arbiter),
+            force_fields=polling.force_metrics(now=now),
         )
 
     def _set_connection(

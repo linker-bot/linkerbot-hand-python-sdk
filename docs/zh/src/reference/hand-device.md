@@ -146,7 +146,7 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 | `get_torques(timeout)` | `TorqueSample` |
 | `get_currents(timeout)` | `CurrentSample` |
 | `get_temperatures(timeout)` | `TemperatureSample` |
-| `get_force(timeout)` | `ForceSample`，完整触觉作为一个原子事务 |
+| `get_force(*fields, timeout=1.0)` | `ForceSample`，默认可用 fn+fns；小写字段选择、原始值及各字段独立时间戳，见[触觉接口](./force.md) |
 | `get_normal_force_resultant(timeout)` | `NormalForceResultantSample`；当前仅 O30，五指设备 FnS 原值及各自单位 |
 | `get_faults(timeout)` | `FaultSample` |
 | `get_voltages(timeout)` | `VoltageSample` |
