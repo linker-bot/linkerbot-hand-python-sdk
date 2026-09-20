@@ -256,19 +256,77 @@ class JointFaultStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class L20LiteFaultStatus:
+    """LHT10 servo status; set bits indicate faults, not clear commands.
+
+    ``voltage_abnormal`` means overvoltage OR undervoltage: the wire byte
+    cannot distinguish them. Reserved bits are retained without interpretation.
+    """
+
+    raw: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("L20Lite fault raw must be an unsigned byte")
+
+    @property
+    def load_overload(self) -> bool:
+        return bool(self.raw & 0x20)
+
+    @property
+    def over_current(self) -> bool:
+        return bool(self.raw & 0x08)
+
+    @property
+    def over_temperature(self) -> bool:
+        return bool(self.raw & 0x04)
+
+    @property
+    def magnetic_encoder_abnormal(self) -> bool:
+        return bool(self.raw & 0x02)
+
+    @property
+    def voltage_abnormal(self) -> bool:
+        return bool(self.raw & 0x01)
+
+    @property
+    def reserved_bits(self) -> int:
+        return self.raw & 0xD0
+
+    @property
+    def descriptions(self) -> tuple[str, ...]:
+        """Explain every active known fault and any undefined bits."""
+        descriptions = tuple(
+            description
+            for active, description in (
+                (self.load_overload, "Load overload"),
+                (self.over_current, "Overcurrent"),
+                (self.over_temperature, "Overtemperature"),
+                (self.magnetic_encoder_abnormal, "Magnetic encoder abnormal"),
+                (self.voltage_abnormal, "Overvoltage or undervoltage"),
+            )
+            if active
+        )
+        if self.reserved_bits:
+            descriptions += (f"Undefined fault bits: 0x{self.reserved_bits:02X}",)
+        return descriptions
+
+
+@dataclass(frozen=True, slots=True)
 class FaultSample(_RawVectorSample):
     """Device fault bytes plus optional protocol-specific decoded statuses."""
 
-    statuses: tuple[JointFaultStatus, ...] = ()
+    statuses: tuple[JointFaultStatus | L20LiteFaultStatus, ...] = ()
 
     def __post_init__(self) -> None:
         _RawVectorSample.__post_init__(self)
         if any(type(value) is not int for value in self.raw):
             raise ValidationError("fault raw values must be integers")
         if not isinstance(self.statuses, tuple) or any(
-            not isinstance(value, JointFaultStatus) for value in self.statuses
+            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus))
+            for value in self.statuses
         ):
-            raise ValidationError("fault statuses must contain JointFaultStatus values")
+            raise ValidationError("fault statuses must contain decoded fault statuses")
         if self.statuses and len(self.statuses) != len(self.raw):
             raise ValidationError("fault statuses must match raw fault values")
         if self.statuses and any(
@@ -743,6 +801,7 @@ __all__ = [
     "ForceFieldSample",
     "ForceSample",
     "JointFaultStatus",
+    "L20LiteFaultStatus",
     "MeasuredSpeedSample",
     "MotionTimeSample",
     "NormalForceResultantSample",

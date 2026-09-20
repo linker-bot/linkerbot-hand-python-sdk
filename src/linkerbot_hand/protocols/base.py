@@ -12,6 +12,7 @@ from ..api.enums import DataOrigin
 from ..api.errors import ValidationError
 from ..api.readings import (
     JointFaultStatus,
+    L20LiteFaultStatus,
     RawNumber,
     TactileMatrix,
     TactileSensorSample,
@@ -48,7 +49,7 @@ class SamplePayload:
     raw: tuple[RawNumber, ...] = ()
     tactile: tuple[TactileMatrix, ...] = ()
     sensors: tuple[TactileSensorSample, ...] = ()
-    fault_statuses: tuple[JointFaultStatus, ...] = ()
+    fault_statuses: tuple[JointFaultStatus | L20LiteFaultStatus, ...] = ()
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
     within_declared_range: bool = True
 
@@ -71,9 +72,10 @@ class SamplePayload:
         ):
             raise ValidationError("sensors must contain TactileSensorSample values")
         if not isinstance(self.fault_statuses, tuple) or any(
-            not isinstance(value, JointFaultStatus) for value in self.fault_statuses
+            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus))
+            for value in self.fault_statuses
         ):
-            raise ValidationError("fault_statuses must contain JointFaultStatus values")
+            raise ValidationError("fault_statuses must contain decoded fault statuses")
         if not isinstance(self.origin, DataOrigin) or self.origin is DataOrigin.NONE:
             raise ValidationError("a payload must have a concrete data origin")
         if not isinstance(self.within_declared_range, bool):

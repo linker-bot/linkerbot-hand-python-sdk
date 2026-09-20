@@ -237,13 +237,14 @@ def test_decoded_statuses_matches_the_o30_read_table() -> None:
     [
         ("l6", "right"),
         ("o6", "right"),
-        ("l20lite", "right"),
         ("l20", "right"),
         ("o20", "right"),
         ("l30", None),
     ],
 )
-def test_only_o30_declares_decoded_statuses(model: str, side: str | None) -> None:
+def test_models_without_fault_bit_decoder_do_not_advertise_one(
+    model: str, side: str | None
+) -> None:
     capabilities = get_declared_capabilities(model, side=side)
 
     assert not any(channel.decoded_statuses for channel in capabilities.telemetry)

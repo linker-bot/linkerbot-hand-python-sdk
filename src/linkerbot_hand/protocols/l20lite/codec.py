@@ -1,7 +1,13 @@
 """L20Lite multi-frame opcode layouts."""
 
+from ...api.readings import L20LiteFaultStatus
 from ...capabilities.types import CommandSemantic, TelemetrySemantic
 from ..common.classic_layout import ClassicFrameLayout, ClassicObjectLayout
+
+
+def decode_fault_statuses(raw: tuple[int, ...]) -> tuple[L20LiteFaultStatus, ...]:
+    """Decode LHT10 bits without applying another model's fault layout."""
+    return tuple(L20LiteFaultStatus(value) for value in raw)
 
 
 def _layout(*frames: tuple[int, tuple[int | None, ...]]) -> ClassicObjectLayout:

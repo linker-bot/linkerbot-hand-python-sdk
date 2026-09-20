@@ -66,7 +66,20 @@
 本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、专用电流/转矩接口、
 加速度、堵转维持电流、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
-当前资料只定义 `35/36` 查询，没有定义其写入清错契约。
+L20Lite 没有清除错误码命令，`35/36` 仅用于查询。SDK 不发送猜测的清错帧。
+
+故障样本 `sample.raw` 保留十关节原始字节；`sample.statuses` 按同一顺序返回
+`L20LiteFaultStatus`。可读取 `load_overload`（负载过载）、`over_current`（过流）、
+`over_temperature`（过热）、`magnetic_encoder_abnormal`（磁编码异常）、
+`voltage_abnormal`（过压或欠压，协议无法进一步区分）。`reserved_bits` 保留未定义的
+bit7/6/4，`descriptions` 返回所有已触发错误的英文解释，含未知位的十六进制提示；
+原始字节为 0 时该元组为空。此类型的位定义与 O30 的 `JointFaultStatus` 不同。
+
+```python
+faults = hand.get_faults(timeout=1.0)
+for joint, status in zip(hand.get_capabilities().joints, faults.statuses):
+    print(joint.name, hex(status.raw), status.descriptions)
+```
 
 ## 堵转配置
 

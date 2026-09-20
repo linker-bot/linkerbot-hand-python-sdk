@@ -16,6 +16,7 @@ from .codec import (
     FORCE_SCALAR_LAYOUTS,
     STALL_COMMANDS,
     TELEMETRY_LAYOUTS,
+    decode_fault_statuses,
 )
 from .identity import l20lite_identity_transaction
 from .stall import stall_transaction
@@ -40,6 +41,7 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
             # LHT10 specifies 1 ms between vector frames. Firmware 4.6.10
             # intermittently omits replies at the shared 0.5 ms default.
             request_interval_s=0.001,
+            decode_fault_statuses=decode_fault_statuses,
         )
 
     def command_transaction(

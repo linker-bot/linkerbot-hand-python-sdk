@@ -8,7 +8,7 @@ from linkerbot_transport import CANRouteKey
 
 from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
-from ...api.readings import RawNumber
+from ...api.readings import JointFaultStatus, L20LiteFaultStatus, RawNumber
 from ...capabilities.types import (
     CommandCapability,
     CommandSemantic,
@@ -38,6 +38,10 @@ class ClassicMultiAxisBackend:
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
         firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
         request_interval_s: float = 0.0005,
+        decode_fault_statuses: Callable[
+            [tuple[int, ...]], tuple[JointFaultStatus | L20LiteFaultStatus, ...]
+        ]
+        | None = None,
     ) -> None:
         self._route = route
         self._identity_transaction = identity_transaction
@@ -48,6 +52,7 @@ class ClassicMultiAxisBackend:
         self._config_telemetry = frozenset(config_telemetry)
         self._firmware_optional_reads = frozenset(firmware_optional_reads)
         self._request_interval_s = request_interval_s
+        self._decode_fault_statuses = decode_fault_statuses
 
     @property
     def endpoint_id(self) -> CANRouteKey:
@@ -180,6 +185,12 @@ class ClassicMultiAxisBackend:
                     semantic=semantic,
                     raw=raw,
                     origin=self._response_origin(semantic),
+                    fault_statuses=(
+                        self._decode_fault_statuses(raw)
+                        if semantic is TelemetrySemantic.FAULTS
+                        and self._decode_fault_statuses is not None
+                        else ()
+                    ),
                     within_declared_range=_within_declared_range(
                         raw, semantic, telemetry.raw_range, capabilities
                     ),
