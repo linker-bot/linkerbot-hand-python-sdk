@@ -14,6 +14,11 @@
   `force_fn_hz`。保留原始字节和方向无效码，不套用未经确认的物理比例，也不补发
   `0x28..0x32` 单指查询。能力表和型号文档同步列出支持、单位与历史实机边界。
 
+- L20Lite 新增 C5/C6/C7 堵转阈值、触发时间及堵转后输出扭矩配置；通过
+  `set_stall_thresholds()`、`set_stall_detection_times()`、`set_stall_hold_torques()`
+  写入十关节原值，两组回显完整一致才确认。对应 getter 返回本次连接已确认的回显，
+  不发送无协议依据的主动查询；C6 为 10 ms/count，C7 不误称为电流。
+
 - 全型号触觉统一为 `get_force(*fields, timeout=1.0)`，小写字段为
   `fn/fns/ft/fts/fd/fds/px`，默认读取可用的 `fn + fns`；超时现在使用关键字传入。
   样本字段保留原始值、单位、编码、逐值有效性与独立采集时间；能力查询说明支持情况、

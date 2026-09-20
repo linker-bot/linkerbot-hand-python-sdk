@@ -42,6 +42,7 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
+    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -422,7 +423,7 @@ class HandDevice(_DeviceCore):
         self,
         timeout: float,
     ) -> StallDetectionTimeSample:
-        """Actively read raw stall-detection-time configuration."""
+        """Read raw stall time; L20Lite returns the last confirmed write echo."""
 
         return self._read(
             TelemetrySemantic.STALL_DETECTION_TIMES,
@@ -444,7 +445,7 @@ class HandDevice(_DeviceCore):
         )
 
     def get_stall_thresholds(self, timeout: float) -> StallThresholdSample:
-        """Actively read raw stall-threshold configuration."""
+        """Read raw stall threshold; L20Lite returns the last confirmed echo."""
 
         return self._read(
             TelemetrySemantic.STALL_THRESHOLDS,
@@ -473,6 +474,25 @@ class HandDevice(_DeviceCore):
             timeout,
             StallHoldCurrentSample,
             operation="get_stall_hold_currents",
+        )
+
+    def set_stall_hold_torques(self, values: Iterable[RawNumber]) -> CommandHandle:
+        """Submit raw output torque maintained after stall (L20Lite C7)."""
+
+        return self._submit_raw(
+            CommandSemantic.STALL_HOLD_TORQUES,
+            values,
+            operation="set_stall_hold_torques",
+        )
+
+    def get_stall_hold_torques(self, timeout: float) -> StallHoldTorqueSample:
+        """Return the last confirmed torque echo; no active query on L20Lite."""
+
+        return self._read(
+            TelemetrySemantic.STALL_HOLD_TORQUES,
+            timeout,
+            StallHoldTorqueSample,
+            operation="get_stall_hold_torques",
         )
 
     def set_limit_compensations(

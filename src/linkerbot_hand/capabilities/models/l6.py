@@ -87,6 +87,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         read_supported=True,
         write_supported=True,
     )
+    assert stall.hold_current is not None
     return DeviceCapabilities(
         identity=identity(
             "L6",

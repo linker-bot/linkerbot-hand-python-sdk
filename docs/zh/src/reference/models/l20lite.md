@@ -54,15 +54,32 @@
 | `get_force("fds", timeout=...)` | `22`，请求 1 byte、回复 6 bytes | 五指各一个切向方向编码；0..127 有效，255 未定义，128..254 保留；均保留原值并单独标注有效性 |
 | `get_force("px", timeout=...)` | `23`，请求 1 byte、回复 6 bytes | 五指各一个接近原值；u8 count，无已确认距离比例或布尔阈值 |
 | `get_device_info(timeout)` | `C0/C1/C2/C4` | 产品编号、PCB/固件/机械版本与工厂字段；三个版本字节按 major/minor/patch 解释 |
+| `set_stall_thresholds(values)` | `C5 GROUP D1..D5`，两帧 | 十个 0..255 原值；堵转保护阈值，物理比例未知 |
+| `set_stall_detection_times(values)` | `C6 GROUP D1..D5`，两帧 | 十个 0..255 原值；每 count 为 10 ms，SDK 不换算 |
+| `set_stall_hold_torques(values)` | `C7 GROUP D1..D5`，两帧 | 十个 0..255 原值；堵转后输出扭矩，不是电流，N·m 比例未知 |
+| 对应 `get_stall_* (timeout)` | 不发 CAN 请求 | 只返回本次连接内完整确认的写回显；尚无确认值时报告 `UnsupportedOperationError` |
 
 `get_snapshot()` 和 `get_capabilities()` 不发送请求；单位、解释和证据级别可分别通过
 `telemetry_channel(...).raw_unit/raw_scale_note/unit_confidence` 查询。角度样本附带固定
 百分比投影，但 `raw` 仍是设备原值；无已确认物理映射时 `physical_rad` 为 `None`。
 
 本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、专用电流/转矩接口、
-加速度、堵转配置、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
+加速度、堵转维持电流、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
 当前资料只定义 `35/36` 查询，没有定义其写入清错契约。
+
+## 堵转配置
+
+堵转配置按照 `get_capabilities().joint_names` 接收十个整数，GROUP=1 为前五关节、
+GROUP=2 为后五关节，完整帧 DLC=7，发帧间隔 1 ms。三种设置使用同一 FIFO 配置队列；
+只有两组回显均与写入完全一致时，命令才进入 `ACKNOWLEDGED`，并原子更新对应样本。
+可通过 `handle.wait(timeout=1.0)` 等待终态，再调用对应 getter 或读取快照。
+回显不是主动查询；能力中 `read_mode=COMMAND_RESPONSE`、`device_queried=False`，
+`stall_protection.read_supported=False` 表示没有主动回读。
+`stall_protection.hold_current=None`，`hold_torque` 给出 C7 的元数据。
+设备收到每组参数后立即生效，若第二组缺帧或回显错误，SDK 会报失败并保留上次完整
+确认样本，但不能撤销设备已应用的第一组；不要把失败解释为“设备没有变化”。
+本次实现没有执行真实设备参数写入或验证物理安全范围，不提供隐式重试和持久保存。
 
 ## 触觉和可选查询
 
@@ -120,7 +137,7 @@ SDK 未发布残缺矩阵，独立原始抓包同样缺行；尚不能将根因�
 | --- | --- |
 | `28/29/30/31/32` 单指四类传感数据 | 同一数据的另一种查询方式；本轮只采用 `20..23` 类别查询，不开放或隐式补发单指查询 |
 | `87/88` 加速度 | 资料列出 5+5 写入与回显，0..254；未定义可靠的原配置读取/恢复，本次不写入 |
-| `C5/C6/C7` 堵转配置 | 有关节组选择字节，与 L6/O6 布局不同；缺少配置恢复证据，尚未开放 |
+| `C5/C6/C7` 堵转配置 | 已按组实现写入和严格回显确认；主动查询和实机恢复验证仍未提供 |
 | `C3` 地址、`CC` 回复开关、`CE` 出厂恢复、`CF` 保存 | 会改变路由、通信行为或持久配置；未执行、未新增普通操作接口 |
 | `B6` 手掌矩阵 | 资料标为保留，无明确布局 |
 

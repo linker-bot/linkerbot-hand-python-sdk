@@ -26,6 +26,7 @@ from ._common import (
     telemetry,
     transport,
 )
+from .l20lite_stall import stall_capability, stall_commands, stall_telemetry
 
 _JOINT_SPECS = (
     ("thumb_flex", JointMotionType.FLEXION, "flexed", "extended"),
@@ -140,6 +141,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         )
     )
     names = tuple(value.name for value in joints)
+    stall = stall_capability(names)
     return DeviceCapabilities(
         identity=identity(
             "L20Lite",
@@ -156,6 +158,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         ),
         joints=joints,
         commands=(
+            *stall_commands(stall),
             angle_command(joints, "u8", returns_current_state=True),
             command(
                 CommandSemantic.SPEEDS,
@@ -179,6 +182,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             ),
         ),
         telemetry=(
+            *stall_telemetry(stall),
             angle_telemetry(
                 joints,
                 "u8",
@@ -264,9 +268,9 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.006,
             ),
         ),
-        stall_protection=None,
+        stall_protection=stall,
         transport=transport(TransportKind.CAN),
-        operations=OperationCapabilities(),
+        operations=OperationCapabilities(write_stall_protection=True),
     )
 
 

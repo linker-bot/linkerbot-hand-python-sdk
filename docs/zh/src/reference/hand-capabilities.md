@@ -41,7 +41,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | `tactile_sensors` | 本连接已经取得的 O30 descriptor 元数据，未读时为空；不会因此触发 I/O |
 | `transport` | CAN/CAN FD、仲裁/数据速率和地址说明 |
 | `operations` | 身份读取、清错、使能、失能、标定和堵转配置支持情况 |
-| `stall_protection` | 堵转判定时间、阈值、维持电流的 raw 契约和安全范围可信度 |
+| `stall_protection` | 堵转判定时间、阈值、维持电流或扭矩的 raw 契约和安全范围可信度；L20Lite 的 `hold_current=None`，使用 `hold_torque` |
 
 每个数值事实带有 `Confidence`：`MEASURED`、`DOCUMENTED`、
 `APPROXIMATE`、`CONFLICTING` 或 `UNKNOWN`。资料冲突或缺失时，SDK 不生成推测物理值。

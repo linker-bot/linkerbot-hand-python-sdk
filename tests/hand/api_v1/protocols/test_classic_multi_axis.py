@@ -193,6 +193,7 @@ def test_l20_family_optional_queries_exclude_required_baseline(model, backend_ty
     optional = {
         channel.semantic
         for channel in capabilities.telemetry
+        if channel.device_queried
         if backend.read_transaction(channel.semantic, capabilities).firmware_optional
     }
     expected_optional = {

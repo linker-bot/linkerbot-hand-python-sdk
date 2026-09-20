@@ -52,6 +52,14 @@ COMMAND_LAYOUTS = {
     CommandSemantic.SPEEDS: SPEED_LAYOUT,
     CommandSemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
 }
+STALL_COMMANDS = {
+    CommandSemantic.STALL_THRESHOLDS: (0xC5, TelemetrySemantic.STALL_THRESHOLDS),
+    CommandSemantic.STALL_DETECTION_TIMES: (
+        0xC6,
+        TelemetrySemantic.STALL_DETECTION_TIMES,
+    ),
+    CommandSemantic.STALL_HOLD_TORQUES: (0xC7, TelemetrySemantic.STALL_HOLD_TORQUES),
+}
 TELEMETRY_LAYOUTS = {
     **FORCE_SCALAR_LAYOUTS,
     TelemetrySemantic.ANGLES: ANGLE_LAYOUT,

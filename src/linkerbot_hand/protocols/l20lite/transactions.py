@@ -3,7 +3,8 @@
 from dataclasses import replace
 
 from ...api.enums import HandSide
-from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
+from ...api.readings import RawNumber
+from ...capabilities.types import CommandSemantic, DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
 from ..common.classic_multi_axis import ClassicMultiAxisBackend
@@ -13,9 +14,11 @@ from .codec import (
     COMMAND_LAYOUTS,
     CONFIG_TELEMETRY,
     FORCE_SCALAR_LAYOUTS,
+    STALL_COMMANDS,
     TELEMETRY_LAYOUTS,
 )
 from .identity import l20lite_identity_transaction
+from .stall import stall_transaction
 
 
 class L20LiteProtocolBackend(ClassicMultiAxisBackend):
@@ -38,6 +41,17 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
             # intermittently omits replies at the shared 0.5 ms default.
             request_interval_s=0.001,
         )
+
+    def command_transaction(
+        self,
+        semantic: CommandSemantic,
+        values: tuple[RawNumber, ...],
+        capabilities: DeviceCapabilities,
+    ) -> ProtocolTransaction:
+        """Dispatch grouped stall settings through exact write echoes."""
+        if semantic in STALL_COMMANDS:
+            return stall_transaction(semantic, values, capabilities)
+        return super().command_transaction(semantic, values, capabilities)
 
     def read_transaction(
         self,

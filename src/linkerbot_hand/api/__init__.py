@@ -81,6 +81,7 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
+    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -141,6 +142,7 @@ __all__ = [
     "SampleProjection",
     "StallDetectionTimeSample",
     "StallHoldCurrentSample",
+    "StallHoldTorqueSample",
     "StallThresholdSample",
     "TactileFieldDescriptor",
     "TactileFieldSample",

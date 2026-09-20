@@ -44,6 +44,7 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
+    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -140,6 +141,11 @@ def make_initial_snapshot(capabilities: DeviceCapabilities) -> HandSnapshot:
             capabilities,
             TelemetrySemantic.LIMIT_COMPENSATIONS,
             LimitCompensationSample,
+        ),
+        stall_hold_torques=_unavailable_vector(
+            capabilities,
+            TelemetrySemantic.STALL_HOLD_TORQUES,
+            StallHoldTorqueSample,
         ),
     )
 

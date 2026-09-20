@@ -33,6 +33,7 @@ from ..api.stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
+    StallHoldTorqueSample,
     StallThresholdSample,
 )
 from ..capabilities.force import FORCE_QUERIES
@@ -68,6 +69,7 @@ SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "stall_hold_currents",
+    TelemetrySemantic.STALL_HOLD_TORQUES: "stall_hold_torques",
     TelemetrySemantic.LIMIT_COMPENSATIONS: "limit_compensations",
 }
 
@@ -86,6 +88,7 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
     TelemetrySemantic.STALL_DETECTION_TIMES: StallDetectionTimeSample,
     TelemetrySemantic.STALL_THRESHOLDS: StallThresholdSample,
     TelemetrySemantic.STALL_HOLD_CURRENTS: StallHoldCurrentSample,
+    TelemetrySemantic.STALL_HOLD_TORQUES: StallHoldTorqueSample,
     TelemetrySemantic.LIMIT_COMPENSATIONS: LimitCompensationSample,
 }
 

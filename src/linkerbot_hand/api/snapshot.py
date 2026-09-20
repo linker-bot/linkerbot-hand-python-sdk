@@ -27,6 +27,7 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
+    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -102,6 +103,7 @@ class HandSnapshot:
     stall_detection_times: StallDetectionTimeSample | None = None
     stall_thresholds: StallThresholdSample | None = None
     stall_hold_currents: StallHoldCurrentSample | None = None
+    stall_hold_torques: StallHoldTorqueSample | None = None
     limit_compensations: LimitCompensationSample | None = None
 
     def __post_init__(self) -> None:
