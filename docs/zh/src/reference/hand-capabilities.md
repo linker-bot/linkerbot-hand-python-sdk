@@ -54,7 +54,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | 型号 | side | transport | 关节数 | 可写命令 | 可读/缓存状态 | 可选操作 |
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, torques, position_kp, position_kd, torque_kd, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, torques, position_kp, position_kd, torque_kd, force, temperatures, currents, faults（位解析）, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
-| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
+| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults（位解析）, 3 项 stall 配置 | 读写 stall, save_parameters |
 | L20Lite | 必填 | CAN 1M | 10 | angles, speeds, current_limits, 3 项 stall 配置 | angles, measured_speeds, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, current_limits | angles, measured_speeds, currents, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, current_limits | angles, measured/configured_speeds, current_limits, currents, force, temperatures, faults | clear_faults |

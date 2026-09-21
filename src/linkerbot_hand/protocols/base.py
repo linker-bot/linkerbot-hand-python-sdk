@@ -14,6 +14,7 @@ from ..api.readings import (
     JointFaultStatus,
     L6FaultStatus,
     L20LiteFaultStatus,
+    O6FaultStatus,
     RawNumber,
     TactileMatrix,
     TactileSensorSample,
@@ -51,7 +52,7 @@ class SamplePayload:
     tactile: tuple[TactileMatrix, ...] = ()
     sensors: tuple[TactileSensorSample, ...] = ()
     fault_statuses: tuple[
-        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus, ...
+        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus | O6FaultStatus, ...
     ] = ()
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
     within_declared_range: bool = True
@@ -75,7 +76,10 @@ class SamplePayload:
         ):
             raise ValidationError("sensors must contain TactileSensorSample values")
         if not isinstance(self.fault_statuses, tuple) or any(
-            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus))
+            not isinstance(
+                value,
+                (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus, O6FaultStatus),
+            )
             for value in self.fault_statuses
         ):
             raise ValidationError("fault_statuses must contain decoded fault statuses")

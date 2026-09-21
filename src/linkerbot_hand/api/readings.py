@@ -270,19 +270,11 @@ class JointFaultStatus:
             raise ValidationError("decoded joint fault flags do not match raw")
 
 
-@dataclass(frozen=True, slots=True)
-class L20LiteFaultStatus:
-    """LHT10 servo status; set bits indicate faults, not clear commands.
+class _ServoFaultFlags:
+    """Bit meanings shared by the documented O6 and LHT10 servo protocols."""
 
-    ``voltage_abnormal`` means overvoltage OR undervoltage: the wire byte
-    cannot distinguish them. Reserved bits are retained without interpretation.
-    """
-
+    __slots__ = ()
     raw: int
-
-    def __post_init__(self) -> None:
-        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
-            raise ValidationError("L20Lite fault raw must be an unsigned byte")
 
     @property
     def load_overload(self) -> bool:
@@ -325,6 +317,36 @@ class L20LiteFaultStatus:
         if self.reserved_bits:
             descriptions += (f"Undefined fault bits: 0x{self.reserved_bits:02X}",)
         return descriptions
+
+
+@dataclass(frozen=True, slots=True)
+class L20LiteFaultStatus(_ServoFaultFlags):
+    """LHT10 servo status; set bits indicate faults, not clear commands.
+
+    ``voltage_abnormal`` means overvoltage OR undervoltage: the wire byte
+    cannot distinguish them. Reserved bits are retained without interpretation.
+    """
+
+    raw: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("L20Lite fault raw must be an unsigned byte")
+
+
+@dataclass(frozen=True, slots=True)
+class O6FaultStatus(_ServoFaultFlags):
+    """O6 V1.0.1 servo faults alongside the exact 0x35 protocol byte.
+
+    Bit 0 combines overvoltage and undervoltage; bits 7, 6 and 4 are undefined.
+    This status does not imply device support for clearing faults.
+    """
+
+    raw: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("O6 fault raw must be an unsigned byte")
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,14 +417,19 @@ class L6FaultStatus:
 class FaultSample(_RawVectorSample):
     """Device fault bytes plus optional protocol-specific decoded statuses."""
 
-    statuses: tuple[JointFaultStatus | L20LiteFaultStatus | L6FaultStatus, ...] = ()
+    statuses: tuple[
+        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus | O6FaultStatus, ...
+    ] = ()
 
     def __post_init__(self) -> None:
         _RawVectorSample.__post_init__(self)
         if any(type(value) is not int for value in self.raw):
             raise ValidationError("fault raw values must be integers")
         if not isinstance(self.statuses, tuple) or any(
-            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus))
+            not isinstance(
+                value,
+                (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus, O6FaultStatus),
+            )
             for value in self.statuses
         ):
             raise ValidationError("fault statuses must contain decoded fault statuses")
@@ -884,6 +911,7 @@ __all__ = [
     "MeasuredSpeedSample",
     "MotionTimeSample",
     "NormalForceResultantSample",
+    "O6FaultStatus",
     "PositionKdSample",
     "PositionKpSample",
     "RawNumber",

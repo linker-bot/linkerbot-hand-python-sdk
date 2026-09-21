@@ -1,6 +1,14 @@
 """O6 opcode and semantic mappings."""
 
+from ...api.readings import O6FaultStatus
 from ...capabilities.types import CommandSemantic, TelemetrySemantic
+
+
+def decode_fault_statuses(raw: tuple[int, ...]) -> tuple[O6FaultStatus, ...]:
+    """Decode each joint's O6 fault byte without discarding undefined bits."""
+
+    return tuple(O6FaultStatus(value) for value in raw)
+
 
 COMMAND_OPCODES = {
     CommandSemantic.ANGLES: 0x01,
@@ -44,4 +52,5 @@ __all__ = [
     "COMMAND_OPCODES",
     "CONFIG_TELEMETRY",
     "TELEMETRY_OPCODES",
+    "decode_fault_statuses",
 ]

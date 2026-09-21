@@ -8,7 +8,7 @@ from linkerbot_transport import CANRouteKey
 
 from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
-from ...api.readings import L6FaultStatus, RawNumber
+from ...api.readings import L6FaultStatus, O6FaultStatus, RawNumber
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -38,7 +38,9 @@ class ClassicSixAxisBackend:
         operation_payloads: Mapping[str, bytes] | None = None,
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
         firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
-        decode_fault_statuses: Callable[[tuple[int, ...]], tuple[L6FaultStatus, ...]]
+        decode_fault_statuses: Callable[
+            [tuple[int, ...]], tuple[L6FaultStatus | O6FaultStatus, ...]
+        ]
         | None = None,
     ) -> None:
         self._route = route
@@ -266,7 +268,7 @@ class ClassicSixAxisBackend:
 
     def _fault_statuses(
         self, semantic: TelemetrySemantic, raw: tuple[int, ...]
-    ) -> tuple[L6FaultStatus, ...]:
+    ) -> tuple[L6FaultStatus | O6FaultStatus, ...]:
         if semantic is TelemetrySemantic.FAULTS and self._decode_fault_statuses:
             return self._decode_fault_statuses(raw)
         return ()

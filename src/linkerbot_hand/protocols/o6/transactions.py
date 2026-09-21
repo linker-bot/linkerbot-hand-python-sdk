@@ -21,6 +21,7 @@ from .codec import (
     COMMAND_OPCODES,
     CONFIG_TELEMETRY,
     TELEMETRY_OPCODES,
+    decode_fault_statuses,
 )
 from .identity import o6_identity_transaction
 from .tactile import o6_tactile_transaction
@@ -37,6 +38,7 @@ class O6ProtocolBackend(ClassicSixAxisBackend):
             telemetry_opcodes=TELEMETRY_OPCODES,
             baseline=BASELINE_SEMANTICS,
             config_telemetry=CONFIG_TELEMETRY,
+            decode_fault_statuses=decode_fault_statuses,
             firmware_optional_reads=(
                 TelemetrySemantic.CONFIGURED_SPEEDS,
                 TelemetrySemantic.CONFIGURED_ACCELERATIONS,

@@ -267,6 +267,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 TelemetrySemantic.FAULTS,
                 _JOINT_NAMES,
                 "u8_bitmask",
+                decoded_statuses=True,
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit=None,
