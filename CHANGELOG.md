@@ -8,6 +8,13 @@
 
 ## 未发布
 
+- **O6 电流接口语义修正：** `0x02` 查询改由 `get_currents()` 返回 `CurrentSample`，
+  同步连接基线、`snapshot.currents`、逐关节 `current_raw` 与 `current_hz` 轮询。
+  `set_current_limits()` 继续设置上限，写回复保留为 `current_limits` 配置样本。
+  `get_current_limits()` 改为 `COMMAND_RESPONSE` 缓存读取，不主动发帧；无有效写回复
+  或重连后返回不支持。查询与写回复不互相覆盖，无所属事务的 `0x02` 报文不猜测发布。
+  保留原始 count、物理比例冲突说明及既有的回复结构校验，不增加总线请求。
+
 - L6/O6 数值型配置写入统一保留设备实际回复，取消 O6 六类配置及 L6 C5/38 的
   发送值相等限制。完整有效回复进入 `ACKNOWLEDGED` 并更新原始样本，不证明目标已
   原样生效；地址、功能码、帧结构与超时检查保留，不追加查询或重写。

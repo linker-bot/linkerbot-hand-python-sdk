@@ -5,6 +5,7 @@ from ...api.enums import (
     Confidence,
     HandSide,
     JointMotionType,
+    ReadMode,
     SampleProjection,
     TransportKind,
 )
@@ -134,8 +135,8 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_unit="count",
                 raw_scale_note=(
                     "the title states 6.5 mA/count, while the formula states "
-                    "raw * 1000 / 255 mA; this is a current-limit configuration, "
-                    "not measured torque"
+                    "raw * 1000 / 255 mA; writes set and echo the current limit, "
+                    "while standalone 0x02 queries report measured current"
                 ),
                 unit_confidence=Confidence.CONFLICTING,
                 ack_support=AckSupport.SUPPORTED,
@@ -215,6 +216,23 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 device_measured=False,
             ),
             telemetry(
+                TelemetrySemantic.CURRENTS,
+                _JOINT_NAMES,
+                "u8",
+                shape=(6,),
+                raw_range=U8_RANGE,
+                raw_unit="count",
+                raw_scale_note=(
+                    "measured current from 0x02, not the current-limit setting; "
+                    "6.5 mA/count in the title conflicts with the "
+                    "raw * 1000 / 255 mA formula"
+                ),
+                unit_confidence=Confidence.CONFLICTING,
+                recommended_hz=30,
+                stale_after_s=0.1,
+                estimated_transaction_s=0.005,
+            ),
+            telemetry(
                 TelemetrySemantic.CURRENT_LIMITS,
                 _JOINT_NAMES,
                 "u8",
@@ -222,14 +240,17 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_range=U8_RANGE,
                 raw_unit="count",
                 raw_scale_note=(
-                    "current-limit configuration response; 6.5 mA/count in the "
-                    "title conflicts with the raw * 1000 / 255 mA formula"
+                    "current-limit write-response cache, not an active limit "
+                    "query or measured current; 6.5 mA/count in the title "
+                    "conflicts with the raw * 1000 / 255 mA formula"
                 ),
                 unit_confidence=Confidence.CONFLICTING,
-                recommended_hz=30,
-                stale_after_s=0.1,
-                estimated_transaction_s=0.005,
+                read_mode=ReadMode.COMMAND_RESPONSE,
+                device_queried=False,
                 device_measured=False,
+                recommended_hz=0,
+                stale_after_s=3,
+                estimated_transaction_s=0,
             ),
             telemetry(
                 TelemetrySemantic.FORCE,

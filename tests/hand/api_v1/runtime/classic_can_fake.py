@@ -117,7 +117,8 @@ class ClassicCANDeviceScript:
             previous = self.readings[data[0]]
             if self.model == "L20" and data[0] in range(0x59, 0x5E):
                 self.readings[data[0]] = (0,) * 6
-            else:
+            elif self.model != "O6" or data[0] != 0x02:
+                # An O6 limit write does not replace its measured current.
                 self.readings[data[0]] = tuple(data[1:])
             angle_opcodes = (
                 {0x01}
@@ -137,12 +138,13 @@ class ClassicCANDeviceScript:
             if data[0] in echo_opcodes:
                 if data[0] in self.dropped_command_responses:
                     return ()
-                echoed = self.bad_command_echoes.get(
-                    data[0],
-                    previous
-                    if self.model == "L6" and data[0] in (0x03, 0x06, 0x07, 0x08)
-                    else self.readings[data[0]],
-                )
+                if self.model == "O6" and data[0] == 0x02:
+                    response_values = tuple(data[1:])
+                elif self.model == "L6" and data[0] in (0x03, 0x06, 0x07, 0x08):
+                    response_values = previous
+                else:
+                    response_values = self.readings[data[0]]
+                echoed = self.bad_command_echoes.get(data[0], response_values)
                 return (self._frame(bytes((data[0], *echoed))),)
             return ()
         if len(data) == 7 and data[0] == 0x83:

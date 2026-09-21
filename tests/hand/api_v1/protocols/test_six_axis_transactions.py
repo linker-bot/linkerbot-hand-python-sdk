@@ -204,7 +204,6 @@ def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:
     capabilities = get_declared_capabilities("o6", side="right")
     backend = O6ProtocolBackend(HandSide.RIGHT)
     cases = (
-        (CommandSemantic.CURRENT_LIMITS, TelemetrySemantic.CURRENT_LIMITS, 0x02),
         (CommandSemantic.SPEEDS, TelemetrySemantic.CONFIGURED_SPEEDS, 0x05),
         (
             CommandSemantic.ACCELERATIONS,
@@ -235,6 +234,37 @@ def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:
 
     assert capabilities.telemetry_channel(TelemetrySemantic.MEASURED_SPEEDS) is None
     assert capabilities.telemetry_channel(TelemetrySemantic.TORQUES) is None
+
+
+@pytest.mark.parametrize("side", [HandSide.LEFT, HandSide.RIGHT])
+def test_o6_current_reads_and_limit_responses_stay_separate(side) -> None:
+    capabilities = get_declared_capabilities("o6", side=side)
+    backend = O6ProtocolBackend(side)
+    read = backend.read_transaction(TelemetrySemantic.CURRENTS, capabilities)
+    assert _request_data(read) == b"\x02"
+    reply = _reply(side, 0x02, (1, 2, 3, 4, 5, 6))
+    payload = _payload(read, reply)
+    assert payload.semantic is TelemetrySemantic.CURRENTS
+    assert payload.raw == (1, 2, 3, 4, 5, 6)
+    assert payload.origin is DataOrigin.DEVICE_RESPONSE
+    command = backend.command_transaction(
+        CommandSemantic.CURRENT_LIMITS, (100,) * 6, capabilities
+    )
+    assert _request_data(command) == bytes((0x02, *([100] * 6)))
+    response = command.consume(_reply(side, 0x02, (100,) * 6))
+    assert response.acknowledged
+    assert response.result.semantic is TelemetrySemantic.CURRENT_LIMITS
+    assert response.result.raw == (100,) * 6
+    assert response.result.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+    # Both transactions share the opcode guard, but unsolicited frames have
+    # no request context with which to distinguish current from limit echoes.
+    assert command.correlation_key == read.correlation_key
+    assert backend.decode_report(reply, capabilities) == ()
+    assert backend.decode_report(_reply(side, 0x02, (100,) * 6), capabilities) == ()
+    angles = backend.decode_report(_reply(side, 0x01, (9,) * 6), capabilities)
+    assert angles[0].semantic is TelemetrySemantic.ANGLES
+    with pytest.raises(UnsupportedOperationError):
+        backend.read_transaction(TelemetrySemantic.CURRENT_LIMITS, capabilities)
 
 
 def test_o6_stall_configuration_uses_protocol_specific_opcode_order() -> None:
@@ -364,16 +394,21 @@ def test_fixed_width_response_rejects_truncated_matching_opcode() -> None:
         transaction.consume(_reply(HandSide.RIGHT, 0x01, (1, 2)))
 
 
-def test_baseline_includes_angles_faults_and_current_limits() -> None:
-    for model, side, backend in (
-        ("l6", "left", L6ProtocolBackend(HandSide.LEFT)),
-        ("o6", "right", O6ProtocolBackend(HandSide.RIGHT)),
+def test_baseline_distinguishes_l6_limits_from_o6_current() -> None:
+    for model, side, backend, current_semantic in (
+        (
+            "l6",
+            "left",
+            L6ProtocolBackend(HandSide.LEFT),
+            TelemetrySemantic.CURRENT_LIMITS,
+        ),
+        ("o6", "right", O6ProtocolBackend(HandSide.RIGHT), TelemetrySemantic.CURRENTS),
     ):
         capabilities = get_declared_capabilities(model, side=side)
         assert backend.baseline_semantics(capabilities) == (
             TelemetrySemantic.ANGLES,
             TelemetrySemantic.FAULTS,
-            TelemetrySemantic.CURRENT_LIMITS,
+            current_semantic,
         )
 
 

@@ -22,7 +22,7 @@ COMMAND_OPCODES = {
 
 TELEMETRY_OPCODES = {
     TelemetrySemantic.ANGLES: 0x01,
-    TelemetrySemantic.CURRENT_LIMITS: 0x02,
+    TelemetrySemantic.CURRENTS: 0x02,
     TelemetrySemantic.CONFIGURED_SPEEDS: 0x05,
     TelemetrySemantic.TEMPERATURES: 0x33,
     TelemetrySemantic.FAULTS: 0x35,
@@ -35,13 +35,12 @@ TELEMETRY_OPCODES = {
 BASELINE_SEMANTICS = (
     TelemetrySemantic.ANGLES,
     TelemetrySemantic.FAULTS,
-    TelemetrySemantic.CURRENT_LIMITS,
+    TelemetrySemantic.CURRENTS,
 )
 
 CONFIG_TELEMETRY = (
     TelemetrySemantic.CONFIGURED_SPEEDS,
     TelemetrySemantic.CONFIGURED_ACCELERATIONS,
-    TelemetrySemantic.CURRENT_LIMITS,
     TelemetrySemantic.STALL_THRESHOLDS,
     TelemetrySemantic.STALL_DETECTION_TIMES,
     TelemetrySemantic.STALL_HOLD_CURRENTS,

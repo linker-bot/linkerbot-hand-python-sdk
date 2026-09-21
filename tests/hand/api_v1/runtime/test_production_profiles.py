@@ -471,12 +471,6 @@ def test_o6_configuration_reads_are_device_responses_not_measurements() -> None:
         assert hand.get_capabilities().identity.sensor_variant == "B"
         cases = (
             (
-                hand.set_current_limits,
-                hand.get_current_limits,
-                (61,) * 6,
-                0x02,
-            ),
-            (
                 hand.set_speeds,
                 hand.get_configured_speeds,
                 (62,) * 6,

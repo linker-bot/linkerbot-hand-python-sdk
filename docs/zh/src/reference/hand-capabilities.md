@@ -54,7 +54,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | 型号 | side | transport | 关节数 | 可写命令 | 可读/缓存状态 | 可选操作 |
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, torques, position_kp, position_kd, torque_kd, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, torques, position_kp, position_kd, torque_kd, force, temperatures, currents, faults（位解析）, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
-| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults（位解析）, 3 项 stall 配置 | 读写 stall, save_parameters |
+| O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, currents, current_limits（写回复缓存）, force, temperatures, faults（位解析）, 3 项 stall 配置 | 读写 stall, save_parameters |
 | L20Lite | 必填 | CAN 1M | 10 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, measured_speeds, configured_accelerations（写回显缓存）, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, current_limits | angles, measured_speeds, currents, force, temperatures, faults（位解析） | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, current_limits | angles, measured/configured_speeds, current_limits, currents, force, temperatures, faults | clear_faults |
@@ -119,9 +119,15 @@ L20Lite 的加速度 `87/88` 仅支持设置与回显，范围 0..254 count。
 
 电流与 O30 转矩对象分别命名：
 
-- L6/O6 使用 `current_limits`，协议原值为 count；L6 的文档比例为
-  `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
-  `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
+- L6 的 `0x02` 使用 `set/get_current_limits()`，`0x36` 使用 `get_currents()`；
+  协议原值为 count，文档比例为 `raw × 1400 / 255 mA`。
+- O6 的 `0x02` 写入用 `set_current_limits()`，查询用 `get_currents()`，返回当前电流。
+  写回复是限制设定值，发布到 `current_limits`；该命令的 `returns_current_state=False`。
+  电流轮询使用 `current_hz`。`get_current_limits()` 为 `COMMAND_RESPONSE` 缓存读取，
+  `device_queried=False`、`device_measured=False`，不发送查询；未收到写回复或重连后
+  缓存无效时返回不支持。
+  原值为 count；标题的 `6.5 mA/count` 与 `raw × 1000 / 255 mA` 公式冲突，
+  比例只记录在 capability metadata 中，不自动换算。
 - L30 使用 `current_limits`，协议原值为 count，文档比例为 `6.5 mA/count`（范围 `60..800` count，即约 `390..5200 mA`）。SDK 只返回 count，不做换算；比例记录在 `raw_scale_note` 中。
 - L20Lite/L20 使用 `set_current_limits()` 写入限制、`get_currents()` 读取实时电流；比例未知，返回 count。
 - O20 的 `0x08` 使用 `set/get_current_limits()`，范围 0..1000 count；实时电流为独立寄存器，原值单位 mA。

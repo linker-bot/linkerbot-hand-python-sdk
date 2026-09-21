@@ -140,6 +140,11 @@ setter 返回 `CommandHandle`，设备样本通过对应快照字段读取；快
 后续事务更新，不是该 handle 独占的回复。配置样本仍按型号声明的配置语义发布，
 不因与请求值不同就改称实时测量；没有写回复发布的命令仍按其能力契约处理。
 
+O6 的 `set_current_limits()` 写入限制并返回设定值：有效回复更新
+`snapshot.current_limits`，来源为 `DEVICE_CONFIG_RESPONSE`，不更新实测电流。
+主动读取当前电流用 `get_currents()`；`get_current_limits()` 只返回本连接最近的
+写回复缓存，不发送查询；未收到有效写回复或重连后抛出 `UnsupportedOperationError`。
+
 ## 主动读取
 
 以下 getter 接受正的秒制 `timeout`。由设备查询支持的 getter 返回调用开始之后的新样本；

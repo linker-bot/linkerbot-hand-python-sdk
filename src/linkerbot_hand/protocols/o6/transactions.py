@@ -9,8 +9,8 @@ from ...capabilities.types import (
     DeviceCapabilities,
     TelemetrySemantic,
 )
-from ..base import ProtocolTransaction
-from ..common.classic_can import classic_route
+from ..base import ProtocolTransaction, SamplePayload
+from ..common.classic_can import classic_route, matching_data
 from ..common.classic_management import (
     configuration_transaction,
     save_parameters_transaction,
@@ -93,6 +93,20 @@ class O6ProtocolBackend(ClassicSixAxisBackend):
                 capabilities,
             )
         return super().command_transaction(semantic, values, capabilities)
+
+    def decode_report(
+        self,
+        message: object,
+        capabilities: DeviceCapabilities,
+    ) -> tuple[SamplePayload, ...]:
+        """Ignore ambiguous current/limit replies without a matching transaction."""
+
+        data = matching_data(message, self.endpoint_id)
+        if data and data[0] == TELEMETRY_OPCODES[TelemetrySemantic.CURRENTS]:
+            # Query replies are measured current; write replies are limits.
+            # Their identical wire layout cannot identify unsolicited 0x02 data.
+            return ()
+        return super().decode_report(message, capabilities)
 
     def operation_transaction(
         self,
