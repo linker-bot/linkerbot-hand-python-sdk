@@ -121,14 +121,13 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 unit_confidence=Confidence.UNKNOWN,
             ),
             command(
-                CommandSemantic.EFFORT_LIMITS,
+                CommandSemantic.CURRENT_LIMITS,
                 names,
                 U8_RANGE,
                 "u8",
-                raw_unit=None,
+                raw_unit="count",
                 raw_scale_note=(
-                    "raw limit setting; physical quantity and per-axis scale "
-                    "are unverified"
+                    "raw current limit; per-axis physical scale is unverified"
                 ),
                 unit_confidence=Confidence.UNKNOWN,
             ),
@@ -156,16 +155,15 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.008,
             ),
             telemetry(
-                TelemetrySemantic.EFFORT_LIMITS,
+                TelemetrySemantic.CURRENTS,
                 names,
                 "u8",
                 shape=(16,),
                 raw_range=U8_RANGE,
-                raw_unit=None,
+                raw_unit="count",
                 raw_scale_note=(
-                    "a bare query returns the real-time value; the protocol "
-                    "text alternates between current and torque, so the exact "
-                    "physical quantity awaits hardware confirmation"
+                    "a bare query returns real-time current, not the limit setting; "
+                    "per-axis physical scale is unverified"
                 ),
                 unit_confidence=Confidence.UNKNOWN,
                 recommended_hz=30,

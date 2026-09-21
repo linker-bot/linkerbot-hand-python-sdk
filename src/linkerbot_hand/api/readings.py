@@ -186,8 +186,8 @@ class CurrentLimitSample(_RawVectorSample):
 
 
 @dataclass(frozen=True, slots=True)
-class EffortLimitSample(_RawVectorSample):
-    """Configured, physically unqualified effort-limit protocol values."""
+class TorqueLimitSample(_RawVectorSample):
+    """Configured raw torque limits, independent of current limits."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -796,7 +796,6 @@ __all__ = [
     "ConfiguredSpeedSample",
     "CurrentLimitSample",
     "CurrentSample",
-    "EffortLimitSample",
     "FaultSample",
     "ForceFieldSample",
     "ForceSample",
@@ -814,6 +813,7 @@ __all__ = [
     "TactileSensorSample",
     "TactileValue",
     "TemperatureSample",
+    "TorqueLimitSample",
     "TorqueSample",
     "VoltageSample",
 ]

@@ -41,7 +41,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | `tactile_sensors` | 本连接已经取得的 O30 descriptor 元数据，未读时为空；不会因此触发 I/O |
 | `transport` | CAN/CAN FD、仲裁/数据速率和地址说明 |
 | `operations` | 身份读取、清错、使能、失能、标定和堵转配置支持情况 |
-| `stall_protection` | 堵转判定时间、阈值、维持电流或扭矩的 raw 契约和安全范围可信度；L20Lite 的 `hold_current=None`，使用 `hold_torque` |
+| `stall_protection` | 堵转判定时间、阈值、维持电流的 raw 契约和安全范围可信度；`hold_current` 为统一元数据字段 |
 
 每个数值事实带有 `Confidence`：`MEASURED`、`DOCUMENTED`、
 `APPROXIMATE`、`CONFLICTING` 或 `UNKNOWN`。资料冲突或缺失时，SDK 不生成推测物理值。
@@ -55,11 +55,11 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
-| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, force_fns, force_fts, force_fds, force_px, temperatures, faults | 无 |
-| L20 | 必填 | CAN 1M | 16 | angles, speeds, effort_limits | angles, measured_speeds, effort_limits, force, temperatures, faults | clear_faults |
-| O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, effort_limits | angles, measured/configured_speeds, effort_limits, currents, force, temperatures, faults | clear_faults |
+| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, current_limits, 3 项 stall 配置 | angles, measured_speeds, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
+| L20 | 必填 | CAN 1M | 16 | angles, speeds, current_limits | angles, measured_speeds, currents, force, temperatures, faults | clear_faults |
+| O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, current_limits | angles, measured/configured_speeds, current_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
-| O30 | 必填 | CAN FD 1M；BRS off，接口 dbitrate 不作型号限制 | 20 | angles, speeds, accelerations, current_limits, effort_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, current_limits, effort_limits, torques, force（descriptor/合力）, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
+| O30 | 必填 | CAN FD 1M；BRS off，接口 dbitrate 不作型号限制 | 20 | angles, speeds, accelerations, current_limits, torques_limits, motion_times, 3 项 stall 配置 | angles, measured/configured_speeds, configured_accelerations, current_limits, torques_limits, torques, force（descriptor/合力）, temperatures, currents, faults, voltages, motion_times, 3 项 stall 配置 | 读写 stall |
 
 `L30` 的 side 为 `NOT_APPLICABLE`，不是 unknown。向 L30 构造传 `left` 或 `right`
 会抛出 `ValidationError`。
@@ -93,8 +93,8 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
 | --- | ---: | ---: | ---: | ---: | ---: |
 | L6 | 60 Hz | 5 Hz | 1 Hz | 10 Hz | 5 Hz |
 | O6 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
-| L20Lite | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
-| L20 | 60 Hz | 30 Hz | 1 Hz | 不支持 | 5 Hz |
+| L20Lite | 60 Hz | 30 Hz | 1 Hz | 30 Hz | 5 Hz |
+| L20 | 60 Hz | 30 Hz | 1 Hz | 30 Hz | 5 Hz |
 | O20 | 30 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | L30 | 60 Hz | 30 Hz | 1 Hz | 10 Hz | 5 Hz |
 | O30 | 30 Hz | 10 Hz（descriptor） | 1 Hz | 10 Hz | 5 Hz |
@@ -105,20 +105,24 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
   `0x05` 主动查询，因此该通道是 `COMMAND_RESPONSE`，不是实测速度，也不是主机推测缓存。
 - O6 查询返回配置参数，发布到 `configured_speeds`。
 - O20、L30、O30 提供独立 `measured_speeds`。
-- L20Lite、L20 只有 `measured_speeds`：协议规定写入携带目标值并被回显，而只发功能码的查询返回实时速度，因此这两个型号没有「读回设定值」的通道，`get_configured_speeds()` 返回 unsupported。同理，它们的 `effort_limits` 查询返回的也是实时值而非配置回显；该实时量究竟是电流还是转矩，协议文字混用，待实机确认。
+- L20Lite、L20 的速度查询为 `measured_speeds`，电流查询为 `currents`，均返回实时值。
+  `get_configured_speeds()` 和 `get_current_limits()` 不支持，不能用实时值恢复设定值。
 
 运行时会在 health 中报告 requested/achieved Hz、missed deadlines 和 timeout。推荐值不是
 实机稳定上限；上限必须在相同工作量和总线配置下测试。
 
-## 电流、effort 与扭矩
+## 电流与转矩
 
-三种限制不能混用：
+电流与 O30 转矩对象分别命名：
 
 - L6/O6 使用 `current_limits`，协议原值为 count；L6 的文档比例为
   `raw × 1400 / 255 mA`。O6 标题给出的 `6.5 mA/count` 与
   `raw × 1000 / 255 mA` 公式冲突。比例只记录在 capability metadata 中。
 - L30 使用 `current_limits`，协议原值为 count，文档比例为 `6.5 mA/count`（范围 `60..800` count，即约 `390..5200 mA`）。SDK 只返回 count，不做换算；比例记录在 `raw_scale_note` 中。
-- L20Lite/L20/O20/O30 的相关字段在当前契约中是 `effort_limits`，物理含义未完全确认。
+- L20Lite/L20 使用 `set_current_limits()` 写入限制、`get_currents()` 读取实时电流；比例未知，返回 count。
+- O20 的 `0x08` 使用 `set/get_current_limits()`，范围 0..1000 count；实时电流为独立寄存器，原值单位 mA。
+- O30 `0x04` 为 `currents/current_limits`，`0x06` 为 `torques/torques_limits`，
+  两个对象独立查询、设置和缓存。
 - O30 提供 `get_torques()`，读取协议转矩字段的原值，物理比例未知，不能当作 N·m。
   当前七型号均未声明 `set_torques()` 写命令；读取支持不代表写入支持。
 

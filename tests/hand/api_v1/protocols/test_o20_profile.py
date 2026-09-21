@@ -18,8 +18,8 @@ from linkerbot_hand.protocols.o20 import O20ProtocolBackend
 from linkerbot_hand.protocols.o20.codec import (
     JOINT_COUNT,
     REG_CONFIGURED_SPEEDS,
+    REG_CURRENT_LIMITS,
     REG_DEVICE_INFO,
-    REG_EFFORT_LIMITS,
     REG_FAULTS,
     REG_TACTILE_FIRST,
     build_can_id,
@@ -124,20 +124,20 @@ def test_o20_commands_use_17_slots_and_never_claim_device_ack() -> None:
     assert speed_message.data == b"\x64\x00" * JOINT_COUNT + b"\x00\x00"
     assert not speed.expects_response
 
-    effort = backend.command_transaction(
-        CommandSemantic.EFFORT_LIMITS,
+    current_limit = backend.command_transaction(
+        CommandSemantic.CURRENT_LIMITS,
         (1000,) * JOINT_COUNT,
         capabilities,
     )
-    effort_message = effort.request_messages[0]
-    assert isinstance(effort_message, CANFDMessage)
-    assert parse_can_id(effort_message.arbitration_id) == (
+    current_message = current_limit.request_messages[0]
+    assert isinstance(current_message, CANFDMessage)
+    assert parse_can_id(current_message.arbitration_id) == (
         1,
-        REG_EFFORT_LIMITS,
+        REG_CURRENT_LIMITS,
         True,
     )
-    assert effort_message.data[:2] == b"\xe8\x03"
-    assert effort_message.data[-2:] == b"\x00\x00"
+    assert current_message.data[:2] == b"\xe8\x03"
+    assert current_message.data[-2:] == b"\x00\x00"
 
     angles = backend.command_transaction(
         CommandSemantic.ANGLES,
@@ -192,19 +192,19 @@ def test_o20_tactile_transaction_rejects_conflicting_duplicate() -> None:
 def test_o20_read_ranges_and_clear_fault_payload_are_explicit() -> None:
     capabilities = _capabilities()
     backend = O20ProtocolBackend(HandSide.RIGHT)
-    read = backend.read_transaction(TelemetrySemantic.EFFORT_LIMITS, capabilities)
+    read = backend.read_transaction(TelemetrySemantic.CURRENT_LIMITS, capabilities)
     data = b"\xe8\x03" * JOINT_COUNT + b"\x00\x00" + bytes(14)
 
-    progress = read.consume(_response(1, REG_EFFORT_LIMITS, data))
+    progress = read.consume(_response(1, REG_CURRENT_LIMITS, data))
 
     assert isinstance(progress.result, SamplePayload)
     assert progress.result.raw == (1000,) * JOINT_COUNT
     assert progress.result.within_declared_range
 
     out_of_range = backend.read_transaction(
-        TelemetrySemantic.EFFORT_LIMITS,
+        TelemetrySemantic.CURRENT_LIMITS,
         capabilities,
-    ).consume(_response(1, REG_EFFORT_LIMITS, b"\xe9\x03" * 17))
+    ).consume(_response(1, REG_CURRENT_LIMITS, b"\xe9\x03" * 17))
     assert isinstance(out_of_range.result, SamplePayload)
     assert not out_of_range.result.within_declared_range
 

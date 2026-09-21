@@ -95,7 +95,7 @@ def test_latest_wins_is_independent_for_each_continuous_family() -> None:
         ack_support=AckSupport.UNSUPPORTED,
     )
     effort = ingress.submit(
-        CommandSemantic.EFFORT_LIMITS,
+        CommandSemantic.TORQUES_LIMITS,
         (40,),
         ack_support=AckSupport.UNSUPPORTED,
     )

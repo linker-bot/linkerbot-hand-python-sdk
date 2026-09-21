@@ -84,7 +84,7 @@ assert verified.identity.verified
 | `set_percent_speeds(values)` | 仅 profile 明确提供速度百分比映射时支持 |
 | `set_accelerations(values)` | 配置加速度协议值 |
 | `set_current_limits(values)` | 已确认表示电流上限的协议值 |
-| `set_effort_limits(values)` | 物理含义未确认的 effort limit 协议值 |
+| `set_torques_limits(values)` | 转矩限制协议原值（O30） |
 | `set_torques(values)` | 仅字段被确认表示真实扭矩时支持 |
 | `set_motion_times(values)` | 配置运动时间协议值 |
 | `set_stall_detection_times(values)` | 堵转判定时间对象的协议值 |
@@ -96,7 +96,7 @@ assert verified.identity.verified
 长度、有限数、整数约束和协议范围都来自 capability。SDK 不自动 clamp；校验失败直接抛
 `ValidationError`，不会创建 handle。
 
-角度、速度、电流上限、effort limit 和真实扭矩各有独立容量为 1 的 latest slot。新目标会
+角度、速度、电流上限、转矩上限和实时转矩各有独立容量为 1 的 latest slot。新目标会
 把同命令族尚未被 transport claim 的旧目标标记为 `SUPERSEDED`。加速度、运动时间、堵转
 配置、限位补偿（`CommandFamily.LIMIT_COMPENSATION`）和离散操作共用有界 FIFO，
 容量由 `DeviceConfig.discrete_queue_capacity` 控制。已接纳的 FIFO 配置按顺序处理，
@@ -142,7 +142,7 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 | `get_configured_speeds(timeout)` | `ConfiguredSpeedSample` |
 | `get_configured_accelerations(timeout)` | `ConfiguredAccelerationSample` |
 | `get_current_limits(timeout)` | `CurrentLimitSample` |
-| `get_effort_limits(timeout)` | `EffortLimitSample` |
+| `get_torques_limits(timeout)` | `TorqueLimitSample` |
 | `get_torques(timeout)` | `TorqueSample` |
 | `get_currents(timeout)` | `CurrentSample` |
 | `get_temperatures(timeout)` | `TemperatureSample` |

@@ -149,7 +149,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 ack_support=AckSupport.SUPPORTED,
             ),
             command(
-                CommandSemantic.EFFORT_LIMITS,
+                CommandSemantic.TORQUES_LIMITS,
                 names,
                 U8_RANGE,
                 _RAW_ENCODING,
@@ -250,7 +250,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 device_measured=False,
             ),
             telemetry(
-                TelemetrySemantic.EFFORT_LIMITS,
+                TelemetrySemantic.TORQUES_LIMITS,
                 names,
                 _RAW_ENCODING,
                 shape=(20,),

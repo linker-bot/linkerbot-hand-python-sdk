@@ -16,7 +16,6 @@ from ..api.readings import (
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
-    EffortLimitSample,
     FaultSample,
     ForceFieldSample,
     ForceSample,
@@ -24,6 +23,7 @@ from ..api.readings import (
     MotionTimeSample,
     SampleMeta,
     TemperatureSample,
+    TorqueLimitSample,
     TorqueSample,
     VoltageSample,
     _RawVectorSample,
@@ -33,7 +33,6 @@ from ..api.stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
-    StallHoldTorqueSample,
     StallThresholdSample,
 )
 from ..capabilities.force import FORCE_QUERIES
@@ -53,7 +52,7 @@ SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.CONFIGURED_ACCELERATIONS: "configured_accelerations",
     TelemetrySemantic.CURRENTS: "currents",
     TelemetrySemantic.CURRENT_LIMITS: "current_limits",
-    TelemetrySemantic.EFFORT_LIMITS: "effort_limits",
+    TelemetrySemantic.TORQUES_LIMITS: "torques_limits",
     TelemetrySemantic.TORQUES: "torques",
     TelemetrySemantic.TEMPERATURES: "temperatures",
     TelemetrySemantic.FORCE: "force",
@@ -69,7 +68,6 @@ SAMPLE_ATTRIBUTES = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "stall_hold_currents",
-    TelemetrySemantic.STALL_HOLD_TORQUES: "stall_hold_torques",
     TelemetrySemantic.LIMIT_COMPENSATIONS: "limit_compensations",
 }
 
@@ -79,7 +77,7 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
     TelemetrySemantic.CONFIGURED_ACCELERATIONS: ConfiguredAccelerationSample,
     TelemetrySemantic.CURRENTS: CurrentSample,
     TelemetrySemantic.CURRENT_LIMITS: CurrentLimitSample,
-    TelemetrySemantic.EFFORT_LIMITS: EffortLimitSample,
+    TelemetrySemantic.TORQUES_LIMITS: TorqueLimitSample,
     TelemetrySemantic.TORQUES: TorqueSample,
     TelemetrySemantic.TEMPERATURES: TemperatureSample,
     TelemetrySemantic.FAULTS: FaultSample,
@@ -88,7 +86,6 @@ _VECTOR_TYPES: dict[TelemetrySemantic, type[_RawVectorSample]] = {
     TelemetrySemantic.STALL_DETECTION_TIMES: StallDetectionTimeSample,
     TelemetrySemantic.STALL_THRESHOLDS: StallThresholdSample,
     TelemetrySemantic.STALL_HOLD_CURRENTS: StallHoldCurrentSample,
-    TelemetrySemantic.STALL_HOLD_TORQUES: StallHoldTorqueSample,
     TelemetrySemantic.LIMIT_COMPENSATIONS: LimitCompensationSample,
 }
 
@@ -347,7 +344,7 @@ def build_joints(
             configured_speed_raw=_value(sample("configured_speeds"), index),
             current_raw=_value(sample("currents"), index),
             current_limit_raw=_value(sample("current_limits"), index),
-            effort_limit_raw=_value(sample("effort_limits"), index),
+            torque_limit_raw=_value(sample("torques_limits"), index),
             torque_raw=_value(sample("torques"), index),
             temperature_raw=_value(sample("temperatures"), index),
             fault_raw=_fault_value(sample("faults"), index),
@@ -392,7 +389,7 @@ class JointProjection:
                     sample("configured_speeds"),
                     sample("currents"),
                     sample("current_limits"),
-                    sample("effort_limits"),
+                    sample("torques_limits"),
                     sample("torques"),
                     sample("temperatures"),
                     sample("faults"),

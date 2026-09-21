@@ -42,10 +42,10 @@
 | `set_angles(values)` | `01` 六值 + `04` 四值 | `u8`，0..255 count；写回复为当前角度，来源 `DEVICE_COMMAND_FEEDBACK`；`returns_current_state=True`；`DISPATCHED` 不等于机械到位 |
 | `set_percent_angles(values)` | 十维 0..100 固定映射到上述原值 | 无 LUT；0%=raw 0，100%=raw 255。侧摆/旋转轴方向查 `percent_mapping`，不要把全部 255 当作通用张开姿态 |
 | `set_speeds(values)` | `05/06`，各五值 | 0..255 count，物理比例未知；SDK 终态 `DISPATCHED`，不验证写回显，不发布为配置读取值 |
-| `set_effort_limits(values)` | `02/03`，各五值 | 原始限制设定，物理量/比例未知；`DISPATCHED`；不是已标定的 N·m 力控 |
+| `set_current_limits(values)` | `02/03`，各五值 | 电流限制原始 count，比例未知；`DISPATCHED` |
 | `get_angles(timeout)` | 单字节 `01/04` | 十个原始角度 count；来源 `DEVICE_RESPONSE` |
 | `get_speeds(timeout)` | 单字节 `05/06` | 十个实时速度原值；不是速度设定回读，比例未知 |
-| `get_effort_limits(timeout)` | 单字节 `02/03` | 十个实时负载原值，`DEVICE_RESPONSE`；保留既有命名，不等于限制设定值；不能直接解释为 mA 或 N·m |
+| `get_currents(timeout)` | 单字节 `02/03` | 十个实时电流原始 count，`DEVICE_RESPONSE`；不等于限制设定值，不自动换算成 mA |
 | `get_temperatures(timeout)` | 单字节 `33/34` | 十个 `u8`，`degree_celsius`，1 ℃/count；不额外换算 |
 | `get_faults(timeout)` | 单字节 `35/36` | 十个 `u8_bitmask`，无物理单位，位定义见下表 |
 | `get_force("fn", timeout=...)` | `B1 C6` 至 `B5 C6` | 五指各 12×6 `u8` 原始矩阵；count，物理标定未知 |
@@ -56,17 +56,19 @@
 | `get_device_info(timeout)` | `C0/C1/C2/C4` | 产品编号、PCB/固件/机械版本与工厂字段；三个版本字节按 major/minor/patch 解释 |
 | `set_stall_thresholds(values)` | `C5 GROUP D1..D5`，两帧 | 十个 0..255 原值；堵转保护阈值，物理比例未知 |
 | `set_stall_detection_times(values)` | `C6 GROUP D1..D5`，两帧 | 十个 0..255 原值；每 count 为 10 ms，SDK 不换算 |
-| `set_stall_hold_torques(values)` | `C7 GROUP D1..D5`，两帧 | 十个 0..255 原值；堵转后输出扭矩，不是电流，N·m 比例未知 |
+| `set_stall_hold_currents(values)` | `C7 GROUP D1..D5`，两帧 | 十个 0..255 原值；堵转后维持电流，资料旧称“输出扭矩”，物理电流比例未知 |
 | 对应 `get_stall_* (timeout)` | 不发 CAN 请求 | 只返回本次连接内完整确认的写回显；尚无确认值时报告 `UnsupportedOperationError` |
 
 `get_snapshot()` 和 `get_capabilities()` 不发送请求；单位、解释和证据级别可分别通过
 `telemetry_channel(...).raw_unit/raw_scale_note/unit_confidence` 查询。角度样本附带固定
 百分比投影，但 `raw` 仍是设备原值；无已确认物理映射时 `physical_rad` 为 `None`。
 
-本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、专用电流/转矩接口、
-加速度、堵转维持电流、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
+本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、`get_current_limits()`、转矩读写、
+加速度、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
 L20Lite 没有清除错误码命令，`35/36` 仅用于查询。SDK 不发送猜测的清错帧。
+电流查询使用 `PollingPlan(current_hz=...)`，样本在 `snapshot.currents`；
+没有限制配置回读，不能用实时电流恢复原配置。
 
 故障样本 `sample.raw` 保留十关节原始字节；`sample.statuses` 按同一顺序返回
 `L20LiteFaultStatus`。可读取 `load_overload`（负载过载）、`over_current`（过流）、
@@ -89,7 +91,8 @@ GROUP=2 为后五关节，完整帧 DLC=7，发帧间隔 1 ms。三种设置使�
 可通过 `handle.wait(timeout=1.0)` 等待终态，再调用对应 getter 或读取快照。
 回显不是主动查询；能力中 `read_mode=COMMAND_RESPONSE`、`device_queried=False`，
 `stall_protection.read_supported=False` 表示没有主动回读。
-`stall_protection.hold_current=None`，`hold_torque` 给出 C7 的元数据。
+`stall_protection.hold_current` 给出 C7 元数据，样本为 `StallHoldCurrentSample`，
+快照字段为 `stall_hold_currents`；原 `stall_hold_torques` 名称已删除。
 设备收到每组参数后立即生效，若第二组缺帧或回显错误，SDK 会报失败并保留上次完整
 确认样本，但不能撤销设备已应用的第一组；不要把失败解释为“设备没有变化”。
 本次实现没有执行真实设备参数写入或验证物理安全范围，不提供隐式重试和持久保存。
@@ -118,7 +121,7 @@ GROUP=2 为后五关节，完整帧 DLC=7，发帧间隔 1 ms。三种设置使�
 
 实时速度、温度、点阵及四个标量类别均为独立可选查询：当前连接从未成功的通道连续三次超时或结构错误后，
 报告 `UnsupportedFirmwareError`，停止该通道查询并保留连接；成功过的通道后续丢帧不降级。
-重连后重新判定。身份、角度、故障、负载仍是连接所需基线；链路发送失败按连接故障处理。
+重连后重新判定。身份、角度、故障、电流仍是连接所需基线；链路发送失败按连接故障处理。
 
 ## 故障位、单位与轮询
 
@@ -131,11 +134,11 @@ GROUP=2 为后五关节，完整帧 DLC=7，发帧间隔 1 ms。三种设置使�
 | 1 / `02` | 磁编码异常 |
 | 0 / `01` | 过压或欠压 |
 
-温度与故障定义为 `DOCUMENTED`，不是实测标定过全部故障位；触觉、速度、负载的物理
-比例为 `UNKNOWN`，方向比例冲突为 `CONFLICTING`。实机静止时速度零值和小幅变化的负载值支持实时读取语义，但不能据此
-确定电流或转矩比例。不能把查询的实时速度/负载写回作为原配置恢复。
+温度与故障定义为 `DOCUMENTED`，不是实测标定过全部故障位；触觉、速度、电流的物理
+比例为 `UNKNOWN`，方向比例冲突为 `CONFLICTING`。历史实机的速度零值和小幅变化的
+电流原值支持实时读取语义，但没有确认物理比例，不能据此恢复原配置。
 
-单通道声明推荐角度 60 Hz、速度/负载/触觉 30 Hz、温度 1 Hz、故障 5 Hz；
+单通道声明推荐角度 60 Hz、速度/电流/触觉 30 Hz、温度 1 Hz、故障 5 Hz；
 向量估时 6 ms、五指触觉整次估时 20 ms，响应超时分别为向量 100 ms、触觉每指 150 ms。
 每个新增标量类别单通道推荐 30 Hz，估时 2 ms，响应超时 100 ms；未作实机上限验证。
 估时是调度元数据，推荐值不是组合负载的稳定承诺。本次空闲触觉调用约 21..35 ms，
@@ -154,5 +157,5 @@ SDK 未发布残缺矩阵，独立原始抓包同样缺行；尚不能将根因�
 | `C3` 地址、`CC` 回复开关、`CE` 出厂恢复、`CF` 保存 | 会改变路由、通信行为或持久配置；未执行、未新增普通操作接口 |
 | `B6` 手掌矩阵 | 资料标为保留，无明确布局 |
 
-本次未做速度/负载配置改写、故障注入、逐轴全行程运动或触觉受压标定。左手证据不能
+本次未做速度/电流配置改写、故障注入、逐轴全行程运动或触觉受压标定。左手证据不能
 替代右手或其他固件的硬件验收。

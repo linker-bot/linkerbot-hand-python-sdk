@@ -14,7 +14,7 @@ from ._common import U8_RANGE, command, telemetry
 
 
 def stall_capability(names: tuple[str, ...]) -> StallProtectionCapability:
-    """Describe torque output separately from other models' hold current."""
+    """Describe raw stall settings using the shared hold-current semantic."""
     return StallProtectionCapability(
         channels=names,
         detection_time=StallFieldCapability(
@@ -27,12 +27,12 @@ def stall_capability(names: tuple[str, ...]) -> StallProtectionCapability:
             "raw stall protection threshold; physical scale unverified",
             Confidence.UNKNOWN,
         ),
-        hold_current=None,
-        hold_torque=StallFieldCapability(
+        hold_current=StallFieldCapability(
             U8_RANGE,
             "u8",
             "count",
-            "raw output torque after stall; physical torque scale unverified",
+            "raw current maintained after stall (legacy protocol label: output "
+            "torque); physical current scale unverified",
             Confidence.UNKNOWN,
         ),
         physical_semantics_confidence=Confidence.UNKNOWN,
@@ -46,11 +46,10 @@ def stall_fields(
     stall: StallProtectionCapability,
 ) -> tuple[tuple[str, StallFieldCapability], ...]:
     """Return the three named raw field descriptions."""
-    assert stall.hold_torque is not None
     return (
         ("stall_thresholds", stall.threshold),
         ("stall_detection_times", stall.detection_time),
-        ("stall_hold_torques", stall.hold_torque),
+        ("stall_hold_currents", stall.hold_current),
     )
 
 

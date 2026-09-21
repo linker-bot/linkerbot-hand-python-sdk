@@ -21,11 +21,6 @@ class StallHoldCurrentSample(_RawVectorSample):
 
 
 @dataclass(frozen=True, slots=True)
-class StallHoldTorqueSample(_RawVectorSample):
-    """Raw output torque maintained after a stall; no physical conversion."""
-
-
-@dataclass(frozen=True, slots=True)
 class LimitCompensationSample(_RawVectorSample):
     """Raw joint-limit compensation values returned by the device."""
 
@@ -34,6 +29,5 @@ __all__ = [
     "LimitCompensationSample",
     "StallDetectionTimeSample",
     "StallHoldCurrentSample",
-    "StallHoldTorqueSample",
     "StallThresholdSample",
 ]

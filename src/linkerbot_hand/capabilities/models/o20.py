@@ -149,16 +149,16 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 unit_confidence=Confidence.DOCUMENTED,
             ),
             command(
-                CommandSemantic.EFFORT_LIMITS,
+                CommandSemantic.CURRENT_LIMITS,
                 names,
                 NumericRange(0, 1000, integer_only=True, step=1),
                 "u16_le",
-                raw_unit=None,
+                raw_unit="count",
                 raw_scale_note=(
-                    "protocol calls this target torque; its physical interpretation "
-                    "requires confirmation"
+                    "raw current limit (protocol name: target torque); "
+                    "physical scale is unverified"
                 ),
-                unit_confidence=Confidence.CONFLICTING,
+                unit_confidence=Confidence.UNKNOWN,
             ),
         ),
         telemetry=(
@@ -194,17 +194,18 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 estimated_transaction_s=0.004,
             ),
             telemetry(
-                TelemetrySemantic.EFFORT_LIMITS,
+                TelemetrySemantic.CURRENT_LIMITS,
                 names,
                 "u16_le",
                 shape=(16,),
                 raw_range=NumericRange(0, 1000, integer_only=True, step=1),
-                raw_unit=None,
+                raw_unit="count",
                 raw_scale_note=(
-                    "protocol calls this target torque; its physical interpretation "
-                    "requires confirmation"
+                    "raw current limit (protocol name: target torque); "
+                    "physical scale is unverified"
                 ),
-                unit_confidence=Confidence.CONFLICTING,
+                unit_confidence=Confidence.UNKNOWN,
+                device_measured=False,
                 recommended_hz=10,
                 stale_after_s=0.3,
                 estimated_transaction_s=0.004,

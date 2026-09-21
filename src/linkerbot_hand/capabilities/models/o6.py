@@ -71,7 +71,8 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             raw_unit="count",
             raw_scale_note=(
                 "1000/255 mA/count according to the formula; the protocol calls "
-                "this field lock/stall torque, so its physical semantics conflict"
+                "this field lock/stall torque; exposed as hold current, with "
+                "the conflicting legacy label and unverified scale recorded"
             ),
             unit_confidence=Confidence.CONFLICTING,
         ),

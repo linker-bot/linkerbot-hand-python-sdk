@@ -28,13 +28,13 @@ from .readings import (
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
-    EffortLimitSample,
     FaultSample,
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
     SampleMeta,
     TemperatureSample,
+    TorqueLimitSample,
     TorqueSample,
     VoltageSample,
     _RawVectorSample,
@@ -44,7 +44,6 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
-    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -91,10 +90,10 @@ def make_initial_snapshot(capabilities: DeviceCapabilities) -> HandSnapshot:
             TelemetrySemantic.CURRENT_LIMITS,
             CurrentLimitSample,
         ),
-        effort_limits=_unavailable_vector(
+        torques_limits=_unavailable_vector(
             capabilities,
-            TelemetrySemantic.EFFORT_LIMITS,
-            EffortLimitSample,
+            TelemetrySemantic.TORQUES_LIMITS,
+            TorqueLimitSample,
         ),
         torques=_unavailable_vector(
             capabilities,
@@ -141,11 +140,6 @@ def make_initial_snapshot(capabilities: DeviceCapabilities) -> HandSnapshot:
             capabilities,
             TelemetrySemantic.LIMIT_COMPENSATIONS,
             LimitCompensationSample,
-        ),
-        stall_hold_torques=_unavailable_vector(
-            capabilities,
-            TelemetrySemantic.STALL_HOLD_TORQUES,
-            StallHoldTorqueSample,
         ),
     )
 

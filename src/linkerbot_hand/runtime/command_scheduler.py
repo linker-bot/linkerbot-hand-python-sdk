@@ -33,13 +33,12 @@ _COMMAND_FAMILIES = {
     CommandSemantic.SPEEDS: CommandFamily.SPEED_SETTING,
     CommandSemantic.ACCELERATIONS: CommandFamily.ACCELERATION_SETTING,
     CommandSemantic.CURRENT_LIMITS: CommandFamily.CURRENT_LIMIT,
-    CommandSemantic.EFFORT_LIMITS: CommandFamily.EFFORT_LIMIT,
+    CommandSemantic.TORQUES_LIMITS: CommandFamily.TORQUE_LIMIT,
     CommandSemantic.TORQUES: CommandFamily.TORQUE_TARGET,
     CommandSemantic.MOTION_TIMES: CommandFamily.MOTION_TIME_SETTING,
     CommandSemantic.STALL_DETECTION_TIMES: CommandFamily.STALL_CONFIGURATION,
     CommandSemantic.STALL_THRESHOLDS: CommandFamily.STALL_CONFIGURATION,
     CommandSemantic.STALL_HOLD_CURRENTS: CommandFamily.STALL_CONFIGURATION,
-    CommandSemantic.STALL_HOLD_TORQUES: CommandFamily.STALL_CONFIGURATION,
     CommandSemantic.LIMIT_COMPENSATIONS: CommandFamily.LIMIT_COMPENSATION,
 }
 
@@ -47,7 +46,7 @@ _LATEST_FAMILIES = {
     CommandFamily.ANGLE_TARGET,
     CommandFamily.SPEED_SETTING,
     CommandFamily.CURRENT_LIMIT,
-    CommandFamily.EFFORT_LIMIT,
+    CommandFamily.TORQUE_LIMIT,
     CommandFamily.TORQUE_TARGET,
 }
 

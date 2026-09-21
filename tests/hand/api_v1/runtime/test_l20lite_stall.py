@@ -14,6 +14,7 @@ from linkerbot_hand import (
     HandSide,
     ProtocolError,
     ReadMode,
+    StallHoldCurrentSample,
     UnsupportedOperationError,
     ValidationError,
     get_declared_capabilities,
@@ -28,7 +29,7 @@ from .classic_can_fake import (
 SETTINGS = (
     ("stall_thresholds", 0xC5),
     ("stall_detection_times", 0xC6),
-    ("stall_hold_torques", 0xC7),
+    ("stall_hold_currents", 0xC7),
 )
 VALUES = (0, 10, 20, 30, 40, 50, 60, 70, 80, 255)
 
@@ -58,8 +59,8 @@ def test_configurations_are_fifo_acknowledged_and_cache_only(side):
     )
     with closing(hand.open()):
         caps = hand.get_capabilities()
-        assert caps.stall_protection.hold_current is None
-        assert caps.stall_protection.hold_torque is not None
+        assert caps.stall_protection.hold_current.raw_unit == "count"
+        assert "scale unverified" in caps.stall_protection.hold_current.raw_scale_note
         assert not caps.stall_protection.read_supported
         for name, _ in SETTINGS:
             with pytest.raises(UnsupportedOperationError):
@@ -84,8 +85,11 @@ def test_configurations_are_fifo_acknowledged_and_cache_only(side):
             assert channel.read_mode is ReadMode.COMMAND_RESPONSE
             assert not channel.device_queried and not channel.device_measured
         assert len(script.sent_payloads) == count
-        with pytest.raises(UnsupportedOperationError):
-            hand.set_stall_hold_currents(VALUES)
+        assert isinstance(
+            hand.get_stall_hold_currents(timeout=1), StallHoldCurrentSample
+        )
+        assert not hasattr(hand, "set_stall_hold_torques")
+        assert not hasattr(hand, "get_stall_hold_torques")
         for invalid in [
             VALUES[:-1],
             VALUES + (0,),
@@ -138,13 +142,14 @@ def test_bad_echo_is_rejected(name, opcode, fault):
         tx.consume(frame(data))
 
 
-def test_missing_echo_does_not_create_confirmed_configuration():
+@pytest.mark.parametrize("name,opcode", SETTINGS)
+def test_missing_echo_does_not_create_confirmed_configuration(name, opcode):
     script = StallScript("L20Lite", HandSide.LEFT, "LHT10-07-98-L-A-1-C", (4, 6, 10))
-    script.dropped_command_responses.add(0xC5)
+    script.dropped_command_responses.add(opcode)
     hand = HandDevice(
         model="L20Lite", side="left", transport=ScriptedClassicCANTransport(script)
     )
     with closing(hand.open()):
-        handle = hand.set_stall_thresholds(VALUES)
+        handle = getattr(hand, f"set_{name}")(VALUES)
         assert handle.wait(1) is CommandStage.FAILED
-        assert not hand.get_snapshot().stall_thresholds.meta.valid
+        assert not getattr(hand.get_snapshot(), name).meta.valid

@@ -174,11 +174,14 @@ def test_l20_family_queries_return_measurements_not_configuration(model: str) ->
     assert measured.device_queried
     assert capabilities.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS) is None
 
-    effort = capabilities.telemetry_channel(TelemetrySemantic.EFFORT_LIMITS)
-    assert effort is not None
-    assert effort.device_measured
-    assert effort.device_queried
-    assert "real-time" in (effort.raw_scale_note or "")
+    current = capabilities.telemetry_channel(TelemetrySemantic.CURRENTS)
+    assert current is not None
+    assert current.device_measured
+    assert current.device_queried
+    assert current.raw_unit == "count"
+    assert "real-time" in (current.raw_scale_note or "")
+    assert capabilities.telemetry_channel(TelemetrySemantic.CURRENT_LIMITS) is None
+    assert capabilities.command(CommandSemantic.CURRENT_LIMITS) is not None
 
 
 @pytest.mark.parametrize("model", ("l20lite", "l20"))
@@ -341,7 +344,7 @@ def test_limit_semantics_do_not_claim_true_torque() -> None:
     l30 = get_declared_capabilities("l30")
 
     assert l6.command(CommandSemantic.CURRENT_LIMITS) is not None
-    assert l20lite.command(CommandSemantic.EFFORT_LIMITS) is not None
+    assert l20lite.command(CommandSemantic.CURRENT_LIMITS) is not None
     l30_limit = l30.command(CommandSemantic.CURRENT_LIMITS)
     assert l30_limit is not None
     assert l30_limit.raw_unit == "count"
@@ -437,7 +440,7 @@ def test_o6_latest_protocol_metadata_exposes_units_and_stall_management() -> Non
     assert stall.detection_time.raw_scale_note == "10 ms/count"
     assert "1000/255 mA/count" in (stall.threshold.raw_scale_note or "")
     assert stall.threshold.unit_confidence is Confidence.DOCUMENTED
-    assert "physical semantics conflict" in (stall.hold_current.raw_scale_note or "")
+    assert "exposed as hold current" in (stall.hold_current.raw_scale_note or "")
     assert stall.hold_current.unit_confidence is Confidence.CONFLICTING
     assert capabilities.operations.save_parameters
     assert capabilities.operations.read_stall_protection

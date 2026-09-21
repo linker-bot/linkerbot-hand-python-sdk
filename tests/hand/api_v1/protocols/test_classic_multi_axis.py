@@ -51,7 +51,7 @@ def test_l20lite_commands_preserve_documented_split_and_public_order() -> None:
     angles = backend.command_transaction(CommandSemantic.ANGLES, values, capabilities)
     speeds = backend.command_transaction(CommandSemantic.SPEEDS, values, capabilities)
     effort = backend.command_transaction(
-        CommandSemantic.EFFORT_LIMITS, values, capabilities
+        CommandSemantic.CURRENT_LIMITS, values, capabilities
     )
 
     assert _request_data(angles) == (
@@ -95,7 +95,7 @@ def test_l20lite_commands_preserve_documented_split_and_public_order() -> None:
             DataOrigin.DEVICE_RESPONSE,
         ),
         (
-            TelemetrySemantic.EFFORT_LIMITS,
+            TelemetrySemantic.CURRENTS,
             (b"\x03\x05\x06\x07\x08\x09", b"\x02\x00\x01\x02\x03\x04"),
             DataOrigin.DEVICE_RESPONSE,
         ),
@@ -214,6 +214,6 @@ def test_l20_family_optional_queries_exclude_required_baseline(model, backend_ty
     assert backend.baseline_semantics(capabilities) == (
         TelemetrySemantic.ANGLES,
         TelemetrySemantic.FAULTS,
-        TelemetrySemantic.EFFORT_LIMITS,
+        TelemetrySemantic.CURRENTS,
     )
     assert optional.isdisjoint(backend.baseline_semantics(capabilities))

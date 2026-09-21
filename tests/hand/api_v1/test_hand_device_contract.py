@@ -55,8 +55,8 @@ _PUBLIC_METHODS = (
     "get_configured_accelerations",
     "set_current_limits",
     "get_current_limits",
-    "set_effort_limits",
-    "get_effort_limits",
+    "set_torques_limits",
+    "get_torques_limits",
     "set_torques",
     "get_torques",
     "get_currents",
@@ -74,8 +74,6 @@ _PUBLIC_METHODS = (
     "get_stall_thresholds",
     "set_stall_hold_currents",
     "get_stall_hold_currents",
-    "set_stall_hold_torques",
-    "get_stall_hold_torques",
     "set_limit_compensations",
     "get_limit_compensations",
     "clear_faults",
@@ -95,13 +93,12 @@ _COMMAND_METHODS = {
     CommandSemantic.SPEEDS: "set_speeds",
     CommandSemantic.ACCELERATIONS: "set_accelerations",
     CommandSemantic.CURRENT_LIMITS: "set_current_limits",
-    CommandSemantic.EFFORT_LIMITS: "set_effort_limits",
+    CommandSemantic.TORQUES_LIMITS: "set_torques_limits",
     CommandSemantic.TORQUES: "set_torques",
     CommandSemantic.MOTION_TIMES: "set_motion_times",
     CommandSemantic.STALL_DETECTION_TIMES: "set_stall_detection_times",
     CommandSemantic.STALL_THRESHOLDS: "set_stall_thresholds",
     CommandSemantic.STALL_HOLD_CURRENTS: "set_stall_hold_currents",
-    CommandSemantic.STALL_HOLD_TORQUES: "set_stall_hold_torques",
     CommandSemantic.LIMIT_COMPENSATIONS: "set_limit_compensations",
 }
 
@@ -112,7 +109,7 @@ _TELEMETRY_METHODS = {
     TelemetrySemantic.CONFIGURED_ACCELERATIONS: "get_configured_accelerations",
     TelemetrySemantic.CURRENTS: "get_currents",
     TelemetrySemantic.CURRENT_LIMITS: "get_current_limits",
-    TelemetrySemantic.EFFORT_LIMITS: "get_effort_limits",
+    TelemetrySemantic.TORQUES_LIMITS: "get_torques_limits",
     TelemetrySemantic.TORQUES: "get_torques",
     TelemetrySemantic.TEMPERATURES: "get_temperatures",
     TelemetrySemantic.FORCE: "get_force",
@@ -122,7 +119,6 @@ _TELEMETRY_METHODS = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "get_stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "get_stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "get_stall_hold_currents",
-    TelemetrySemantic.STALL_HOLD_TORQUES: "get_stall_hold_torques",
     TelemetrySemantic.LIMIT_COMPENSATIONS: "get_limit_compensations",
 }
 
@@ -133,7 +129,7 @@ _SNAPSHOT_ATTRIBUTES = {
     TelemetrySemantic.CONFIGURED_ACCELERATIONS: "configured_accelerations",
     TelemetrySemantic.CURRENTS: "currents",
     TelemetrySemantic.CURRENT_LIMITS: "current_limits",
-    TelemetrySemantic.EFFORT_LIMITS: "effort_limits",
+    TelemetrySemantic.TORQUES_LIMITS: "torques_limits",
     TelemetrySemantic.TORQUES: "torques",
     TelemetrySemantic.TEMPERATURES: "temperatures",
     TelemetrySemantic.FORCE: "force",
@@ -143,7 +139,6 @@ _SNAPSHOT_ATTRIBUTES = {
     TelemetrySemantic.STALL_DETECTION_TIMES: "stall_detection_times",
     TelemetrySemantic.STALL_THRESHOLDS: "stall_thresholds",
     TelemetrySemantic.STALL_HOLD_CURRENTS: "stall_hold_currents",
-    TelemetrySemantic.STALL_HOLD_TORQUES: "stall_hold_torques",
     TelemetrySemantic.LIMIT_COMPENSATIONS: "limit_compensations",
 }
 

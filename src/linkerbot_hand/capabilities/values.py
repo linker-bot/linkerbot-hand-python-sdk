@@ -19,13 +19,12 @@ class CommandSemantic(str, Enum):
     SPEEDS = "speeds"
     ACCELERATIONS = "accelerations"
     CURRENT_LIMITS = "current_limits"
-    EFFORT_LIMITS = "effort_limits"
+    TORQUES_LIMITS = "torques_limits"
     TORQUES = "torques"
     MOTION_TIMES = "motion_times"
     STALL_DETECTION_TIMES = "stall_detection_times"
     STALL_THRESHOLDS = "stall_thresholds"
     STALL_HOLD_CURRENTS = "stall_hold_currents"
-    STALL_HOLD_TORQUES = "stall_hold_torques"
     LIMIT_COMPENSATIONS = "limit_compensations"
 
 
@@ -38,7 +37,7 @@ class TelemetrySemantic(str, Enum):
     CONFIGURED_ACCELERATIONS = "configured_accelerations"
     CURRENTS = "currents"
     CURRENT_LIMITS = "current_limits"
-    EFFORT_LIMITS = "effort_limits"
+    TORQUES_LIMITS = "torques_limits"
     TORQUES = "torques"
     TEMPERATURES = "temperatures"
     FORCE = "force"
@@ -54,7 +53,6 @@ class TelemetrySemantic(str, Enum):
     STALL_DETECTION_TIMES = "stall_detection_times"
     STALL_THRESHOLDS = "stall_thresholds"
     STALL_HOLD_CURRENTS = "stall_hold_currents"
-    STALL_HOLD_TORQUES = "stall_hold_torques"
     LIMIT_COMPENSATIONS = "limit_compensations"
 
 
@@ -261,24 +259,17 @@ class StallProtectionCapability:
     channels: tuple[str, ...]
     detection_time: StallFieldCapability
     threshold: StallFieldCapability
-    hold_current: StallFieldCapability | None
+    hold_current: StallFieldCapability
     physical_semantics_confidence: Confidence
     safety_range_verified: bool
     read_supported: bool
     write_supported: bool
-    hold_torque: StallFieldCapability | None = None
 
     def __post_init__(self) -> None:
         _validate_channels(self.channels)
-        for name in ("detection_time", "threshold"):
+        for name in ("detection_time", "threshold", "hold_current"):
             if not isinstance(getattr(self, name), StallFieldCapability):
                 raise ValidationError(f"{name} must be StallFieldCapability")
-        for name in ("hold_current", "hold_torque"):
-            value = getattr(self, name)
-            if value is not None and not isinstance(value, StallFieldCapability):
-                raise ValidationError(f"{name} must be StallFieldCapability or None")
-        if self.hold_current is None and self.hold_torque is None:
-            raise ValidationError("stall protection must declare a hold output")
         if not isinstance(self.physical_semantics_confidence, Confidence):
             raise ValidationError("physical_semantics_confidence must be Confidence")
         for name in ("safety_range_verified", "read_supported", "write_supported"):

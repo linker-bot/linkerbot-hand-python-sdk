@@ -56,7 +56,6 @@ from .readings import (
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
-    EffortLimitSample,
     FaultSample,
     ForceFieldSample,
     ForceSample,
@@ -74,6 +73,7 @@ from .readings import (
     TactileSensorSample,
     TactileValue,
     TemperatureSample,
+    TorqueLimitSample,
     TorqueSample,
     VoltageSample,
 )
@@ -82,7 +82,6 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
-    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -109,7 +108,6 @@ __all__ = [
     "DeviceFaultError",
     "DeviceInfo",
     "DeviceNotReadyError",
-    "EffortLimitSample",
     "ErrorCode",
     "ErrorInfo",
     "FaultSample",
@@ -144,7 +142,6 @@ __all__ = [
     "SampleProjection",
     "StallDetectionTimeSample",
     "StallHoldCurrentSample",
-    "StallHoldTorqueSample",
     "StallThresholdSample",
     "TactileFieldDescriptor",
     "TactileFieldSample",
@@ -154,6 +151,7 @@ __all__ = [
     "TactileValue",
     "TemperatureSample",
     "TimeoutError",
+    "TorqueLimitSample",
     "TorqueSample",
     "TransportError",
     "TransportKind",

@@ -266,8 +266,12 @@ print(angles.percent)  # Fixed SDK capability mapping
 print(angles.physical_rad)  # None where no physical calibration exists
 ```
 
-Configured speed, measured speed, current limit, measured current,
-dimensionless effort limit, and true torque are separate channels. Check
+Configured speed, measured speed, current limits, measured current, torque limits,
+and measured torque are separate channels. Use `get_currents()` and
+`set_current_limits()` for current; `get_current_limits()` is available only where
+limit readback is supported (not on L20/L20Lite). O30 also provides independent
+`get_torques()` and `set/get_torques_limits()` methods. Values remain protocol raw;
+units and scale notes come from capabilities, without implicit conversion. Check
 `capabilities.command(...)` and `capabilities.telemetry_channel(...)` before
 using an optional operation. Unsupported methods raise
 `UnsupportedOperationError`.

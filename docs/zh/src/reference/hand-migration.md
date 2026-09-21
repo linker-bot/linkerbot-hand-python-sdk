@@ -62,12 +62,37 @@ hand = HandDevice(
 | `set_percentage_angles(values)` / `submit_percentage_angles(values)` | `set_percent_angles(values)` | 公开契约统一使用 `percent` |
 | `set_raw_angles(...)` / `set_hardware_raw_angles(...)` | `set_angles(...)` | raw 只剩精确协议原值一种 |
 | `hand.speed.set_speeds(values)` / `submit_speeds(values)` | `set_speeds(values)` | 配置速度协议值 |
-| `submit_torques(values)` | 按 capability 改为 `set_current_limits()`、`set_effort_limits()` 或 `set_torques()` | 不再把限制值统称扭矩 |
+| `submit_torques(values)` | 按 capability 改为 `set_current_limits()`、`set_torques_limits()` 或 `set_torques()` | 不再把限制值统称扭矩 |
 | `manager.get_blocking(timeout_ms=...)` | 对应 `get_*(timeout=seconds)` | 主动读取命名统一，timeout 全部为秒 |
 | `manager.get_snapshot()` | `hand.get_snapshot()` | 唯一不可变 canonical cache |
 | `get_version()` / `hand.version.*` | `get_device_info(timeout)` | 身份和全部可用版本字段统一返回 |
 | 旧 polling/event stream | `start_polling(PollingPlan(...))` + `get_snapshot()` | SDK 成为唯一周期查询方 |
 | 异常字符串判断 | 捕获 `HandError` 子类或映射 `ErrorCode` | 稳定错误分类 |
+
+## 电流与转矩接口迁移
+
+此前的 `effort_limits` 接口、枚举和样本类型已删除，不保留别名。按型号迁移：
+
+| 型号 | 原 `set_effort_limits()` | 原 `get_effort_limits()` / `snapshot.effort_limits` |
+| --- | --- | --- |
+| L20 / L20Lite | `set_current_limits()` | `get_currents()` / `snapshot.currents`：实时电流，**不是限制配置回读** |
+| O20 | `set_current_limits()` | `get_current_limits()` / `snapshot.current_limits`：限制配置 |
+| O30 | `set_torques_limits()` | `get_torques_limits()` / `snapshot.torques_limits`：`0x06` 限制配置 |
+
+对应使用 `CurrentSample`、`CurrentLimitSample` 或 `TorqueLimitSample`；能力枚举分别为
+`CURRENTS`、`CURRENT_LIMITS`、`TORQUES_LIMITS`。L20/L20Lite 的实时电流轮询使用
+`PollingPlan(current_hz=...)`，限制写入不会作为实时电流样本发布。
+
+O30 的 `0x04` 保留 `get_currents()`、`get_current_limits()` 和
+`set_current_limits()`；`0x06` 的实时值保留 `get_torques()`。两个对象分别存储，不能互换。
+此次统一的是语义和命名，协议报文、取值范围和原始数据不变；L20/L20Lite 和 O20 的
+电流限制比例未知，单位为 count，不能因名称改为电流就视作 mA。O30 转矩单位仍未知，
+不能直接视作 N·m。
+
+L20Lite 的 C7 同步改为 `set/get_stall_hold_currents()`、`StallHoldCurrentSample`、
+`STALL_HOLD_CURRENTS` 和 `snapshot.stall_hold_currents`，堵转能力统一使用
+`stall_protection.hold_current`。原 `stall_hold_torques` / `hold_torque` 名称删除。
+getter 仍只读取完整确认的写回显，不发送主动查询；C5/C6/C7 仍进入同一 FIFO 配置队列。
 
 ## 生命周期迁移
 
@@ -124,7 +149,7 @@ ROS 不再创建传感器查询 timer，也不维护 `MODEL_SPECS`。
 | 配置速度 | `snapshot.configured_speeds.raw` |
 | 实测电流 | `snapshot.currents.raw` |
 | 电流上限 | `snapshot.current_limits.raw` |
-| 未确认 effort limit | `snapshot.effort_limits.raw` |
+| 转矩限制 | `snapshot.torques_limits.raw` |
 | 真实扭矩 | `snapshot.torques.raw`，仅 capability 明确支持时存在 |
 | 温度 | `snapshot.temperatures.raw` |
 | 触觉/力 | `snapshot.force.raw / tactile / sensors`，按 `payload_projection` 判断 |
@@ -155,7 +180,7 @@ ROS callback 中严禁同步等待。
 1. 搜索并删除 `linkerbot.hand`、型号类、manager、`HandSession` 和 `submit_*` 导入。
 2. 为每个设备显式创建正确的 CAN/CAN FD transport。
 3. 从 capability 获取 joint names、范围、单位、推荐频率和操作支持。
-4. 区分 raw、percent、配置值、测量值、电流上限、effort limit 和真实扭矩。
+4. 区分 raw、percent、配置值、测量值、电流上限、转矩上限和实时转矩。
 5. 将所有 timeout 从毫秒调用点改为秒制参数。
 6. 确保只有 SDK 产生周期设备查询。
 7. 为命令阶段、snapshot meta、断线恢复和 unsupported 分支补自动测试。

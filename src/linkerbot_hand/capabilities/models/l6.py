@@ -77,8 +77,8 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             raw_unit="count",
             raw_scale_note=(
                 "1400/255 protocol-units/count; the protocol labels this field "
-                "stall torque but gives no physical unit; it is not verified as "
-                "current or physical torque"
+                "stall torque but gives no physical unit; exposed as hold "
+                "current, with physical current scale unverified"
             ),
             unit_confidence=Confidence.CONFLICTING,
         ),

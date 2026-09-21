@@ -19,9 +19,9 @@ from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
 from .codec import (
     REG_ANGLES,
     REG_CONFIGURED_SPEEDS,
+    REG_CURRENT_LIMITS,
     REG_CURRENTS,
     REG_DEVICE_INFO,
-    REG_EFFORT_LIMITS,
     REG_FAULTS,
     REG_MEASURED_SPEEDS,
     REG_TACTILE_FIRST,
@@ -68,8 +68,8 @@ _COMMAND_OBJECTS = {
         encode_i16_vector,
         14,
     ),
-    CommandSemantic.EFFORT_LIMITS: _CommandObject(
-        REG_EFFORT_LIMITS,
+    CommandSemantic.CURRENT_LIMITS: _CommandObject(
+        REG_CURRENT_LIMITS,
         encode_u16_vector,
         14,
     ),
@@ -85,8 +85,8 @@ _READ_OBJECTS = {
         decode_i16_vector,
         DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
-    TelemetrySemantic.EFFORT_LIMITS: _ReadObject(
-        REG_EFFORT_LIMITS,
+    TelemetrySemantic.CURRENT_LIMITS: _ReadObject(
+        REG_CURRENT_LIMITS,
         decode_u16_vector,
         DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
@@ -100,7 +100,7 @@ _READ_OBJECTS = {
 _BASELINE = (
     TelemetrySemantic.ANGLES,
     TelemetrySemantic.FAULTS,
-    TelemetrySemantic.EFFORT_LIMITS,
+    TelemetrySemantic.CURRENT_LIMITS,
 )
 _READ_REGISTERS = (
     REG_DEVICE_INFO,
@@ -108,7 +108,7 @@ _READ_REGISTERS = (
     REG_ANGLES,
     REG_MEASURED_SPEEDS,
     REG_CONFIGURED_SPEEDS,
-    REG_EFFORT_LIMITS,
+    REG_CURRENT_LIMITS,
     *range(REG_TACTILE_FIRST, REG_TACTILE_LAST + 1),
     REG_TEMPERATURES,
     REG_CURRENTS,
@@ -149,7 +149,7 @@ class O20ProtocolBackend:
         self,
         capabilities: DeviceCapabilities,
     ) -> tuple[TelemetrySemantic, ...]:
-        """Return angle, fault, and effort state required before admission."""
+        """Return angle, fault, and current_limit state required before admission."""
 
         for semantic in _BASELINE:
             if capabilities.telemetry_channel(semantic) is None:

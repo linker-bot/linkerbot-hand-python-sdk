@@ -239,8 +239,11 @@ print(angles.percent)  # SDK 固定 capability 映射
 print(angles.physical_rad)  # 无可靠物理标定的轴为 None
 ```
 
-速度配置、实测速度、电流上限、实测电流、无量纲 effort limit 和真实扭矩是不同
-通道。调用前应检查 `capabilities.command(...)` 和
+速度配置、实测速度、电流上限、实测电流、转矩上限和实时转矩是不同通道。
+电流统一用 `get_currents()` / `set_current_limits()`；支持限制回读的型号提供
+`get_current_limits()`，L20/L20Lite 没有限制回读。O30 另有独立的 `get_torques()` 和
+`set/get_torques_limits()`。数据保留协议原值，单位和比例以 capability 为准，不根据名称换算。
+调用前应检查 `capabilities.command(...)` 和
 `capabilities.telemetry_channel(...)`；不支持的统一方法会抛出
 `UnsupportedOperationError`。
 

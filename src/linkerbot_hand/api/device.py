@@ -26,7 +26,6 @@ from .readings import (
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
-    EffortLimitSample,
     FaultSample,
     ForceSample,
     MeasuredSpeedSample,
@@ -34,6 +33,7 @@ from .readings import (
     NormalForceResultantSample,
     RawNumber,
     TemperatureSample,
+    TorqueLimitSample,
     TorqueSample,
     VoltageSample,
 )
@@ -42,7 +42,6 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
-    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -184,23 +183,23 @@ class HandDevice(_DeviceCore):
             operation="get_current_limits",
         )
 
-    def set_effort_limits(self, values: Iterable[RawNumber]) -> CommandHandle:
-        """Submit physically unqualified effort-limit protocol values."""
+    def set_torques_limits(self, values: Iterable[RawNumber]) -> CommandHandle:
+        """Submit raw torque limits (O30 MI 0x06), separate from current limits."""
 
         return self._submit_raw(
-            CommandSemantic.EFFORT_LIMITS,
+            CommandSemantic.TORQUES_LIMITS,
             values,
-            operation="set_effort_limits",
+            operation="set_torques_limits",
         )
 
-    def get_effort_limits(self, timeout: float) -> EffortLimitSample:
-        """Actively read physically unqualified effort-limit values."""
+    def get_torques_limits(self, timeout: float) -> TorqueLimitSample:
+        """Read raw torque limit settings (O30 MI 0x06, RTS=1)."""
 
         return self._read(
-            TelemetrySemantic.EFFORT_LIMITS,
+            TelemetrySemantic.TORQUES_LIMITS,
             timeout,
-            EffortLimitSample,
-            operation="get_effort_limits",
+            TorqueLimitSample,
+            operation="get_torques_limits",
         )
 
     def set_torques(self, values: Iterable[RawNumber]) -> CommandHandle:
@@ -467,32 +466,13 @@ class HandDevice(_DeviceCore):
         )
 
     def get_stall_hold_currents(self, timeout: float) -> StallHoldCurrentSample:
-        """Actively read raw current-maintained-after-stall values."""
+        """Read raw hold current; L20Lite returns the last confirmed write echo."""
 
         return self._read(
             TelemetrySemantic.STALL_HOLD_CURRENTS,
             timeout,
             StallHoldCurrentSample,
             operation="get_stall_hold_currents",
-        )
-
-    def set_stall_hold_torques(self, values: Iterable[RawNumber]) -> CommandHandle:
-        """Submit raw output torque maintained after stall (L20Lite C7)."""
-
-        return self._submit_raw(
-            CommandSemantic.STALL_HOLD_TORQUES,
-            values,
-            operation="set_stall_hold_torques",
-        )
-
-    def get_stall_hold_torques(self, timeout: float) -> StallHoldTorqueSample:
-        """Return the last confirmed torque echo; no active query on L20Lite."""
-
-        return self._read(
-            TelemetrySemantic.STALL_HOLD_TORQUES,
-            timeout,
-            StallHoldTorqueSample,
-            operation="get_stall_hold_torques",
         )
 
     def set_limit_compensations(

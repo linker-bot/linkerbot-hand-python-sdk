@@ -13,7 +13,6 @@ from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
 from .codec import (
     MI_ACCELERATION,
     MI_CURRENT,
-    MI_EFFORT,
     MI_FAULT,
     MI_MOTION_TIME,
     MI_POSITION,
@@ -22,6 +21,7 @@ from .codec import (
     MI_STALL_THRESHOLD,
     MI_STALL_TIME,
     MI_TEMPERATURE,
+    MI_TORQUE,
     MI_VOLTAGE,
     WIRE_SLOT_COUNT,
     decode_fault_statuses,
@@ -58,12 +58,12 @@ _READ_OBJECTS = {
         rts=True,
         origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
-    TelemetrySemantic.EFFORT_LIMITS: _ReadObject(
-        MI_EFFORT,
+    TelemetrySemantic.TORQUES_LIMITS: _ReadObject(
+        MI_TORQUE,
         rts=True,
         origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
     ),
-    TelemetrySemantic.TORQUES: _ReadObject(MI_EFFORT),
+    TelemetrySemantic.TORQUES: _ReadObject(MI_TORQUE),
     TelemetrySemantic.CURRENTS: _ReadObject(MI_CURRENT),
     TelemetrySemantic.CURRENT_LIMITS: _ReadObject(
         MI_CURRENT,

@@ -45,7 +45,7 @@ class O20DeviceScript:
             codec.encode_i16_vector((50,) * codec.JOINT_COUNT),
         )
         self.readings.setdefault(
-            codec.REG_EFFORT_LIMITS,
+            codec.REG_CURRENT_LIMITS,
             codec.encode_u16_vector((400,) * codec.JOINT_COUNT),
         )
         self.readings.setdefault(
@@ -105,7 +105,7 @@ class O20DeviceScript:
             self.readings[codec.REG_ANGLES] = data
         elif register in {
             codec.REG_CONFIGURED_SPEEDS,
-            codec.REG_EFFORT_LIMITS,
+            codec.REG_CURRENT_LIMITS,
             codec.REG_FAULTS,
         }:
             self.readings[register] = data

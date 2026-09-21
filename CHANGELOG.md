@@ -8,6 +8,18 @@
 
 ## 未发布
 
+- **破坏性接口迁移：** L20Lite C7 改用 `set/get_stall_hold_currents()`、
+  `StallHoldCurrentSample` 和 `stall_protection.hold_current`，删除旧堵转扭矩名称。
+  保留两组原始写帧、严格回显校验和仅回显缓存读取，不新增查询或物理换算。
+
+- **破坏性接口迁移：** O30 `0x06` 限制改为 `set/get_torques_limits()`、
+  `TorqueLimitSample`、`TORQUES_LIMITS` 和 `snapshot.torques_limits`；实时转矩仍用
+  `get_torques()`。`0x04` 的电流及限制独立保留，删除旧 `effort_limits` 名称。
+
+- **破坏性接口迁移：** L20/L20Lite 使用 `set_current_limits()` 写入电流限制，
+  `get_currents()` / `snapshot.currents` / `current_hz` 读取实时电流；不提供限制配置回读。
+  O20 原限制对象改为 `set/get_current_limits()`，与独立实时电流通道分开；协议字节、范围不变。
+
 - L20Lite 故障样本新增逐关节 `L20LiteFaultStatus`，解释负载过载、过流、过热、
   磁编码异常及过压/欠压，保留原始值与未定义位；明确该型号没有清错命令。
 

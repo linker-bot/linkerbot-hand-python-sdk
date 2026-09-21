@@ -855,8 +855,9 @@ def test_extended_classic_profiles_open_and_control_multi_frame_objects(
         assert snapshot.angles is not None
         assert snapshot.angles.raw == expected_angles
         assert snapshot.faults is not None and snapshot.faults.meta.valid
-        assert snapshot.effort_limits is not None
-        assert snapshot.effort_limits.raw == (80,) * joint_count
+        assert snapshot.currents is not None
+        assert snapshot.currents.raw == (80,) * joint_count
+        assert snapshot.current_limits is None
 
         values = tuple(range(joint_count))
         angles = hand.set_angles(values)
@@ -873,6 +874,25 @@ def test_extended_classic_profiles_open_and_control_multi_frame_objects(
         assert measured.meta.origin is DataOrigin.DEVICE_RESPONSE
         with pytest.raises(UnsupportedOperationError):
             hand.get_configured_speeds(timeout=0.2)
+        sent_before = len(transport.script.sent_payloads)
+        with pytest.raises(UnsupportedOperationError):
+            hand.get_current_limits(timeout=0.2)
+        assert len(transport.script.sent_payloads) == sent_before
+        current_limit = hand.set_current_limits((60,) * joint_count)
+        assert current_limit.wait(1) is CommandStage.DISPATCHED
+        currents = hand.get_currents(timeout=0.2)
+        assert currents.raw == (60,) * joint_count
+        assert currents.meta.origin is DataOrigin.DEVICE_RESPONSE
+        assert hand.get_snapshot().current_limits is None
+        assert all(j.current_raw == 60 for j in hand.get_snapshot().joints)
+        opcodes = (0x02, 0x03) if model == "L20Lite" else tuple(range(0x51, 0x56))
+        before = transport.script.read_counts[opcodes[0]]
+        hand.start_polling(PollingPlan(current_hz=20))
+        wait_until(
+            lambda: hand.get_snapshot().currents.meta.sequence > currents.meta.sequence
+        )
+        hand.stop_polling()
+        assert transport.script.read_counts[opcodes[0]] > before
         assert sum(
             1
             for payload in transport.script.command_payloads
@@ -897,21 +917,23 @@ def test_o20_profile_exposes_complete_raw_control_and_telemetry() -> None:
         assert snapshot.angles is not None
         assert snapshot.angles.raw == tuple(range(10, 26))
         assert snapshot.faults is not None and snapshot.faults.meta.valid
-        assert snapshot.effort_limits is not None
-        assert snapshot.effort_limits.raw == (400,) * 16
+        assert snapshot.current_limits is not None
+        assert snapshot.current_limits.raw == (400,) * 16
 
         angles = hand.set_angles((0,) * 16)
         assert angles.wait(timeout=1) is CommandStage.DISPATCHED
         speeds = hand.set_speeds((70,) * 16)
         assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
-        effort = hand.set_effort_limits((500,) * 16)
-        assert effort.wait(timeout=1) is CommandStage.DISPATCHED
+        current_limit = hand.set_current_limits((500,) * 16)
+        assert current_limit.wait(timeout=1) is CommandStage.DISPATCHED
 
         assert hand.get_speeds(timeout=0.2).raw == tuple(range(-8, 8))
         configured = hand.get_configured_speeds(timeout=0.2)
         assert configured.raw == (70,) * 16
         assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
-        assert hand.get_effort_limits(timeout=0.2).raw == (500,) * 16
+        limits = hand.get_current_limits(timeout=0.2)
+        assert limits.raw == (500,) * 16
+        assert limits.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         assert hand.get_currents(timeout=0.2).raw == tuple(range(100, 116))
         assert hand.get_temperatures(timeout=0.2).raw == tuple(range(30, 46))
 
@@ -1145,7 +1167,7 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         commands = (
             (hand.set_speeds, (60,) * 20),
             (hand.set_accelerations, (61,) * 20),
-            (hand.set_effort_limits, (62,) * 20),
+            (hand.set_torques_limits, (62,) * 20),
             (hand.set_motion_times, (63,) * 20),
             (hand.set_stall_detection_times, (64,) * 20),
             (hand.set_stall_thresholds, (65,) * 20),
@@ -1160,7 +1182,7 @@ def test_o30_profile_exposes_acknowledged_raw_control_and_telemetry() -> None:
         assert configured.raw == (60,) * 20
         assert configured.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         assert hand.get_configured_accelerations(timeout=0.2).raw == (61,) * 20
-        assert hand.get_effort_limits(timeout=0.2).raw == (62,) * 20
+        assert hand.get_torques_limits(timeout=0.2).raw == (62,) * 20
         assert hand.get_motion_times(timeout=0.2).raw == (63,) * 20
         assert hand.get_stall_detection_times(timeout=0.2).raw == (64,) * 20
         assert hand.get_stall_thresholds(timeout=0.2).raw == (65,) * 20

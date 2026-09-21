@@ -13,13 +13,13 @@ from .readings import (
     ConfiguredSpeedSample,
     CurrentLimitSample,
     CurrentSample,
-    EffortLimitSample,
     FaultSample,
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
     RawNumber,
     TemperatureSample,
+    TorqueLimitSample,
     TorqueSample,
     VoltageSample,
 )
@@ -27,7 +27,6 @@ from .stall import (
     LimitCompensationSample,
     StallDetectionTimeSample,
     StallHoldCurrentSample,
-    StallHoldTorqueSample,
     StallThresholdSample,
 )
 
@@ -45,7 +44,7 @@ class JointState:
     configured_speed_raw: RawNumber | None = None
     current_raw: RawNumber | None = None
     current_limit_raw: RawNumber | None = None
-    effort_limit_raw: RawNumber | None = None
+    torque_limit_raw: RawNumber | None = None
     torque_raw: RawNumber | None = None
     temperature_raw: RawNumber | None = None
     fault_raw: int | None = None
@@ -63,7 +62,7 @@ class JointState:
             "configured_speed_raw",
             "current_raw",
             "current_limit_raw",
-            "effort_limit_raw",
+            "torque_limit_raw",
             "torque_raw",
             "temperature_raw",
         ):
@@ -93,7 +92,7 @@ class HandSnapshot:
     configured_accelerations: ConfiguredAccelerationSample | None = None
     currents: CurrentSample | None = None
     current_limits: CurrentLimitSample | None = None
-    effort_limits: EffortLimitSample | None = None
+    torques_limits: TorqueLimitSample | None = None
     torques: TorqueSample | None = None
     temperatures: TemperatureSample | None = None
     force: ForceSample | None = None
@@ -103,7 +102,6 @@ class HandSnapshot:
     stall_detection_times: StallDetectionTimeSample | None = None
     stall_thresholds: StallThresholdSample | None = None
     stall_hold_currents: StallHoldCurrentSample | None = None
-    stall_hold_torques: StallHoldTorqueSample | None = None
     limit_compensations: LimitCompensationSample | None = None
 
     def __post_init__(self) -> None:

@@ -24,30 +24,29 @@ def _layout(first_opcode: int) -> ClassicObjectLayout:
 
 ANGLE_LAYOUT = _layout(0x41)
 SPEED_LAYOUT = _layout(0x49)
-EFFORT_LAYOUT = _layout(0x51)
+CURRENT_LAYOUT = _layout(0x51)
 FAULT_LAYOUT = _layout(0x59)
 TEMPERATURE_LAYOUT = _layout(0x61)
 
 COMMAND_LAYOUTS = {
     CommandSemantic.ANGLES: ANGLE_LAYOUT,
     CommandSemantic.SPEEDS: SPEED_LAYOUT,
-    CommandSemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
+    CommandSemantic.CURRENT_LIMITS: CURRENT_LAYOUT,
 }
 TELEMETRY_LAYOUTS = {
     TelemetrySemantic.ANGLES: ANGLE_LAYOUT,
     TelemetrySemantic.MEASURED_SPEEDS: SPEED_LAYOUT,
-    TelemetrySemantic.EFFORT_LIMITS: EFFORT_LAYOUT,
+    TelemetrySemantic.CURRENTS: CURRENT_LAYOUT,
     TelemetrySemantic.TEMPERATURES: TEMPERATURE_LAYOUT,
     TelemetrySemantic.FAULTS: FAULT_LAYOUT,
 }
 BASELINE_SEMANTICS = (
     TelemetrySemantic.ANGLES,
     TelemetrySemantic.FAULTS,
-    TelemetrySemantic.EFFORT_LIMITS,
+    TelemetrySemantic.CURRENTS,
 )
-# Empty on purpose. The protocol states that position, speed, and torque writes
-# carry targets while the reply carries the live value, and every speed/torque
-# query row documents its response as ``current_*``. Listing either here would
+# Empty on purpose. Speed and current queries return live measurements, even
+# though writes to these objects carry settings. Listing either here would
 # label an actual measurement as DEVICE_CONFIG_RESPONSE.
 CONFIG_TELEMETRY: tuple[TelemetrySemantic, ...] = ()
 CLEAR_FAULT_PAYLOADS = tuple(

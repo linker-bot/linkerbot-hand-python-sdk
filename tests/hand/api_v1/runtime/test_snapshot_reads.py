@@ -79,7 +79,7 @@ def test_channel_samples_match_full_view_and_projection_after_each_publication(
         TelemetrySemantic.CONFIGURED_SPEEDS,
         TelemetrySemantic.CURRENTS,
         TelemetrySemantic.CURRENT_LIMITS,
-        TelemetrySemantic.EFFORT_LIMITS,
+        TelemetrySemantic.TORQUES_LIMITS,
         TelemetrySemantic.TORQUES,
         TelemetrySemantic.TEMPERATURES,
         TelemetrySemantic.FAULTS,
