@@ -219,7 +219,12 @@ class _DeviceCore:
         return runtime.get_health()
 
     def recover(self, timeout: float) -> None:
-        """Run explicit identity-verified recovery without replaying old targets."""
+        """Wait for bounded recovery without replaying old targets.
+
+        ``timeout`` bounds this caller's wait, including preparation; it does
+        not cancel a shared recovery. DeviceConfig sets the execution budget
+        and maximum read-only initialization attempts for each recovery cycle.
+        """
 
         timeout_s = _coerce_timeout(timeout)
         self._require_runtime("recover").recover(timeout_s)

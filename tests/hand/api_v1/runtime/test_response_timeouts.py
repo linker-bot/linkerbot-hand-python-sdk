@@ -322,3 +322,125 @@ def test_explicit_ordinary_window_can_shorten_protocol_default(
 def test_ordinary_override_rejects_invalid_values(value: object) -> None:
     with pytest.raises(ValidationError, match="transaction_timeout_s"):
         DeviceConfig(transaction_timeout_s=value)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("model", _MODELS)
+@pytest.mark.parametrize("stage", ("identity", "angles"))
+def test_recovery_retries_one_lost_reply_with_real_protocols(
+    devices: Callable, monkeypatch: pytest.MonkeyPatch, model: str, stage: str
+) -> None:
+    hand, replies = devices(
+        model,
+        config=DeviceConfig(
+            identity_timeout_s=0.03,
+            transaction_timeout_s=0.03,
+            recovery_retry_delay_s=0.02,
+        ),
+    )
+    hand.open()
+    matches = _last_identity_reply if stage == "identity" else _angle_reply
+    emit = replies.transport.emit
+    seen = 0
+
+    def drop_first(message):
+        nonlocal seen
+        if matches(model, message):
+            seen += 1
+            if seen == 1:
+                return
+        emit(message)
+
+    monkeypatch.setattr(replies.transport, "emit", drop_first)
+    hand.recover(timeout=2)
+
+    assert seen == 2
+    assert hand.get_health().connected
+    assert hand.get_health().connection_generation == 2
+    assert hand.get_health().reconnect_count == 1
+    assert len(replies.transport.dispatchers) == 2
+
+
+def test_late_identity_fragment_is_discarded_before_next_attempt(
+    devices: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hand, replies = devices(
+        config=DeviceConfig(identity_timeout_s=0.03, recovery_retry_delay_s=0.04)
+    )
+    hand.open()
+    transport = replies.transport
+    assert isinstance(transport, ScriptedClassicCANTransport)
+    initial = transport.script.identity_queries
+    replies.delay_s = 0.05
+    replies.matches = lambda message: (
+        _last_identity_reply("L6", message)
+        and transport.script.identity_queries == initial + 1
+    )
+    emit = transport.emit
+
+    def omit_second_fragment(message):
+        if (
+            _last_identity_reply("L6", message)
+            and transport.script.identity_queries == initial + 2
+        ):
+            return
+        emit(message)
+
+    monkeypatch.setattr(transport, "emit", omit_second_fragment)
+    hand.recover(timeout=2)
+
+    # The first round's C4 arrives during isolation. It cannot fill the hole
+    # in the second round; only the third complete round can establish readiness.
+    assert transport.script.identity_queries == initial + 3
+    assert hand.get_health().connection_generation == 2
+    assert len(transport.dispatchers) == 2
+
+
+@pytest.mark.parametrize("identity_layout", ("deployed", "documented"))
+def test_recovery_budget_bounds_dynamic_identity_chain(
+    devices: Callable, identity_layout: str
+) -> None:
+    hand, replies = devices(
+        "O30",
+        config=DeviceConfig(identity_timeout_s=0.4, recovery_timeout_s=0.1),
+        identity_layout=identity_layout,
+    )
+    hand.open()
+    replies.matches = lambda message: (message.data[0] & 0x7F) == 0x41
+    replies.delay_s = 0.04
+
+    with pytest.raises(TimeoutError, match="recovery execution budget"):
+        hand.recover(timeout=1)
+
+    assert not hand.get_health().connected
+    assert hand.get_health().connection_generation == 1
+
+
+def test_automatic_recovery_retries_lost_identity_reply(
+    devices: Callable, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hand, replies = devices(
+        config=DeviceConfig(
+            auto_reconnect=True,
+            identity_timeout_s=0.03,
+            recovery_retry_delay_s=0.02,
+            reconnect_initial_delay_s=0.01,
+        )
+    )
+    hand.open()
+    emit = replies.transport.emit
+    seen = 0
+
+    def drop_first(message):
+        nonlocal seen
+        if _last_identity_reply("L6", message):
+            seen += 1
+            if seen == 1:
+                return
+        emit(message)
+
+    monkeypatch.setattr(replies.transport, "emit", drop_first)
+    replies.transport.current_dispatcher.disconnect()
+    wait_until(lambda: hand.get_health().connection_generation == 2, timeout_s=2)
+
+    assert seen == 2
+    assert len(replies.transport.dispatchers) == 2

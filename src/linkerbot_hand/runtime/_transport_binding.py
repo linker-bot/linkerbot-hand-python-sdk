@@ -84,7 +84,7 @@ class TransportBinding:
             self._accepting = True
             self._transport_generation = generation
 
-    def stop_admission_and_drain(self) -> None:
+    def stop_admission_and_drain(self, *, timeout_s: float | None = None) -> None:
         """Reject new endpoint batches and boundedly drain any claimed send."""
 
         with self._lock:
@@ -97,7 +97,11 @@ class TransportBinding:
                     self._key,
                     lease.transport,
                     self._endpoint_id,
-                    timeout_s=self._join_timeout_s,
+                    timeout_s=(
+                        self._join_timeout_s
+                        if timeout_s is None
+                        else min(self._join_timeout_s, timeout_s)
+                    ),
                 )
 
     def close(self) -> None:

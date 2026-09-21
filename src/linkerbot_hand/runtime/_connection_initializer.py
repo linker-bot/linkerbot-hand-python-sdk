@@ -68,6 +68,7 @@ class ConnectionInitializer:
         if not isinstance(identity, IdentityResult):
             raise ProtocolError("identity transaction did not return IdentityResult")
         self._state.validate_identity(identity, recovery=recovery)
+        runner.raise_if_interrupted()
         generation = self._state.generation() + 1
         now = self._clock.monotonic()
         self._snapshot_store.begin_generation(
@@ -95,6 +96,7 @@ class ConnectionInitializer:
                 raise ProtocolError(
                     f"baseline transaction did not publish {semantic.value}"
                 )
+        runner.raise_if_interrupted()
         self._polling.reconfigure(identity.capabilities)
         if recovery and polling_plan is not None:
             self._polling.replace(polling_plan, now=self._clock.monotonic())

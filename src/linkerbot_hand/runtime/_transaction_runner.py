@@ -18,6 +18,7 @@ from ..protocols.base import (
     SamplePayload,
 )
 from ._clock import RuntimeClock
+from ._errors import ResponseTimeoutError
 from ._route_mailbox import InboundMessage
 from ._transport_binding import TransportBinding
 from .metrics import RuntimeMetrics
@@ -105,6 +106,7 @@ class TransactionRunner:
         dispatch_guard: DispatchGuard | None = None,
         on_stage_start: Callable[[float], None] | None = None,
         default_response_timeout_s: float | None = None,
+        execution_deadline_at_s: float | None = None,
     ) -> None:
         self._binding = binding
         self._backend = backend
@@ -122,6 +124,7 @@ class TransactionRunner:
         self._dispatch_guard = dispatch_guard or DispatchGuard()
         self._on_stage_start = on_stage_start
         self._default_response_timeout_s = default_response_timeout_s
+        self._execution_deadline_at_s = execution_deadline_at_s
 
     def execute(
         self,
@@ -170,6 +173,13 @@ class TransactionRunner:
 
         if response_timeout_s is None:
             response_timeout_s = self._default_response_timeout_s
+        if self._execution_deadline_at_s is not None:
+            deadline_at_s = (
+                self._execution_deadline_at_s
+                if deadline_at_s is None
+                else min(deadline_at_s, self._execution_deadline_at_s)
+            )
+        self.raise_if_interrupted()
         if self._on_stage_start is not None:
             self._on_stage_start(_stage_wait_budget(transaction, response_timeout_s))
         self._wait_for_quarantine(
@@ -396,11 +406,14 @@ class TransactionRunner:
                     generation=pending.publish_generation,
                 )
 
-            response_deadline = dispatched_at + (
+            response_timeout_s = (
                 transaction.response_timeout_s
                 if pending.response_timeout_s is None
                 else pending.response_timeout_s
             )
+            response_deadline = dispatched_at + response_timeout_s
+            if pending.deadline_at_s is not None:
+                response_deadline = min(response_deadline, pending.deadline_at_s)
             try:
                 progress = buffered.progress
                 if progress is None or not progress.complete:
@@ -409,6 +422,7 @@ class TransactionRunner:
                         capabilities=pending.capabilities,
                         generation=pending.publish_generation,
                         deadline_s=response_deadline,
+                        response_timeout_s=response_timeout_s,
                     )
                     publications += response_publications
             except TimeoutError:
@@ -547,6 +561,7 @@ class TransactionRunner:
         capabilities: DeviceCapabilities,
         generation: int | None,
         deadline_s: float,
+        response_timeout_s: float,
     ) -> tuple[ResponseProgress, tuple[tuple[SamplePayload, object], ...]]:
         publications: tuple[tuple[SamplePayload, object], ...] = ()
         while True:
@@ -578,7 +593,12 @@ class TransactionRunner:
                 continue
             remaining = deadline_s - self._clock.monotonic()
             if remaining <= 0:
-                raise TimeoutError("protocol response did not complete before timeout")
+                self.raise_if_interrupted()
+                raise ResponseTimeoutError(
+                    transaction.key,
+                    response_timeout_s=response_timeout_s,
+                    late_response_guard_s=transaction.late_response_guard_s,
+                )
             self.raise_if_interrupted()
             self._clock.wait(self._wake, remaining)
 
@@ -656,6 +676,11 @@ class TransactionRunner:
                 0.0,
                 quarantined.deadline_at_s - self._clock.monotonic(),
             )
+            if self._execution_deadline_at_s is not None:
+                remaining = min(
+                    remaining,
+                    max(0.0, self._execution_deadline_at_s - self._clock.monotonic()),
+                )
             self.raise_if_interrupted()
             self._clock.wait(self._wake, remaining)
 
@@ -696,6 +721,34 @@ class TransactionRunner:
             return True
         return False
 
+    def wait_for_recovery_quiet(self, quiet_s: float) -> None:
+        """Discard this endpoint's old replies before constructing a new round.
+
+        Every received frame restarts the quiet interval. The recovery execution
+        deadline and close still bound the wait, including continuous traffic.
+        Protocols without a request sequence cannot distinguish a reply delayed
+        beyond this interval from a reply to a later identical request.
+        """
+
+        quiet_until = self._clock.monotonic() + quiet_s
+        while True:
+            self.raise_if_interrupted()
+            self._wake.clear()
+            inbound = self._next_message()
+            if inbound is not None:
+                self._metrics.received(timestamp=inbound.received_at_s)
+                quiet_until = self._clock.monotonic() + quiet_s
+                continue
+            self.raise_if_interrupted()
+            now = self._clock.monotonic()
+            if now >= quiet_until:
+                self._quarantined.clear()
+                return
+            deadline = quiet_until
+            if self._execution_deadline_at_s is not None:
+                deadline = min(deadline, self._execution_deadline_at_s)
+            self._clock.wait(self._wake, max(0.0, deadline - now))
+
     def raise_if_interrupted(self) -> None:
         """Raise when lifecycle control invalidates the active transaction."""
 
@@ -703,6 +756,11 @@ class TransactionRunner:
             raise ClosedError("device runtime is stopping")
         if self._recovery_requested():
             raise DeviceNotReadyError("device recovery was requested")
+        if (
+            self._execution_deadline_at_s is not None
+            and self._clock.monotonic() >= self._execution_deadline_at_s
+        ):
+            raise TimeoutError("recovery execution budget expired")
         receiver_error = self._receiver_error()
         if receiver_error is not None:
             raise receiver_error

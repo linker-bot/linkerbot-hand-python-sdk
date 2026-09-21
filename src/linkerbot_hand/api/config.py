@@ -82,6 +82,12 @@ class DeviceConfig:
     batch has been sent, including every stage of L30/O30 identity chains.
     ``transaction_timeout_s=None`` keeps ordinary protocol response windows;
     a positive value overrides each response stage of reads and commands.
+    ``recovery_timeout_s`` limits one recovery cycle independently of each
+    caller's wait timeout; blocking transport calls are checked on return.
+    Recovery retries only initialization response timeouts, up to
+    ``recovery_max_attempts`` attempts (including the first). The retry quiet
+    interval is at least ``recovery_retry_delay_s`` and the failed response/guard
+    windows, and restarts on incoming frames from this endpoint.
     """
 
     command_rate_hz: float = 250.0
@@ -95,6 +101,9 @@ class DeviceConfig:
     reconnect_initial_delay_s: float = 0.1
     reconnect_max_delay_s: float = 2.0
     o30_request_id: int | None = None
+    recovery_timeout_s: float = 5.0
+    recovery_max_attempts: int = 3
+    recovery_retry_delay_s: float = 0.2
 
     def __post_init__(self) -> None:
         if self.o30_request_id is not None and (
@@ -106,6 +115,7 @@ class DeviceConfig:
             "discrete_queue_capacity",
             "mailbox_capacity",
             "route_queue_capacity",
+            "recovery_max_attempts",
         ):
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
@@ -116,6 +126,8 @@ class DeviceConfig:
             "shutdown_timeout_s",
             "reconnect_initial_delay_s",
             "reconnect_max_delay_s",
+            "recovery_timeout_s",
+            "recovery_retry_delay_s",
         ):
             _positive_number(name, getattr(self, name))
         if self.transaction_timeout_s is not None:

@@ -11,6 +11,7 @@ from ..api.commands import AckSupport, CommandFamily, CommandStage
 from ..api.config import DeviceConfig, PollingPlan
 from ..api.enums import DataOrigin
 from ..api.errors import (
+    ClosedError,
     DeviceNotReadyError,
     HandError,
     IdentityMismatchError,
@@ -25,7 +26,7 @@ from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import ProtocolBackend, ProtocolTransaction
 from ._clock import RuntimeClock
 from ._connection_initializer import ConnectionInitializer
-from ._errors import as_hand_error
+from ._errors import ResponseTimeoutError, as_hand_error
 from ._operation_ticket import OperationTicket
 from ._route_mailbox import RouteMailbox
 from ._runtime_state import RuntimeState
@@ -53,6 +54,8 @@ class _RecoveryState:
     ticket: OperationTicket | None = None
     due_at_s: float | None = None
     delay_s: float = 0.0
+    started_at_s: float | None = None
+    deadline_at_s: float | None = None
 
 
 class DeviceActor:
@@ -147,7 +150,7 @@ class DeviceActor:
             self._thread.start()
             return self._initial_ticket
 
-    def request_recovery(self) -> OperationTicket:
+    def request_recovery(self, *, preparation_deadline_s: float) -> OperationTicket:
         """Coalesce explicit recovery callers onto the next safe generation."""
 
         not_ready = DeviceNotReadyError(
@@ -156,26 +159,39 @@ class DeviceActor:
             model=self._state.declared.model,
             generation=self._state.generation(),
         )
+        with self._control_lock:
+            ticket = self._recovery.ticket
+            if ticket is not None and not ticket.event.is_set():
+                return ticket
+            ticket = OperationTicket()
+            self._recovery.ticket = ticket
+            prepare_transport = not self._performing_recovery
+            if not prepare_transport:
+                # Join an automatic recovery without changing its deadline or
+                # closing admission again while it is committing its baseline.
+                return ticket
+            self._performing_recovery = True
+            self._recovery.due_at_s = None
+            now = self._clock.monotonic()
+            self._recovery.started_at_s = now
+            self._recovery.deadline_at_s = now + self._config.recovery_timeout_s
+            preparation_deadline_s = min(
+                preparation_deadline_s, self._recovery.deadline_at_s
+            )
         self._state.stop_admission()
         self._commands.reject_new(not_ready)
         self._transactions.reject_new(not_ready)
-        with self._control_lock:
-            ticket = self._recovery.ticket
-            if ticket is None or ticket.event.is_set():
-                ticket = OperationTicket()
-                self._recovery.ticket = ticket
-                prepare_transport = not self._performing_recovery
-                if prepare_transport:
-                    self._performing_recovery = True
-            else:
-                prepare_transport = False
         if prepare_transport:
             drain_failure: HandError | None = None
             try:
                 # Make queued transport work unreachable before its public handle
                 # can become FAILED. A bounded drain failure is returned to the
                 # caller instead of scheduling a delayed, unobserved recovery.
-                self._binding.stop_admission_and_drain()
+                self._binding.stop_admission_and_drain(
+                    timeout_s=max(
+                        1e-6, preparation_deadline_s - self._clock.monotonic()
+                    )
+                )
             except Exception as error:  # noqa: BLE001 - recovery preparation boundary
                 drain_failure = self._classify(error, "recover")
                 self._metrics.record_error(drain_failure)
@@ -871,27 +887,36 @@ class DeviceActor:
 
     def _perform_recovery(self, runner: TransactionRunner) -> TransactionRunner:
         with self._control_lock:
+            if self._performing_recovery:
+                return runner
             self._performing_recovery = True
+            if self._recovery.started_at_s is None:
+                self._recovery.started_at_s = self._clock.monotonic()
+                self._recovery.deadline_at_s = (
+                    self._recovery.started_at_s + self._config.recovery_timeout_s
+                )
+            deadline = self._recovery.deadline_at_s
         self._metrics.recovering()
         if self._state.ready():
             self._disconnect(
                 DeviceNotReadyError("connection replaced by explicit recovery")
             )
         try:
+            if self._stop.is_set():
+                raise ClosedError("device runtime is stopping")
+            if deadline is not None and self._clock.monotonic() >= deadline:
+                raise TimeoutError("recovery execution budget expired")
             self._mailbox.stop(
                 deadline_s=self._clock.monotonic() + self._config.shutdown_timeout_s
             )
             self._binding.recover()
             self._mailbox.reset()
             self._mailbox.start()
-            runner = self._make_runner()
+            runner = self._make_runner(execution_deadline_at_s=deadline)
+            runner.raise_if_interrupted()
             self._firmware_optional_failures.clear()
             self._verified_firmware_optional.clear()
-            self._initializer.initialize(
-                runner,
-                recovery=True,
-                polling_plan=self._saved_polling_plan,
-            )
+            self._initialize_recovery(runner)
         except Exception as error:  # noqa: BLE001 - recovery lifecycle boundary
             classified = self._classify(error, "recover")
             self._reject_failed_initialization(classified)
@@ -917,6 +942,8 @@ class DeviceActor:
                 else:
                     self._recovery.due_at_s = None
                 self._performing_recovery = False
+                self._recovery.started_at_s = None
+                self._recovery.deadline_at_s = None
         else:
             with self._control_lock:
                 self._recovery.delay_s = self._config.reconnect_initial_delay_s
@@ -926,7 +953,55 @@ class DeviceActor:
                     ticket.succeed()
                     self._recovery.ticket = None
                 self._performing_recovery = False
-        return runner
+                self._recovery.started_at_s = None
+                self._recovery.deadline_at_s = None
+        return self._make_runner()
+
+    def _initialize_recovery(self, runner: TransactionRunner) -> None:
+        """Retry only a complete read-only initialization after response loss."""
+
+        limit = self._config.recovery_max_attempts
+        for attempt in range(1, limit + 1):
+            runner.raise_if_interrupted()
+            try:
+                self._initializer.initialize(
+                    runner,
+                    recovery=True,
+                    polling_plan=self._saved_polling_plan,
+                )
+                return
+            except ResponseTimeoutError as error:
+                # A failed attempt must not expose its staged identity/baseline.
+                # Reuse the transport and runner so neither shared-channel peers
+                # nor device settling deadlines are reset for a lost reply.
+                self._reject_failed_initialization(error)
+                if attempt == limit:
+                    raise TimeoutError(
+                        f"recovery failed after {attempt}/{limit} initialization "
+                        f"attempts: {error}",
+                        operation="recover",
+                        model=self._state.declared.model,
+                        generation=self._state.generation(),
+                        cause=error,
+                    ) from error
+                # The terminal error is recorded once by the outer lifecycle
+                # boundary; only intermediate failures need recording here.
+                self._metrics.record_error(self._classify(error, "recover"))
+                quiet_s = max(
+                    self._config.recovery_retry_delay_s,
+                    error.response_timeout_s,
+                    error.late_response_guard_s,
+                )
+                _LOGGER.warning(
+                    "%s recovery attempt %d/%d timed out: %s; "
+                    "waiting for %.3f s of quiet before retry",
+                    self._state.declared.model,
+                    attempt,
+                    limit,
+                    error,
+                    quiet_s,
+                )
+                runner.wait_for_recovery_quiet(quiet_s)
 
     def _reject_failed_initialization(self, error: HandError) -> None:
         """Close every admission gate and discard a partial baseline."""
@@ -964,8 +1039,10 @@ class DeviceActor:
     def _auto_recovery_due(self) -> bool:
         with self._control_lock:
             due = self._recovery.due_at_s
+            performing = self._performing_recovery
         return (
             self._config.auto_reconnect
+            and not performing
             and due is not None
             and due <= self._clock.monotonic()
         )
@@ -974,10 +1051,13 @@ class DeviceActor:
         if not self._config.auto_reconnect:
             return None
         with self._control_lock:
-            return self._recovery.due_at_s
+            return None if self._performing_recovery else self._recovery.due_at_s
 
     def _make_runner(
-        self, *, on_stage_start: Callable[[float], None] | None = None
+        self,
+        *,
+        on_stage_start: Callable[[float], None] | None = None,
+        execution_deadline_at_s: float | None = None,
     ) -> TransactionRunner:
         return TransactionRunner(
             binding=self._binding,
@@ -997,6 +1077,7 @@ class DeviceActor:
             dispatch_guard=self._dispatch_guard,
             on_stage_start=on_stage_start,
             default_response_timeout_s=self._config.transaction_timeout_s,
+            execution_deadline_at_s=execution_deadline_at_s,
         )
 
     def _wait_for_work(self) -> None:

@@ -338,15 +338,24 @@ class DeviceRuntime:
     def recover(self, timeout: float) -> None:
         """Recover safely without retaining or replaying prior commands."""
 
-        with self._operation_lock:
+        deadline = self._clock.monotonic() + timeout
+        if not self._operation_lock.acquire(timeout=timeout):
+            raise TimeoutError("recover timed out waiting for lifecycle admission")
+        try:
             if not self._opened or not self._actor.alive:
                 raise ClosedError(
                     "recover requires an open device",
                     operation="recover",
                     model=self._state.declared.model,
                 )
-            ticket = self._actor.request_recovery()
-        self._wait_ticket(ticket, timeout, "recover")
+            if self._clock.monotonic() >= deadline:
+                raise TimeoutError("recover timed out before preparation")
+            ticket = self._actor.request_recovery(preparation_deadline_s=deadline)
+        finally:
+            self._operation_lock.release()
+        self._wait_ticket(
+            ticket, max(0.0, deadline - self._clock.monotonic()), "recover"
+        )
 
     def get_capabilities(self) -> DeviceCapabilities:
         """Return declared or verified capabilities without I/O."""
