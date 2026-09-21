@@ -1,5 +1,6 @@
 """L20 per-finger classic CAN object layouts."""
 
+from ...api.readings import L20FaultStatus
 from ...capabilities.types import CommandSemantic, TelemetrySemantic
 from ..common.classic_layout import ClassicFrameLayout, ClassicObjectLayout
 
@@ -10,6 +11,11 @@ _SLOTS = (
     (10, None, 11, None, None, 12),
     (13, None, 14, None, None, 15),
 )
+
+
+def decode_fault_statuses(raw: tuple[int, ...]) -> tuple[L20FaultStatus, ...]:
+    """Decode each effective joint using the L20 fault table."""
+    return tuple(L20FaultStatus(value) for value in raw)
 
 
 def _layout(first_opcode: int) -> ClassicObjectLayout:

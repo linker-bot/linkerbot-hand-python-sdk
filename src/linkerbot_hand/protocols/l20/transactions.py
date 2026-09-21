@@ -14,6 +14,7 @@ from .codec import (
     COMMAND_LAYOUTS,
     CONFIG_TELEMETRY,
     TELEMETRY_LAYOUTS,
+    decode_fault_statuses,
 )
 from .identity import l20_identity_transaction
 
@@ -30,6 +31,7 @@ class L20ProtocolBackend(ClassicMultiAxisBackend):
             baseline=BASELINE_SEMANTICS,
             operation_payloads={"clear_faults": CLEAR_FAULT_PAYLOADS},
             config_telemetry=CONFIG_TELEMETRY,
+            decode_fault_statuses=decode_fault_statuses,
             firmware_optional_reads=(
                 TelemetrySemantic.MEASURED_SPEEDS,
                 TelemetrySemantic.TEMPERATURES,

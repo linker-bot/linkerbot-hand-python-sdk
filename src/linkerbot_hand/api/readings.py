@@ -414,11 +414,93 @@ class L6FaultStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class L20FaultStatus:
+    """L20 per-joint fault flags alongside the exact 0x59..0x5D byte.
+
+    ``soft_rotor_lock`` can occur while grasping and clears after release;
+    it is distinct from motor stall and motor rotor lock. All eight bits are
+    defined by the protocol, including bit 7 added in protocol V1.0.1.
+    """
+
+    raw: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("L20 fault raw must be an unsigned byte")
+
+    @property
+    def motor_communication_abnormal(self) -> bool:
+        return bool(self.raw & 0x80)
+
+    @property
+    def soft_rotor_lock(self) -> bool:
+        return bool(self.raw & 0x40)
+
+    @property
+    def over_temperature(self) -> bool:
+        return bool(self.raw & 0x20)
+
+    @property
+    def motor_self_test_abnormal(self) -> bool:
+        return bool(self.raw & 0x10)
+
+    @property
+    def voltage_abnormal(self) -> bool:
+        return bool(self.raw & 0x08)
+
+    @property
+    def motor_stall(self) -> bool:
+        return bool(self.raw & 0x04)
+
+    @property
+    def over_current(self) -> bool:
+        return bool(self.raw & 0x02)
+
+    @property
+    def motor_rotor_lock(self) -> bool:
+        return bool(self.raw & 0x01)
+
+    @property
+    def reserved_bits(self) -> int:
+        """All bits in the documented L20 fault byte have defined meanings."""
+        return 0
+
+    @property
+    def descriptions(self) -> tuple[str, ...]:
+        """Explain active flags without treating a soft lock as a clear request."""
+        return tuple(
+            description
+            for active, description in (
+                (self.motor_communication_abnormal, "Motor communication abnormal"),
+                (
+                    self.soft_rotor_lock,
+                    (
+                        "Soft rotor lock (may occur while grasping; "
+                        "clears automatically after release)"
+                    ),
+                ),
+                (self.over_temperature, "Overtemperature"),
+                (self.motor_self_test_abnormal, "Motor self-test abnormal"),
+                (self.voltage_abnormal, "Motor voltage abnormal"),
+                (self.motor_stall, "Motor stall"),
+                (self.over_current, "Overcurrent"),
+                (self.motor_rotor_lock, "Motor rotor lock"),
+            )
+            if active
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class FaultSample(_RawVectorSample):
     """Device fault bytes plus optional protocol-specific decoded statuses."""
 
     statuses: tuple[
-        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus | O6FaultStatus, ...
+        JointFaultStatus
+        | L20LiteFaultStatus
+        | L6FaultStatus
+        | O6FaultStatus
+        | L20FaultStatus,
+        ...,
     ] = ()
 
     def __post_init__(self) -> None:
@@ -428,7 +510,13 @@ class FaultSample(_RawVectorSample):
         if not isinstance(self.statuses, tuple) or any(
             not isinstance(
                 value,
-                (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus, O6FaultStatus),
+                (
+                    JointFaultStatus,
+                    L20LiteFaultStatus,
+                    L6FaultStatus,
+                    O6FaultStatus,
+                    L20FaultStatus,
+                ),
             )
             for value in self.statuses
         ):
@@ -907,6 +995,7 @@ __all__ = [
     "ForceSample",
     "JointFaultStatus",
     "L6FaultStatus",
+    "L20FaultStatus",
     "L20LiteFaultStatus",
     "MeasuredSpeedSample",
     "MotionTimeSample",

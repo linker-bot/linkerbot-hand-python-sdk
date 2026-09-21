@@ -8,7 +8,12 @@ from linkerbot_transport import CANRouteKey
 
 from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
-from ...api.readings import JointFaultStatus, L20LiteFaultStatus, RawNumber
+from ...api.readings import (
+    JointFaultStatus,
+    L20FaultStatus,
+    L20LiteFaultStatus,
+    RawNumber,
+)
 from ...capabilities.types import (
     CommandCapability,
     CommandSemantic,
@@ -39,7 +44,8 @@ class ClassicMultiAxisBackend:
         firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
         request_interval_s: float = 0.0005,
         decode_fault_statuses: Callable[
-            [tuple[int, ...]], tuple[JointFaultStatus | L20LiteFaultStatus, ...]
+            [tuple[int, ...]],
+            tuple[JointFaultStatus | L20LiteFaultStatus | L20FaultStatus, ...],
         ]
         | None = None,
     ) -> None:

@@ -13,6 +13,7 @@ from ..api.errors import ValidationError
 from ..api.readings import (
     JointFaultStatus,
     L6FaultStatus,
+    L20FaultStatus,
     L20LiteFaultStatus,
     O6FaultStatus,
     RawNumber,
@@ -52,7 +53,12 @@ class SamplePayload:
     tactile: tuple[TactileMatrix, ...] = ()
     sensors: tuple[TactileSensorSample, ...] = ()
     fault_statuses: tuple[
-        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus | O6FaultStatus, ...
+        JointFaultStatus
+        | L20LiteFaultStatus
+        | L6FaultStatus
+        | O6FaultStatus
+        | L20FaultStatus,
+        ...,
     ] = ()
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
     within_declared_range: bool = True
@@ -78,7 +84,13 @@ class SamplePayload:
         if not isinstance(self.fault_statuses, tuple) or any(
             not isinstance(
                 value,
-                (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus, O6FaultStatus),
+                (
+                    JointFaultStatus,
+                    L20LiteFaultStatus,
+                    L6FaultStatus,
+                    O6FaultStatus,
+                    L20FaultStatus,
+                ),
             )
             for value in self.fault_statuses
         ):
