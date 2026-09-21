@@ -2,16 +2,19 @@
 
 from collections.abc import Iterator
 
+from ...api.commands import AckSupport
 from ...api.enums import (
     Confidence,
     HandSide,
     JointMotionType,
+    ReadMode,
     SampleProjection,
     TransportKind,
 )
 from ..types import (
     CommandSemantic,
     DeviceCapabilities,
+    NumericRange,
     OperationCapabilities,
     TelemetryCapability,
     TelemetrySemantic,
@@ -66,6 +69,11 @@ _JOINT_SPECS = (
     ),
 )
 _FINGERS = ("thumb", "index", "middle", "ring", "pinky")
+_ACCELERATION_RANGE = NumericRange(0, 254, integer_only=True, step=1)
+_ACCELERATION_NOTE = (
+    "0x87/0x88: raw acceleration setting; physical scale unverified; "
+    "only complete write echoes are available, no active query"
+)
 
 
 def _force_scalar_capabilities() -> Iterator[TelemetryCapability]:
@@ -170,6 +178,16 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 unit_confidence=Confidence.UNKNOWN,
             ),
             command(
+                CommandSemantic.ACCELERATIONS,
+                names,
+                _ACCELERATION_RANGE,
+                "u8",
+                raw_unit="count",
+                raw_scale_note=_ACCELERATION_NOTE,
+                unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
+            ),
+            command(
                 CommandSemantic.CURRENT_LIMITS,
                 names,
                 U8_RANGE,
@@ -181,6 +199,22 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         ),
         telemetry=(
             *stall_telemetry(stall),
+            telemetry(
+                TelemetrySemantic.CONFIGURED_ACCELERATIONS,
+                names,
+                "u8",
+                shape=(10,),
+                raw_range=_ACCELERATION_RANGE,
+                raw_unit="count",
+                raw_scale_note=_ACCELERATION_NOTE,
+                unit_confidence=Confidence.UNKNOWN,
+                read_mode=ReadMode.COMMAND_RESPONSE,
+                device_queried=False,
+                device_measured=False,
+                recommended_hz=0,
+                stale_after_s=3,
+                estimated_transaction_s=0,
+            ),
             angle_telemetry(
                 joints,
                 "u8",

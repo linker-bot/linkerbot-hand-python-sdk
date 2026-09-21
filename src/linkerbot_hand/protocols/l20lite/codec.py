@@ -29,6 +29,10 @@ SPEED_LAYOUT = _layout(
     (0x05, (0, 1, 2, 3, 4)),
     (0x06, (5, 6, 7, 8, 9)),
 )
+ACCELERATION_LAYOUT = _layout(
+    (0x87, (0, 1, 2, 3, 4)),
+    (0x88, (5, 6, 7, 8, 9)),
+)
 TEMPERATURE_LAYOUT = _layout(
     (0x33, (0, 1, 2, 3, 4)),
     (0x34, (5, 6, 7, 8, 9)),
@@ -86,6 +90,7 @@ BASELINE_SEMANTICS = (
 CONFIG_TELEMETRY: tuple[TelemetrySemantic, ...] = ()
 
 __all__ = [
+    "ACCELERATION_LAYOUT",
     "BASELINE_SEMANTICS",
     "COMMAND_LAYOUTS",
     "CONFIG_TELEMETRY",

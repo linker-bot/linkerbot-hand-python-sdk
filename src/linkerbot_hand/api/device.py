@@ -158,7 +158,11 @@ class HandDevice(_DeviceCore):
         self,
         timeout: float,
     ) -> ConfiguredAccelerationSample:
-        """Actively read configured-acceleration protocol values."""
+        """Read configured acceleration, or confirmed write echoes on L20Lite.
+
+        L20Lite has no active query: this returns the latest complete echo from
+        this connection, raising UnsupportedOperationError until one exists.
+        """
 
         return self._read(
             TelemetrySemantic.CONFIGURED_ACCELERATIONS,

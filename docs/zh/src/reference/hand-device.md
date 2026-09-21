@@ -143,7 +143,7 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 | `get_angles(timeout)` | `AngleSample` |
 | `get_speeds(timeout)` | `MeasuredSpeedSample` |
 | `get_configured_speeds(timeout)` | `ConfiguredSpeedSample` |
-| `get_configured_accelerations(timeout)` | `ConfiguredAccelerationSample` |
+| `get_configured_accelerations(timeout)` | `ConfiguredAccelerationSample`；L20Lite 仅读取完整确认的写回显缓存，无主动查询 |
 | `get_current_limits(timeout)` | `CurrentLimitSample` |
 | `get_torques_limits(timeout)` | `TorqueLimitSample` |
 | `get_torques(timeout)` | `TorqueSample`；L6 为 `0x03` 力矩出力/模式原值，O30 为实测转矩字段；是否声明实测见 capability 的 `device_measured` |

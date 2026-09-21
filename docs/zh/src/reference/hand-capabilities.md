@@ -55,7 +55,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 | --- | --- | --- | ---: | --- | --- | --- |
 | L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, torques, position_kp, position_kd, torque_kd, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, torques, position_kp, position_kd, torque_kd, force, temperatures, currents, faults（位解析）, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults（位解析）, 3 项 stall 配置 | 读写 stall, save_parameters |
-| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, current_limits, 3 项 stall 配置 | angles, measured_speeds, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
+| L20Lite | 必填 | CAN 1M | 10 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, measured_speeds, configured_accelerations（写回显缓存）, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, current_limits | angles, measured_speeds, currents, force, temperatures, faults | clear_faults |
 | O20 | 必填 | CAN FD 1M/5M | 16 | angles, speeds, current_limits | angles, measured/configured_speeds, current_limits, currents, force, temperatures, faults | clear_faults |
 | L30 | 禁止 | CAN FD 1M/5M | 17 | angles, speeds, current_limits | angles, measured/configured_speeds, currents, current_limits, force, temperatures, faults | enable, disable, calibrate |
@@ -107,6 +107,10 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
 - O20、L30、O30 提供独立 `measured_speeds`。
 - L20Lite、L20 的速度查询为 `measured_speeds`，电流查询为 `currents`，均返回实时值。
   `get_configured_speeds()` 和 `get_current_limits()` 不支持，不能用实时值恢复设定值。
+
+L20Lite 的加速度 `87/88` 仅支持设置与回显，范围 0..254 count。
+`get_configured_accelerations()` 返回本次连接已确认的完整回显缓存；能力为
+`COMMAND_RESPONSE`、`device_queried=False`，不主动查询或轮询，不表示实测加速度。
 
 运行时会在 health 中报告 requested/achieved Hz、missed deadlines 和 timeout。推荐值不是
 实机稳定上限；上限必须在相同工作量和总线配置下测试。

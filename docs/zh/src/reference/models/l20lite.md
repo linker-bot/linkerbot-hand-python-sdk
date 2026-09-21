@@ -42,6 +42,8 @@
 | `set_angles(values)` | `01` 六值 + `04` 四值 | `u8`，0..255 count；写回复为当前角度，来源 `DEVICE_COMMAND_FEEDBACK`；`returns_current_state=True`；`DISPATCHED` 不等于机械到位 |
 | `set_percent_angles(values)` | 十维 0..100 固定映射到上述原值 | 无 LUT；0%=raw 0，100%=raw 255。侧摆/旋转轴方向查 `percent_mapping`，不要把全部 255 当作通用张开姿态 |
 | `set_speeds(values)` | `05/06`，各五值 | 0..255 count，物理比例未知；SDK 终态 `DISPATCHED`，不验证写回显，不发布为配置读取值 |
+| `set_accelerations(values)` | `87/88`，各五值、DLC=6 | 十个 0..254 count；两帧均准确回显才 `ACKNOWLEDGED`，物理比例未知 |
+| `get_configured_accelerations(timeout)` | 不发 CAN 请求 | `ConfiguredAccelerationSample`；本次连接内最近完整确认的写回显，来源 `DEVICE_CONFIG_RESPONSE`，不是实时加速度 |
 | `set_current_limits(values)` | `02/03`，各五值 | 电流限制原始 count，比例未知；`DISPATCHED` |
 | `get_angles(timeout)` | 单字节 `01/04` | 十个原始角度 count；来源 `DEVICE_RESPONSE` |
 | `get_speeds(timeout)` | 单字节 `05/06` | 十个实时速度原值；不是速度设定回读，比例未知 |
@@ -64,7 +66,7 @@
 百分比投影，但 `raw` 仍是设备原值；无已确认物理映射时 `physical_rad` 为 `None`。
 
 本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、`get_current_limits()`、转矩读写、
-加速度、限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
+限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
 L20Lite 没有清除错误码命令，`35/36` 仅用于查询。SDK 不发送猜测的清错帧。
 电流查询使用 `PollingPlan(current_hz=...)`，样本在 `snapshot.currents`；
@@ -82,6 +84,39 @@ faults = hand.get_faults(timeout=1.0)
 for joint, status in zip(hand.get_capabilities().joints, faults.statuses):
     print(joint.name, hex(status.raw), status.descriptions)
 ```
+
+## 加速度配置
+
+`set_accelerations(values)` 接收按 `joint_names` 排列的十个整数，原始范围为 0..254。
+`87 A1 A2 A3 A4 A5` 设置前五关节，`88 A6 A7 A8 A9 A10` 设置后五关节，帧间隔
+至少 1 ms；没有 GROUP 字节。SDK 保留原值，不归一化、不换算为 °/s²，也不将 O6
+的零值特殊语义套用于 L20Lite。单位为 `count`，物理比例标记为 `UNKNOWN`。
+
+```python
+from linkerbot_hand import CommandStage
+
+handle = hand.set_accelerations([16] * 10)
+if handle.wait(timeout=1.0) is CommandStage.ACKNOWLEDGED:
+    sample = hand.get_configured_accelerations(timeout=1.0)
+    print(sample.raw)  # 十关节已确认的设置回显
+```
+
+加速度使用有界 FIFO，连续配置不会被新值覆盖。仅两组回显完整、长度正确且逐值与
+本次写入一致时才更新 `snapshot.configured_accelerations`。缺帧、长度错误、冲突重复帧或
+数值不一致使命令失败，保留上次完整样本；设备可能已应用其中一组，失败不表示设备
+参数未变化，旧样本也不能证明当前全部配置。无隐式重试、回滚或持久保存。
+
+协议只明确设置与回显，SDK 不发送裸 `87` / `88` 查询，不加入基线或周期轮询。
+能力中 `read_mode=COMMAND_RESPONSE`、`device_queried=False`、`device_measured=False`；
+getter 只返回本次连接内最近确认的写回显，可能随时间变旧。尚未获得完整回显时报告
+`UnsupportedOperationError`；恢复连接会清空缓存且不会重放设置。无法据此读取或恢复
+连接前的未知配置。
+
+2026-09-21 在 can0 的左手 `LHT10-07-0-L-B-1-A`、固件 4.6.10 上完成原始帧和 SDK
+对照：三次十关节设置共六帧准确回显，20 次 getter/快照读取未增加 CAN 帧，重连清空
+缓存；未发送运动指令，前后角度相同、故障均为零。测试最后写入十个原值 16，未保存
+Flash，也未声称恢复未知初值。0/254 边界由模拟测试覆盖，实机只验证回显契约，未验证
+物理加速度或其他固件；详见[固件支持记录](./l20-family-firmware-support.md)。
 
 ## 堵转配置
 
@@ -152,7 +187,6 @@ SDK 未发布残缺矩阵，独立原始抓包同样缺行；尚不能将根因�
 | 对象 | 当前证据与边界 |
 | --- | --- |
 | `28/29/30/31/32` 单指四类传感数据 | 同一数据的另一种查询方式；本轮只采用 `20..23` 类别查询，不开放或隐式补发单指查询 |
-| `87/88` 加速度 | 资料列出 5+5 写入与回显，0..254；未定义可靠的原配置读取/恢复，本次不写入 |
 | `C5/C6/C7` 堵转配置 | 已按组实现写入和严格回显确认；主动查询和实机恢复验证仍未提供 |
 | `C3` 地址、`CC` 回复开关、`CE` 出厂恢复、`CF` 保存 | 会改变路由、通信行为或持久配置；未执行、未新增普通操作接口 |
 | `B6` 手掌矩阵 | 资料标为保留，无明确布局 |

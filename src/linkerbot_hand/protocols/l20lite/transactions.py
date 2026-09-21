@@ -9,6 +9,7 @@ from ..base import ProtocolTransaction
 from ..common.classic_can import classic_route
 from ..common.classic_multi_axis import ClassicMultiAxisBackend
 from ..common.tactile import response_gated_tactile_transaction
+from .acceleration import acceleration_transaction
 from .codec import (
     BASELINE_SEMANTICS,
     COMMAND_LAYOUTS,
@@ -50,7 +51,9 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
         values: tuple[RawNumber, ...],
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Dispatch grouped stall settings through exact write echoes."""
+        """Confirm acceleration and stall settings through complete write echoes."""
+        if semantic is CommandSemantic.ACCELERATIONS:
+            return acceleration_transaction(values, capabilities)
         if semantic in STALL_COMMANDS:
             return stall_transaction(semantic, values, capabilities)
         return super().command_transaction(semantic, values, capabilities)
