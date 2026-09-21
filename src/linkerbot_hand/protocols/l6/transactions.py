@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ...api.enums import HandSide
 from ...api.readings import RawNumber
 from ...capabilities.types import (
@@ -22,6 +24,7 @@ from .codec import (
     COMMAND_OPCODES,
     CONFIG_TELEMETRY,
     TELEMETRY_OPCODES,
+    decode_fault_statuses,
 )
 from .identity import l6_identity_transaction
 from .management import limit_compensation_transaction
@@ -40,7 +43,12 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
             baseline=BASELINE_SEMANTICS,
             operation_payloads={"clear_faults": CLEAR_FAULTS_PAYLOAD},
             config_telemetry=CONFIG_TELEMETRY,
+            decode_fault_statuses=decode_fault_statuses,
             firmware_optional_reads=(
+                TelemetrySemantic.TORQUES,
+                TelemetrySemantic.POSITION_KP,
+                TelemetrySemantic.POSITION_KD,
+                TelemetrySemantic.TORQUE_KD,
                 TelemetrySemantic.TEMPERATURES,
                 TelemetrySemantic.CURRENTS,
                 TelemetrySemantic.LIMIT_COMPENSATIONS,
@@ -76,6 +84,10 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
         # second copy here is what let the codec table drift without any test
         # noticing, and L6 and O6 assign 0xC5/0xC6 to opposite semantics.
         echoed = {
+            CommandSemantic.TORQUES: (TelemetrySemantic.TORQUES, False),
+            CommandSemantic.POSITION_KP: (TelemetrySemantic.POSITION_KP, False),
+            CommandSemantic.POSITION_KD: (TelemetrySemantic.POSITION_KD, False),
+            CommandSemantic.TORQUE_KD: (TelemetrySemantic.TORQUE_KD, False),
             CommandSemantic.SPEEDS: (
                 TelemetrySemantic.CONFIGURED_SPEEDS,
                 False,
@@ -90,16 +102,16 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
             ),
             CommandSemantic.STALL_THRESHOLDS: (
                 TelemetrySemantic.STALL_THRESHOLDS,
-                True,
+                False,
             ),
             CommandSemantic.STALL_HOLD_CURRENTS: (
                 TelemetrySemantic.STALL_HOLD_CURRENTS,
-                True,
+                False,
             ),
         }.get(semantic)
         if echoed is not None:
             telemetry_semantic, require_exact_echo = echoed
-            return configuration_transaction(
+            transaction = configuration_transaction(
                 semantic,
                 telemetry_semantic,
                 COMMAND_OPCODES[semantic],
@@ -107,6 +119,19 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
                 capabilities,
                 require_exact_echo=require_exact_echo,
             )
+            if semantic is CommandSemantic.TORQUES:
+                # Do not infer the device mode from a prior ACK: V2.4.5 replies
+                # with the previous settings. Any zero may return a joint to
+                # position mode, including mixed-mode vectors. Guard both sides
+                # of the transition without gating on a firmware version.
+                settle_s = 0.15 if 0 in values else 0.02
+                transaction = replace(
+                    transaction,
+                    pre_dispatch_delay_s=0.02,
+                    post_dispatch_delay_s=settle_s,
+                    estimated_duration_s=0.02 + settle_s + 0.005,
+                )
+            return transaction
         return super().command_transaction(semantic, values, capabilities)
 
     def operation_transaction(

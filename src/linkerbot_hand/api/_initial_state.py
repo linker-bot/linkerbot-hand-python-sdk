@@ -32,8 +32,11 @@ from .readings import (
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
+    PositionKdSample,
+    PositionKpSample,
     SampleMeta,
     TemperatureSample,
+    TorqueKdSample,
     TorqueLimitSample,
     TorqueSample,
     VoltageSample,
@@ -89,6 +92,21 @@ def make_initial_snapshot(capabilities: DeviceCapabilities) -> HandSnapshot:
             capabilities,
             TelemetrySemantic.CURRENT_LIMITS,
             CurrentLimitSample,
+        ),
+        position_kp=_unavailable_vector(
+            capabilities,
+            TelemetrySemantic.POSITION_KP,
+            PositionKpSample,
+        ),
+        position_kd=_unavailable_vector(
+            capabilities,
+            TelemetrySemantic.POSITION_KD,
+            PositionKdSample,
+        ),
+        torque_kd=_unavailable_vector(
+            capabilities,
+            TelemetrySemantic.TORQUE_KD,
+            TorqueKdSample,
         ),
         torques_limits=_unavailable_vector(
             capabilities,

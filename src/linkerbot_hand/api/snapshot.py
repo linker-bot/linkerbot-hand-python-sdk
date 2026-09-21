@@ -17,8 +17,11 @@ from .readings import (
     ForceSample,
     MeasuredSpeedSample,
     MotionTimeSample,
+    PositionKdSample,
+    PositionKpSample,
     RawNumber,
     TemperatureSample,
+    TorqueKdSample,
     TorqueLimitSample,
     TorqueSample,
     VoltageSample,
@@ -92,6 +95,9 @@ class HandSnapshot:
     configured_accelerations: ConfiguredAccelerationSample | None = None
     currents: CurrentSample | None = None
     current_limits: CurrentLimitSample | None = None
+    position_kp: PositionKpSample | None = None
+    position_kd: PositionKdSample | None = None
+    torque_kd: TorqueKdSample | None = None
     torques_limits: TorqueLimitSample | None = None
     torques: TorqueSample | None = None
     temperatures: TemperatureSample | None = None

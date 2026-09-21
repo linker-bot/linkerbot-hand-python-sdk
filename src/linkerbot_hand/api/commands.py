@@ -34,6 +34,7 @@ class CommandFamily(str, Enum):
     SPEED_SETTING = "speed_setting"
     ACCELERATION_SETTING = "acceleration_setting"
     CURRENT_LIMIT = "current_limit"
+    CONTROL_GAIN = "control_gain"
     TORQUE_LIMIT = "torque_limit"
     TORQUE_TARGET = "torque_target"
     MOTION_TIME_SETTING = "motion_time_setting"

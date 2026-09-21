@@ -32,6 +32,57 @@ from ._common import (
 _JOINT_NAMES = ("thumb_flex", "thumb_abd", "index", "middle", "ring", "pinky")
 _FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 _NONZERO_U8_RANGE = NumericRange(1, 255, integer_only=True, step=1)
+_POSITION_KP_RANGE = NumericRange(0, 200, integer_only=True, step=1)
+_CONTROL_FIELDS = (
+    (
+        CommandSemantic.TORQUES,
+        TelemetrySemantic.TORQUES,
+        U8_RANGE,
+        (
+            "0 selects position mode per joint; 1..255 selects torque-mode "
+            "output. Documented output range 0..2000 has no stated unit or "
+            "conversion formula; measured physical torque is unverified. "
+            "V2.4.5 queries track the output/mode setting; write replies may "
+            "contain the previous value. Position-to-torque settling: 20 ms; "
+            "torque-to-position: 150 ms. Independent of 0x02 current limits "
+            "and 0x36 measured current"
+        ),
+        Confidence.UNKNOWN,
+    ),
+    (
+        CommandSemantic.POSITION_KP,
+        TelemetrySemantic.POSITION_KP,
+        _POSITION_KP_RANGE,
+        (
+            "position mode only; actual Kp = raw * 10; default raw 50 (Kp 500). "
+            "SDK writes 0..200 to respect the stated Kp range 0..2000, despite "
+            "the conflicting generic byte range 0..255"
+        ),
+        Confidence.CONFLICTING,
+    ),
+    (
+        CommandSemantic.POSITION_KD,
+        TelemetrySemantic.POSITION_KD,
+        U8_RANGE,
+        (
+            "position mode only; default 21; protocol recommends at most 40 "
+            "(not a hard limit); no further scale or physical unit stated. "
+            "Overview permits 0..255 whereas per-byte text says 1..255"
+        ),
+        Confidence.CONFLICTING,
+    ),
+    (
+        CommandSemantic.TORQUE_KD,
+        TelemetrySemantic.TORQUE_KD,
+        U8_RANGE,
+        (
+            "torque mode only; default 1; no further scale or "
+            "physical unit stated. Overview permits 0..255 whereas per-byte "
+            "text says 1..255"
+        ),
+        Confidence.CONFLICTING,
+    ),
+)
 
 
 def declared_capabilities(side: HandSide) -> DeviceCapabilities:
@@ -105,6 +156,19 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
         joints=joints,
         commands=(
             angle_command(joints, "u8", returns_current_state=True),
+            *(
+                command(
+                    semantic,
+                    _JOINT_NAMES,
+                    raw_range,
+                    "u8",
+                    raw_unit="count",
+                    raw_scale_note=note,
+                    unit_confidence=confidence,
+                    ack_support=AckSupport.SUPPORTED,
+                )
+                for semantic, _, raw_range, note, confidence in _CONTROL_FIELDS
+            ),
             command(
                 CommandSemantic.SPEEDS,
                 _JOINT_NAMES,
@@ -181,6 +245,23 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
             ),
         ),
         telemetry=(
+            *(
+                telemetry(
+                    semantic,
+                    _JOINT_NAMES,
+                    "u8",
+                    shape=(6,),
+                    raw_range=raw_range,
+                    raw_unit="count",
+                    raw_scale_note=note,
+                    unit_confidence=confidence,
+                    recommended_hz=1,
+                    stale_after_s=3,
+                    estimated_transaction_s=0.005,
+                    device_measured=False,
+                )
+                for _, semantic, raw_range, note, confidence in _CONTROL_FIELDS
+            ),
             angle_telemetry(
                 joints,
                 "u8",
@@ -267,6 +348,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 TelemetrySemantic.FAULTS,
                 _JOINT_NAMES,
                 "u8_bitmask",
+                decoded_statuses=True,
                 shape=(6,),
                 raw_range=U8_RANGE,
                 raw_unit=None,

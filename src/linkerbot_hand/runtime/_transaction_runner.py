@@ -28,6 +28,13 @@ class TransactionSuperseded(Exception):
     """Internal signal that no frame in a replaceable batch was sent."""
 
 
+@dataclass(slots=True)
+class DispatchGuard:
+    """Device settling deadline retained when its connection runner is replaced."""
+
+    not_before_s: float = 0.0
+
+
 @dataclass(frozen=True, slots=True)
 class TransactionOutcome:
     """Decoded result and publications from one complete transaction."""
@@ -94,6 +101,7 @@ class TransactionRunner:
         report_error: Callable[[BaseException], None],
         snapshot_store: SnapshotStore,
         metrics: RuntimeMetrics,
+        dispatch_guard: DispatchGuard | None = None,
     ) -> None:
         self._binding = binding
         self._backend = backend
@@ -108,6 +116,7 @@ class TransactionRunner:
         self._snapshot_store = snapshot_store
         self._metrics = metrics
         self._quarantined: dict[Hashable, _QuarantinedTransaction] = {}
+        self._dispatch_guard = dispatch_guard or DispatchGuard()
 
     def execute(
         self,
@@ -155,6 +164,15 @@ class TransactionRunner:
             transaction.correlation_key,
             capabilities=capabilities,
             generation=publish_generation,
+        )
+        self._wait_for_dispatch(
+            max(
+                self._dispatch_guard.not_before_s,
+                self._clock.monotonic() + transaction.pre_dispatch_delay_s,
+            ),
+            capabilities=capabilities,
+            generation=publish_generation,
+            deadline_at_s=deadline_at_s,
         )
         started = self._clock.monotonic()
         receipt = self._binding.submit(
@@ -333,6 +351,12 @@ class TransactionRunner:
             if result.outcome is not SendOutcome.DISPATCHED:
                 raise ProtocolError(f"send ended as {result.outcome.value}")
             dispatched_at = result.completed_at_s
+            # Reserve the endpoint even if the ACK later times out or fails to
+            # parse. The device may already have applied a mode-changing write.
+            self._dispatch_guard.not_before_s = max(
+                self._dispatch_guard.not_before_s,
+                dispatched_at + transaction.post_dispatch_delay_s,
+            )
             sent_frames = len(transaction.request_messages)
             self._metrics.sent(timestamp=dispatched_at)
             if on_dispatched is not None:
@@ -559,6 +583,38 @@ class TransactionRunner:
             published.append((payload, sample))
         return tuple(published)
 
+    def _wait_for_dispatch(
+        self,
+        not_before_s: float,
+        *,
+        capabilities: DeviceCapabilities,
+        generation: int | None,
+        deadline_at_s: float | None,
+    ) -> None:
+        """Wait for device settling without blocking close/recovery or RX."""
+
+        while True:
+            self.raise_if_interrupted()
+            self._wake.clear()
+            now = self._clock.monotonic()
+            if deadline_at_s is not None and now >= deadline_at_s:
+                raise TimeoutError("transaction deadline expired before dispatch")
+            remaining = not_before_s - now
+            if remaining <= 0:
+                return
+            inbound = self._next_message()
+            if inbound is not None:
+                self.process_unsolicited(
+                    inbound,
+                    capabilities=capabilities,
+                    generation=generation,
+                )
+                continue
+            if deadline_at_s is not None:
+                remaining = min(remaining, deadline_at_s - now)
+            self.raise_if_interrupted()
+            self._clock.wait(self._wake, remaining)
+
     def _wait_for_quarantine(
         self,
         correlation_key: Hashable,
@@ -658,6 +714,7 @@ def _record_sent_frames(error: BaseException, prior_frames: int) -> None:
 
 
 __all__ = [
+    "DispatchGuard",
     "PendingTransaction",
     "TransactionOutcome",
     "TransactionRunner",

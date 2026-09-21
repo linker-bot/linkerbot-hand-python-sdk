@@ -29,6 +29,7 @@ from ._operation_ticket import OperationTicket
 from ._route_mailbox import RouteMailbox
 from ._runtime_state import RuntimeState
 from ._transaction_runner import (
+    DispatchGuard,
     PendingTransaction,
     TransactionRunner,
     TransactionSuperseded,
@@ -107,6 +108,7 @@ class DeviceActor:
         self._performing_recovery = False
         self._saved_polling_plan: PollingPlan | None = None
         self._next_command_at = 0.0
+        self._dispatch_guard = DispatchGuard()
         self._prefer_transaction = False
         self._prefer_inbound = False
         self._firmware_optional_failures: dict[TelemetrySemantic, int] = {}
@@ -985,6 +987,7 @@ class DeviceActor:
             ),
             snapshot_store=self._snapshot_store,
             metrics=self._metrics,
+            dispatch_guard=self._dispatch_guard,
         )
 
     def _wait_for_work(self) -> None:

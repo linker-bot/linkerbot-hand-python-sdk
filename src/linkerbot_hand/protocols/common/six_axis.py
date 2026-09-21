@@ -8,7 +8,7 @@ from linkerbot_transport import CANRouteKey
 
 from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
-from ...api.readings import RawNumber
+from ...api.readings import L6FaultStatus, RawNumber
 from ...capabilities.types import (
     CommandSemantic,
     DeviceCapabilities,
@@ -38,6 +38,8 @@ class ClassicSixAxisBackend:
         operation_payloads: Mapping[str, bytes] | None = None,
         config_telemetry: tuple[TelemetrySemantic, ...] = (),
         firmware_optional_reads: tuple[TelemetrySemantic, ...] = (),
+        decode_fault_statuses: Callable[[tuple[int, ...]], tuple[L6FaultStatus, ...]]
+        | None = None,
     ) -> None:
         self._route = route
         self._identity_transaction = identity_transaction
@@ -47,6 +49,7 @@ class ClassicSixAxisBackend:
         self._operation_payloads = dict(operation_payloads or {})
         self._config_telemetry = frozenset(config_telemetry)
         self._firmware_optional_reads = frozenset(firmware_optional_reads)
+        self._decode_fault_statuses = decode_fault_statuses
 
     @property
     def endpoint_id(self) -> CANRouteKey:
@@ -182,6 +185,7 @@ class ClassicSixAxisBackend:
                     semantic=semantic,
                     raw=raw,
                     origin=self._response_origin(semantic),
+                    fault_statuses=self._fault_statuses(semantic, raw),
                     within_declared_range=_within_range(raw, telemetry.raw_range),
                 ),
             )
@@ -254,9 +258,17 @@ class ClassicSixAxisBackend:
                         if semantic in self._config_telemetry
                         else DataOrigin.DEVICE_REPORT
                     ),
+                    fault_statuses=self._fault_statuses(semantic, raw),
                     within_declared_range=_within_range(raw, telemetry.raw_range),
                 ),
             )
+        return ()
+
+    def _fault_statuses(
+        self, semantic: TelemetrySemantic, raw: tuple[int, ...]
+    ) -> tuple[L6FaultStatus, ...]:
+        if semantic is TelemetrySemantic.FAULTS and self._decode_fault_statuses:
+            return self._decode_fault_statuses(raw)
         return ()
 
     def _response_origin(self, semantic: TelemetrySemantic) -> DataOrigin:

@@ -33,6 +33,9 @@ _COMMAND_FAMILIES = {
     CommandSemantic.SPEEDS: CommandFamily.SPEED_SETTING,
     CommandSemantic.ACCELERATIONS: CommandFamily.ACCELERATION_SETTING,
     CommandSemantic.CURRENT_LIMITS: CommandFamily.CURRENT_LIMIT,
+    CommandSemantic.POSITION_KP: CommandFamily.CONTROL_GAIN,
+    CommandSemantic.POSITION_KD: CommandFamily.CONTROL_GAIN,
+    CommandSemantic.TORQUE_KD: CommandFamily.CONTROL_GAIN,
     CommandSemantic.TORQUES_LIMITS: CommandFamily.TORQUE_LIMIT,
     CommandSemantic.TORQUES: CommandFamily.TORQUE_TARGET,
     CommandSemantic.MOTION_TIMES: CommandFamily.MOTION_TIME_SETTING,
@@ -47,8 +50,10 @@ _LATEST_FAMILIES = {
     CommandFamily.SPEED_SETTING,
     CommandFamily.CURRENT_LIMIT,
     CommandFamily.TORQUE_LIMIT,
-    CommandFamily.TORQUE_TARGET,
 }
+
+# Torque targets currently belong to L6 0x03 and also switch control modes.
+# Keep them in FIFO: coalescing a zero could discard a return to position mode.
 
 
 def command_family_for(semantic: CommandSemantic) -> CommandFamily:
@@ -272,6 +277,15 @@ class CommandIngress:
         if scheduling_policy_for(family) is not SchedulingPolicy.LATEST:
             raise ValidationError("family does not use latest scheduling")
         with self._lock:
+            candidate = self._latest.get(family)
+            if candidate is not None and any(
+                command.family is CommandFamily.TORQUE_TARGET
+                and command.sequence < candidate.sequence
+                for command in self._fifo
+            ):
+                # Feedback-priority angle dispatch and transport replacement
+                # must not jump over a queued mode transition.
+                return None
             return self._latest.pop(family, None)
 
     def restore_latest(self, command: ScheduledCommand) -> bool:

@@ -239,13 +239,21 @@ print(angles.percent)  # SDK 固定 capability 映射
 print(angles.physical_rad)  # 无可靠物理标定的轴为 None
 ```
 
-速度配置、实测速度、电流上限、实测电流、转矩上限和实时转矩是不同通道。
+速度配置、实测速度、电流上限、实测电流、转矩上限和转矩数据是不同通道。
 电流统一用 `get_currents()` / `set_current_limits()`；支持限制回读的型号提供
 `get_current_limits()`，L20/L20Lite 没有限制回读。O30 另有独立的 `get_torques()` 和
 `set/get_torques_limits()`。数据保留协议原值，单位和比例以 capability 为准，不根据名称换算。
 调用前应检查 `capabilities.command(...)` 和
 `capabilities.telemetry_channel(...)`；不支持的统一方法会抛出
 `UnsupportedOperationError`。
+
+L6 V1.0.2 另提供 `set_torques()` / `get_torques()`（`0x03` 力矩出力及模式），
+以及 `set/get_position_kp()`、`set/get_position_kd()`、`set/get_torque_kd()`。
+`0x03` 每关节写 0 切回位置模式，1..255 切入力矩模式并设置出力；查询值的实测力矩
+语义与物理比例尚未确认，能力标记 `device_measured=False`。`get_currents()` 仍是
+`0x36` 实测电流，`set/get_current_limits()` 仍是 `0x02` 电流上限。
+原值范围、增益比例、模式切换等待和实机响应差异
+见 [L6 接口说明](./docs/zh/src/reference/models/l6.md)；其他型号未声明这些新命令时返回不支持。
 
 ## 命令阶段
 

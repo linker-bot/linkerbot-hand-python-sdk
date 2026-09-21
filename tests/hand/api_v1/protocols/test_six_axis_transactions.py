@@ -379,6 +379,10 @@ def test_l6_firmware_optional_reads_match_the_documented_set() -> None:
 
     assert optional - {TelemetrySemantic.FORCE} == frozenset(
         {
+            TelemetrySemantic.TORQUES,
+            TelemetrySemantic.POSITION_KP,
+            TelemetrySemantic.POSITION_KD,
+            TelemetrySemantic.TORQUE_KD,
             TelemetrySemantic.TEMPERATURES,
             TelemetrySemantic.CURRENTS,
             TelemetrySemantic.LIMIT_COMPENSATIONS,

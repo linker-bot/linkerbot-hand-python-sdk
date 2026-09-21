@@ -31,8 +31,11 @@ from .readings import (
     MeasuredSpeedSample,
     MotionTimeSample,
     NormalForceResultantSample,
+    PositionKdSample,
+    PositionKpSample,
     RawNumber,
     TemperatureSample,
+    TorqueKdSample,
     TorqueLimitSample,
     TorqueSample,
     VoltageSample,
@@ -203,7 +206,13 @@ class HandDevice(_DeviceCore):
         )
 
     def set_torques(self, values: Iterable[RawNumber]) -> CommandHandle:
-        """Submit protocol values only when true torque is declared."""
+        """Submit raw torque output where the model declares torque control.
+
+        L6 0x03: each zero selects position mode; 1..255 selects torque mode
+        and its output. These are protocol counts, not calibrated N*m. Writes
+        use FIFO and mode-settling intervals. Replies may contain the previous
+        value; use get_torques() for a fresh device query.
+        """
 
         return self._submit_raw(
             CommandSemantic.TORQUES,
@@ -212,13 +221,69 @@ class HandDevice(_DeviceCore):
         )
 
     def get_torques(self, timeout: float) -> TorqueSample:
-        """Actively read fields declared to represent true torque."""
+        """Query raw torque values with model-specific measurement semantics.
+
+        L6 reads 0x03 torque output/mode; measured physical torque is unverified.
+        O30 reads MI 0x06 measured torque. Consult the telemetry capability's
+        device_measured and unit metadata before interpreting the raw values.
+        """
 
         return self._read(
             TelemetrySemantic.TORQUES,
             timeout,
             TorqueSample,
             operation="get_torques",
+        )
+
+    def set_position_kp(self, values: Iterable[RawNumber]) -> CommandHandle:
+        """Submit raw position Kp (L6: actual Kp = raw * 10; default raw 50)."""
+
+        return self._submit_raw(
+            CommandSemantic.POSITION_KP, values, operation="set_position_kp"
+        )
+
+    def get_position_kp(self, timeout: float) -> PositionKpSample:
+        """Query raw position Kp without multiplying by its physical scale."""
+
+        return self._read(
+            TelemetrySemantic.POSITION_KP,
+            timeout,
+            PositionKpSample,
+            operation="get_position_kp",
+        )
+
+    def set_position_kd(self, values: Iterable[RawNumber]) -> CommandHandle:
+        """Submit raw position Kd (L6: default 21, recommended at most 40)."""
+
+        return self._submit_raw(
+            CommandSemantic.POSITION_KD, values, operation="set_position_kd"
+        )
+
+    def get_position_kd(self, timeout: float) -> PositionKdSample:
+        """Query raw position-control Kd."""
+
+        return self._read(
+            TelemetrySemantic.POSITION_KD,
+            timeout,
+            PositionKdSample,
+            operation="get_position_kd",
+        )
+
+    def set_torque_kd(self, values: Iterable[RawNumber]) -> CommandHandle:
+        """Submit raw torque-control Kd (L6: default 1, torque mode only)."""
+
+        return self._submit_raw(
+            CommandSemantic.TORQUE_KD, values, operation="set_torque_kd"
+        )
+
+    def get_torque_kd(self, timeout: float) -> TorqueKdSample:
+        """Query raw torque-control Kd."""
+
+        return self._read(
+            TelemetrySemantic.TORQUE_KD,
+            timeout,
+            TorqueKdSample,
+            operation="get_torque_kd",
         )
 
     def get_currents(self, timeout: float) -> CurrentSample:

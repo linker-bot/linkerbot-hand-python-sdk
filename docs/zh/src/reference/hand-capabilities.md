@@ -53,7 +53,7 @@ ROS `on_configure` 建立关节布局；`open()` 读取身份后才得到
 
 | 型号 | side | transport | 关节数 | 可写命令 | 可读/缓存状态 | 可选操作 |
 | --- | --- | --- | ---: | --- | --- | --- |
-| L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, force, temperatures, currents, faults, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
+| L6 | 必填 | CAN 1M | 6 | angles, speeds, current_limits, torques, position_kp, position_kd, torque_kd, 3 项 stall 配置, limit_compensations | angles, configured_speeds, current_limits, torques, position_kp, position_kd, torque_kd, force, temperatures, currents, faults（位解析）, 3 项 stall 配置, limit_compensations | clear_faults, 读写 stall, save_parameters |
 | O6 | 必填 | CAN 1M | 6 | angles, speeds, accelerations, current_limits, 3 项 stall 配置 | angles, configured_speeds, configured_accelerations, current_limits, force, temperatures, faults, 3 项 stall 配置 | 读写 stall, save_parameters |
 | L20Lite | 必填 | CAN 1M | 10 | angles, speeds, current_limits, 3 项 stall 配置 | angles, measured_speeds, currents, force, force_fns, force_fts, force_fds, force_px, temperatures, faults, 3 项 stall 写回显 | 写 stall |
 | L20 | 必填 | CAN 1M | 16 | angles, speeds, current_limits | angles, measured_speeds, currents, force, temperatures, faults | clear_faults |
@@ -124,7 +124,9 @@ L6、O6、L20Lite、L20、O30 当前为 `True`；O20、L30 为 `False`。后者�
 - O30 `0x04` 为 `currents/current_limits`，`0x06` 为 `torques/torques_limits`，
   两个对象独立查询、设置和缓存。
 - O30 提供 `get_torques()`，读取协议转矩字段的原值，物理比例未知，不能当作 N·m。
-  当前七型号均未声明 `set_torques()` 写命令；读取支持不代表写入支持。
+  L6 声明 `set_torques()`（`0x03` 力矩出力及模式）；其他型号没有声明该写命令。
+  L6 的 `get_torques()` 尚未确认实测语义，`device_measured=False`；O30 的独立转矩
+  测量字段为 `True`。读取支持不代表写入支持，命名也不等于物理单位已确认。
 
 `raw_unit` 表示返回数字本身的协议单位。若协议数字是 count，即使资料提供
 “0.732 rpm/count”或近似 mA 比例，SDK 仍返回 count；比例只在

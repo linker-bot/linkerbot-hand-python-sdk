@@ -267,7 +267,7 @@ print(angles.physical_rad)  # None where no physical calibration exists
 ```
 
 Configured speed, measured speed, current limits, measured current, torque limits,
-and measured torque are separate channels. Use `get_currents()` and
+and torque data are separate channels. Use `get_currents()` and
 `set_current_limits()` for current; `get_current_limits()` is available only where
 limit readback is supported (not on L20/L20Lite). O30 also provides independent
 `get_torques()` and `set/get_torques_limits()` methods. Values remain protocol raw;
@@ -275,6 +275,16 @@ units and scale notes come from capabilities, without implicit conversion. Check
 `capabilities.command(...)` and `capabilities.telemetry_channel(...)` before
 using an optional operation. Unsupported methods raise
 `UnsupportedOperationError`.
+
+L6 V1.0.2 also supports `set_torques()` / `get_torques()` for raw `0x03` torque
+output and mode values, plus `set/get_position_kp()`, `set/get_position_kd()` and
+`set/get_torque_kd()`. Each zero selects position mode; 1..255 selects torque mode
+and its output. Physical torque measurement and scale are unverified, so the
+telemetry capability keeps `device_measured=False`. `get_currents()` remains the
+independent `0x36` measured-current channel, and `set/get_current_limits()` uses
+`0x02` current-limit settings. See the [L6 reference](./docs/zh/src/reference/models/l6.md) for
+gain scales, mode-switch timing and device response differences. Other models
+do not advertise these new commands.
 
 ## Command Delivery
 

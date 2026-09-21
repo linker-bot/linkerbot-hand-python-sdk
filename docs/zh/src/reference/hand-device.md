@@ -84,8 +84,10 @@ assert verified.identity.verified
 | `set_percent_speeds(values)` | 仅 profile 明确提供速度百分比映射时支持 |
 | `set_accelerations(values)` | 配置加速度协议值 |
 | `set_current_limits(values)` | 已确认表示电流上限的协议值 |
+| `set_position_kp(values)` / `set_position_kd(values)` | L6 位置控制增益原值；Kp 默认 50、实际为 raw × 10，Kd 默认 21 |
+| `set_torque_kd(values)` | L6 力矩模式的 Kd 原值，默认 1 |
 | `set_torques_limits(values)` | 转矩限制协议原值（O30） |
-| `set_torques(values)` | 仅字段被确认表示真实扭矩时支持 |
+| `set_torques(values)` | L6 `0x03` 力矩出力及模式：每关节 0 切位置模式，1..255 切力矩模式并设置出力；原始值不换算为 mA 或 N·m |
 | `set_motion_times(values)` | 配置运动时间协议值 |
 | `set_stall_detection_times(values)` | 堵转判定时间对象的协议值 |
 | `set_stall_thresholds(values)` | 堵转阈值对象的协议值 |
@@ -96,9 +98,10 @@ assert verified.identity.verified
 长度、有限数、整数约束和协议范围都来自 capability。SDK 不自动 clamp；校验失败直接抛
 `ValidationError`，不会创建 handle。
 
-角度、速度、电流上限、转矩上限和实时转矩各有独立容量为 1 的 latest slot。新目标会
+角度、速度、电流上限和转矩上限各有独立容量为 1 的 latest slot。新目标会
 把同命令族尚未被 transport claim 的旧目标标记为 `SUPERSEDED`。加速度、运动时间、堵转
-配置、限位补偿（`CommandFamily.LIMIT_COMPENSATION`）和离散操作共用有界 FIFO，
+配置、限位补偿（`CommandFamily.LIMIT_COMPENSATION`）、力矩出力/模式
+（`CommandFamily.TORQUE_TARGET`）、控制增益和离散操作共用有界 FIFO，
 容量由 `DeviceConfig.discrete_queue_capacity` 控制。已接纳的 FIFO 配置按顺序处理，
 不会因同类新配置到来而标记为 `SUPERSEDED`；队列满时新提交抛出 `QueueFullError`，
 不创建 handle。
@@ -143,8 +146,10 @@ getter 返回已发送命令形成的缓存样本；`COMMAND_RESPONSE` 返回设
 | `get_configured_accelerations(timeout)` | `ConfiguredAccelerationSample` |
 | `get_current_limits(timeout)` | `CurrentLimitSample` |
 | `get_torques_limits(timeout)` | `TorqueLimitSample` |
-| `get_torques(timeout)` | `TorqueSample` |
+| `get_torques(timeout)` | `TorqueSample`；L6 为 `0x03` 力矩出力/模式原值，O30 为实测转矩字段；是否声明实测见 capability 的 `device_measured` |
 | `get_currents(timeout)` | `CurrentSample` |
+| `get_position_kp(timeout)` / `get_position_kd(timeout)` | `PositionKpSample` / `PositionKdSample`；L6 原始位置控制增益 |
+| `get_torque_kd(timeout)` | `TorqueKdSample`；L6 原始力控增益 |
 | `get_temperatures(timeout)` | `TemperatureSample` |
 | `get_force(*fields, timeout=1.0)` | `ForceSample`，默认可用 fn+fns；小写字段选择、原始值及各字段独立时间戳，见[触觉接口](./force.md) |
 | `get_normal_force_resultant(timeout)` | `NormalForceResultantSample`；当前仅 O30，五指设备 FnS 原值及各自单位 |

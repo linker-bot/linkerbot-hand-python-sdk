@@ -12,6 +12,7 @@ from ..api.enums import DataOrigin
 from ..api.errors import ValidationError
 from ..api.readings import (
     JointFaultStatus,
+    L6FaultStatus,
     L20LiteFaultStatus,
     RawNumber,
     TactileMatrix,
@@ -49,7 +50,9 @@ class SamplePayload:
     raw: tuple[RawNumber, ...] = ()
     tactile: tuple[TactileMatrix, ...] = ()
     sensors: tuple[TactileSensorSample, ...] = ()
-    fault_statuses: tuple[JointFaultStatus | L20LiteFaultStatus, ...] = ()
+    fault_statuses: tuple[
+        JointFaultStatus | L20LiteFaultStatus | L6FaultStatus, ...
+    ] = ()
     origin: DataOrigin = DataOrigin.DEVICE_RESPONSE
     within_declared_range: bool = True
 
@@ -72,7 +75,7 @@ class SamplePayload:
         ):
             raise ValidationError("sensors must contain TactileSensorSample values")
         if not isinstance(self.fault_statuses, tuple) or any(
-            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus))
+            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus))
             for value in self.fault_statuses
         ):
             raise ValidationError("fault_statuses must contain decoded fault statuses")
@@ -165,6 +168,8 @@ class ProtocolTransaction:
     next_transaction_factory: NextTransactionFactory | None = None
     yield_after_response: bool = False
     firmware_optional: bool = False
+    pre_dispatch_delay_s: float = 0.0
+    post_dispatch_delay_s: float = 0.0
 
     def __post_init__(self) -> None:
         _require_hashable(self.key, "transaction key")
@@ -176,6 +181,8 @@ class ProtocolTransaction:
             "estimated_duration_s",
             "request_interval_s",
             "late_response_guard_s",
+            "pre_dispatch_delay_s",
+            "post_dispatch_delay_s",
         ):
             _finite_non_negative(getattr(self, name), name)
         if self.response_consumer is not None and not callable(self.response_consumer):

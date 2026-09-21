@@ -238,7 +238,6 @@ def test_decoded_statuses_matches_the_o30_read_table() -> None:
 @pytest.mark.parametrize(
     ("model", "side"),
     [
-        ("l6", "right"),
         ("o6", "right"),
         ("l20", "right"),
         ("o20", "right"),

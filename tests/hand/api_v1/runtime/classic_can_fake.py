@@ -114,6 +114,7 @@ class ClassicCANDeviceScript:
             return self._tactile_frames(data[0])
         if len(data) > 1 and data[0] in self.readings:
             self.command_payloads.append(data)
+            previous = self.readings[data[0]]
             if self.model == "L20" and data[0] in range(0x59, 0x5E):
                 self.readings[data[0]] = (0,) * 6
             else:
@@ -126,7 +127,7 @@ class ClassicCANDeviceScript:
                 else set(range(0x41, 0x46))
             )
             config_echo_opcodes = (
-                {0x02, 0x05, 0x38, 0xC5, 0xC6, 0xC7}
+                {0x02, 0x03, 0x05, 0x06, 0x07, 0x08, 0x38, 0xC5, 0xC6, 0xC7}
                 if self.model == "L6"
                 else {0x02, 0x05, 0x87, 0xC5, 0xC6, 0xC7}
                 if self.model == "O6"
@@ -138,7 +139,9 @@ class ClassicCANDeviceScript:
                     return ()
                 echoed = self.bad_command_echoes.get(
                     data[0],
-                    self.readings[data[0]],
+                    previous
+                    if self.model == "L6" and data[0] in (0x03, 0x06, 0x07, 0x08)
+                    else self.readings[data[0]],
                 )
                 return (self._frame(bytes((data[0], *echoed))),)
             return ()
@@ -239,6 +242,10 @@ def _default_readings(model: str) -> dict[int, tuple[int, ...]]:
         if model == "L6":
             readings.update(
                 {
+                    0x03: (0,) * 6,
+                    0x06: (50,) * 6,
+                    0x07: (21,) * 6,
+                    0x08: (1,) * 6,
                     0x38: (0, 0, 227, 223, 208, 207),
                     0xC5: (5,) * 6,
                     0xC6: (91,) * 6,

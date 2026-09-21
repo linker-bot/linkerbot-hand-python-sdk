@@ -150,7 +150,7 @@ ROS 不再创建传感器查询 timer，也不维护 `MODEL_SPECS`。
 | 实测电流 | `snapshot.currents.raw` |
 | 电流上限 | `snapshot.current_limits.raw` |
 | 转矩限制 | `snapshot.torques_limits.raw` |
-| 真实扭矩 | `snapshot.torques.raw`，仅 capability 明确支持时存在 |
+| 转矩数据 | `snapshot.torques.raw`；L6 为力矩出力/模式原值，O30 为测量字段，见 capability 的 `device_measured` 与单位说明 |
 | 温度 | `snapshot.temperatures.raw` |
 | 触觉/力 | `snapshot.force.raw / tactile / sensors`，按 `payload_projection` 判断 |
 | 故障 | `snapshot.faults.raw` |

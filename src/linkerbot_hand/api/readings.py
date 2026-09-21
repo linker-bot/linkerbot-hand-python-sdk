@@ -181,6 +181,21 @@ class CurrentSample(_RawVectorSample):
 
 
 @dataclass(frozen=True, slots=True)
+class PositionKpSample(_RawVectorSample):
+    """Raw position-control proportional gains, without applying their scale."""
+
+
+@dataclass(frozen=True, slots=True)
+class PositionKdSample(_RawVectorSample):
+    """Raw position-control derivative gains."""
+
+
+@dataclass(frozen=True, slots=True)
+class TorqueKdSample(_RawVectorSample):
+    """Raw torque-control derivative gains."""
+
+
+@dataclass(frozen=True, slots=True)
 class CurrentLimitSample(_RawVectorSample):
     """Configured current-limit protocol values."""
 
@@ -192,7 +207,7 @@ class TorqueLimitSample(_RawVectorSample):
 
 @dataclass(frozen=True, slots=True)
 class TorqueSample(_RawVectorSample):
-    """Device fields confirmed to represent true torque protocol values."""
+    """Raw torque fields; measurement and units follow the model capability."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,17 +328,81 @@ class L20LiteFaultStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class L6FaultStatus:
+    """L6 V1.0.2 fault byte, including its nonsequential A/C/B phase bits."""
+
+    raw: int
+
+    def __post_init__(self) -> None:
+        if type(self.raw) is not int or not 0 <= self.raw <= 0xFF:
+            raise ValidationError("L6 fault raw must be an unsigned byte")
+
+    @property
+    def mcu_over_temperature(self) -> bool:
+        return bool(self.raw & 0x40)
+
+    @property
+    def motor_over_temperature(self) -> bool:
+        return bool(self.raw & 0x20)
+
+    @property
+    def overload_2(self) -> bool:
+        return bool(self.raw & 0x10)
+
+    @property
+    def overload_1(self) -> bool:
+        return bool(self.raw & 0x08)
+
+    @property
+    def phase_a_over_current(self) -> bool:
+        return bool(self.raw & 0x04)
+
+    @property
+    def phase_c_over_current(self) -> bool:
+        return bool(self.raw & 0x02)
+
+    @property
+    def phase_b_over_current(self) -> bool:
+        return bool(self.raw & 0x01)
+
+    @property
+    def reserved_bits(self) -> int:
+        return self.raw & 0x80
+
+    @property
+    def descriptions(self) -> tuple[str, ...]:
+        """Explain set bits without inventing meanings for the reserved bit."""
+
+        descriptions = tuple(
+            description
+            for active, description in (
+                (self.mcu_over_temperature, "MCU overtemperature"),
+                (self.motor_over_temperature, "Motor overtemperature"),
+                (self.overload_2, "Overload 2"),
+                (self.overload_1, "Overload 1"),
+                (self.phase_a_over_current, "Phase A overcurrent"),
+                (self.phase_c_over_current, "Phase C overcurrent"),
+                (self.phase_b_over_current, "Phase B overcurrent"),
+            )
+            if active
+        )
+        if self.reserved_bits:
+            descriptions += (f"Undefined fault bits: 0x{self.reserved_bits:02X}",)
+        return descriptions
+
+
+@dataclass(frozen=True, slots=True)
 class FaultSample(_RawVectorSample):
     """Device fault bytes plus optional protocol-specific decoded statuses."""
 
-    statuses: tuple[JointFaultStatus | L20LiteFaultStatus, ...] = ()
+    statuses: tuple[JointFaultStatus | L20LiteFaultStatus | L6FaultStatus, ...] = ()
 
     def __post_init__(self) -> None:
         _RawVectorSample.__post_init__(self)
         if any(type(value) is not int for value in self.raw):
             raise ValidationError("fault raw values must be integers")
         if not isinstance(self.statuses, tuple) or any(
-            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus))
+            not isinstance(value, (JointFaultStatus, L20LiteFaultStatus, L6FaultStatus))
             for value in self.statuses
         ):
             raise ValidationError("fault statuses must contain decoded fault statuses")
@@ -800,10 +879,13 @@ __all__ = [
     "ForceFieldSample",
     "ForceSample",
     "JointFaultStatus",
+    "L6FaultStatus",
     "L20LiteFaultStatus",
     "MeasuredSpeedSample",
     "MotionTimeSample",
     "NormalForceResultantSample",
+    "PositionKdSample",
+    "PositionKpSample",
     "RawNumber",
     "SampleMeta",
     "TactileFieldDescriptor",
@@ -813,6 +895,7 @@ __all__ = [
     "TactileSensorSample",
     "TactileValue",
     "TemperatureSample",
+    "TorqueKdSample",
     "TorqueLimitSample",
     "TorqueSample",
     "VoltageSample",
