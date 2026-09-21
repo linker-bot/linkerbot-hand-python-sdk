@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..api.commands import AckSupport, CommandFamily, CommandStage
@@ -101,6 +102,7 @@ class DeviceActor:
             snapshot_store=snapshot_store,
             metrics=metrics,
             clock=clock,
+            identity_timeout_s=config.identity_timeout_s,
         )
         self._control_lock = threading.Lock()
         self._initial_ticket: OperationTicket | None = None
@@ -124,7 +126,9 @@ class DeviceActor:
                 return self._initial_ticket
             self._stop = threading.Event()
             self._mailbox.reset()
-            self._initial_ticket = OperationTicket()
+            self._initial_ticket = OperationTicket(
+                deadline_at_s=self._clock.monotonic() + self._config.shutdown_timeout_s
+            )
             self._recovery = _RecoveryState(
                 delay_s=self._config.reconnect_initial_delay_s
             )
@@ -231,7 +235,7 @@ class DeviceActor:
             return
         try:
             self._mailbox.start()
-            runner = self._make_runner()
+            runner = self._make_runner(on_stage_start=initial.add_stage_budget)
             self._initializer.initialize(
                 runner,
                 recovery=False,
@@ -245,7 +249,8 @@ class DeviceActor:
             self._stop.set()
         else:
             initial.succeed()
-            self._run_main_loop(runner)
+            # Startup budgeting must not remain on the steady-state hot path.
+            self._run_main_loop(self._make_runner())
         finally:
             self._mailbox.stop(
                 deadline_s=self._clock.monotonic() + self._config.shutdown_timeout_s
@@ -971,7 +976,9 @@ class DeviceActor:
         with self._control_lock:
             return self._recovery.due_at_s
 
-    def _make_runner(self) -> TransactionRunner:
+    def _make_runner(
+        self, *, on_stage_start: Callable[[float], None] | None = None
+    ) -> TransactionRunner:
         return TransactionRunner(
             binding=self._binding,
             backend=self._backend,
@@ -988,6 +995,8 @@ class DeviceActor:
             snapshot_store=self._snapshot_store,
             metrics=self._metrics,
             dispatch_guard=self._dispatch_guard,
+            on_stage_start=on_stage_start,
+            default_response_timeout_s=self._config.transaction_timeout_s,
         )
 
     def _wait_for_work(self) -> None:

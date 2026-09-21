@@ -8,6 +8,14 @@
 
 ## 未发布
 
+- `transaction_timeout_s` 默认改为 `None` 以保留各协议原有响应窗口；显式正数现在
+  实际覆盖 baseline、主动读取、轮询和需要回复的命令/操作的每个阶段。身份仍使用独立
+  的 `identity_timeout_s`；不改变发送节奏、无回复命令或迟到响应隔离，不增加重试。
+
+- 修复七型号 `identity_timeout_s` 未作用于实际身份事务的问题：初次连接、恢复、
+  自动重连及主动身份刷新统一按每阶段配置等待，覆盖 L30 静态和 O30 动态后续阶段。
+  `open()` 的外层等待预算随实际初始化阶段累加，保留协议间隔、完整性验证与无重试行为。
+
 - **O6 电流接口语义修正：** `0x02` 查询改由 `get_currents()` 返回 `CurrentSample`，
   同步连接基线、`snapshot.currents`、逐关节 `current_raw` 与 `current_hz` 轮询。
   `set_current_limits()` 继续设置上限，写回复保留为 `current_limits` 配置样本。

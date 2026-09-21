@@ -124,7 +124,7 @@ class DeviceRuntime:
                 self._binding.open()
                 self._opened = True
                 ticket = self._actor.start()
-                self._wait_ticket(ticket, self._open_timeout_s(), "open")
+                self._wait_ticket(ticket, self._config.shutdown_timeout_s, "open")
             except Exception as error:
                 self._cleanup_failed_open()
                 classified = as_hand_error(
@@ -425,7 +425,12 @@ class DeviceRuntime:
     ) -> None:
         deadline = self._clock.monotonic() + timeout_s
         while not ticket.event.is_set():
-            remaining = deadline - self._clock.monotonic()
+            # Only the initial open ticket has a stage-based budget. Recovery
+            # callers retain their independent, fixed waiting deadlines.
+            stage_deadline = ticket.deadline_at_s
+            remaining = (
+                deadline if stage_deadline is None else stage_deadline
+            ) - self._clock.monotonic()
             if remaining <= 0:
                 raise TimeoutError(
                     f"{operation} did not complete before timeout",
@@ -436,14 +441,6 @@ class DeviceRuntime:
             self._clock.wait(ticket.event, remaining)
         if ticket.error is not None:
             raise ticket.error
-
-    def _open_timeout_s(self) -> float:
-        return (
-            self._config.identity_timeout_s
-            + (len(self._state.declared.telemetry) + 1)
-            * self._config.transaction_timeout_s
-            + self._config.shutdown_timeout_s
-        )
 
     def _cleanup_failed_open(self) -> None:
         try:

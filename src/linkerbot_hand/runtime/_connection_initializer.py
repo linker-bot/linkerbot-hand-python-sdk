@@ -31,6 +31,7 @@ class ConnectionInitializer:
         snapshot_store: SnapshotStore,
         metrics: RuntimeMetrics,
         clock: RuntimeClock,
+        identity_timeout_s: float,
     ) -> None:
         self._backend = backend
         self._state = state
@@ -40,6 +41,7 @@ class ConnectionInitializer:
         self._snapshot_store = snapshot_store
         self._metrics = metrics
         self._clock = clock
+        self._identity_timeout_s = identity_timeout_s
 
     def initialize(
         self,
@@ -60,6 +62,7 @@ class ConnectionInitializer:
             publish_generation=None,
             latest_family=None,
             priority=100,
+            response_timeout_s=self._identity_timeout_s,
         )
         identity = identity_outcome.result
         if not isinstance(identity, IdentityResult):
@@ -114,6 +117,7 @@ class ConnectionInitializer:
             publish_generation=None,
             latest_family=None,
             priority=80,
+            response_timeout_s=self._identity_timeout_s,
         )
         identity = outcome.result
         if not isinstance(identity, IdentityResult):

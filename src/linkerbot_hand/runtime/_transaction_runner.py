@@ -66,6 +66,7 @@ class PendingTransaction:
     started_at_s: float
     deadline_at_s: float | None
     priority: int
+    response_timeout_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,8 @@ class TransactionRunner:
         snapshot_store: SnapshotStore,
         metrics: RuntimeMetrics,
         dispatch_guard: DispatchGuard | None = None,
+        on_stage_start: Callable[[float], None] | None = None,
+        default_response_timeout_s: float | None = None,
     ) -> None:
         self._binding = binding
         self._backend = backend
@@ -117,6 +120,8 @@ class TransactionRunner:
         self._metrics = metrics
         self._quarantined: dict[Hashable, _QuarantinedTransaction] = {}
         self._dispatch_guard = dispatch_guard or DispatchGuard()
+        self._on_stage_start = on_stage_start
+        self._default_response_timeout_s = default_response_timeout_s
 
     def execute(
         self,
@@ -130,6 +135,7 @@ class TransactionRunner:
         on_dispatched: Callable[[float, int], None] | None = None,
         on_stage_boundary: Callable[[float], None] | None = None,
         require_published_semantic: TelemetrySemantic | None = None,
+        response_timeout_s: float | None = None,
     ) -> TransactionOutcome:
         """Execute one transaction without allowing another correlation conflict."""
 
@@ -140,6 +146,7 @@ class TransactionRunner:
             latest_family=latest_family,
             priority=priority,
             deadline_at_s=deadline_at_s,
+            response_timeout_s=response_timeout_s,
         )
         return self.complete(
             pending,
@@ -157,9 +164,14 @@ class TransactionRunner:
         latest_family: Hashable | None,
         priority: int,
         deadline_at_s: float | None = None,
+        response_timeout_s: float | None = None,
     ) -> PendingTransaction:
         """Submit a transaction and return before its transport receipt completes."""
 
+        if response_timeout_s is None:
+            response_timeout_s = self._default_response_timeout_s
+        if self._on_stage_start is not None:
+            self._on_stage_start(_stage_wait_budget(transaction, response_timeout_s))
         self._wait_for_quarantine(
             transaction.correlation_key,
             capabilities=capabilities,
@@ -192,6 +204,7 @@ class TransactionRunner:
             started_at_s=started,
             deadline_at_s=deadline_at_s,
             priority=priority,
+            response_timeout_s=response_timeout_s,
         )
 
     def replace_pending(
@@ -226,6 +239,7 @@ class TransactionRunner:
             started_at_s=started,
             deadline_at_s=deadline_at_s,
             priority=priority,
+            response_timeout_s=self._default_response_timeout_s,
         )
 
     def complete(
@@ -327,6 +341,7 @@ class TransactionRunner:
                     latest_family=None,
                     priority=current.priority,
                     deadline_at_s=current.deadline_at_s,
+                    response_timeout_s=current.response_timeout_s,
                 )
             except BaseException as error:
                 _record_sent_frames(error, sent_frames)
@@ -381,7 +396,11 @@ class TransactionRunner:
                     generation=pending.publish_generation,
                 )
 
-            response_deadline = dispatched_at + transaction.response_timeout_s
+            response_deadline = dispatched_at + (
+                transaction.response_timeout_s
+                if pending.response_timeout_s is None
+                else pending.response_timeout_s
+            )
             try:
                 progress = buffered.progress
                 if progress is None or not progress.complete:
@@ -687,6 +706,25 @@ class TransactionRunner:
         receiver_error = self._receiver_error()
         if receiver_error is not None:
             raise receiver_error
+
+
+def _stage_wait_budget(
+    transaction: ProtocolTransaction, response_timeout_s: float | None
+) -> float:
+    """Budget one actual startup stage, including its protocol-imposed waits."""
+
+    response_wait = (
+        transaction.response_timeout_s
+        if response_timeout_s is None
+        else response_timeout_s
+    )
+    return (
+        (response_wait if transaction.expects_response else 0.0)
+        + (len(transaction.request_messages) - 1) * transaction.request_interval_s
+        + transaction.pre_dispatch_delay_s
+        + transaction.post_dispatch_delay_s
+        + transaction.late_response_guard_s
+    )
 
 
 def _deduplicate_payloads(

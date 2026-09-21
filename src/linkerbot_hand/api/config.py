@@ -76,14 +76,20 @@ class PollingPlan:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConfig:
-    """Runtime limits, optional O30 endpoint and recovery policy for one hand."""
+    """Runtime limits, optional O30 endpoint and recovery policy for one hand.
+
+    ``identity_timeout_s`` bounds each identity response stage after its request
+    batch has been sent, including every stage of L30/O30 identity chains.
+    ``transaction_timeout_s=None`` keeps ordinary protocol response windows;
+    a positive value overrides each response stage of reads and commands.
+    """
 
     command_rate_hz: float = 250.0
     discrete_queue_capacity: int = 16
     mailbox_capacity: int = 256
     route_queue_capacity: int = 256
     identity_timeout_s: float = 0.2
-    transaction_timeout_s: float = 0.1
+    transaction_timeout_s: float | None = None
     shutdown_timeout_s: float = 2.0
     auto_reconnect: bool = False
     reconnect_initial_delay_s: float = 0.1
@@ -107,12 +113,13 @@ class DeviceConfig:
         for name in (
             "command_rate_hz",
             "identity_timeout_s",
-            "transaction_timeout_s",
             "shutdown_timeout_s",
             "reconnect_initial_delay_s",
             "reconnect_max_delay_s",
         ):
             _positive_number(name, getattr(self, name))
+        if self.transaction_timeout_s is not None:
+            _positive_number("transaction_timeout_s", self.transaction_timeout_s)
         if not isinstance(self.auto_reconnect, bool):
             raise ValidationError("auto_reconnect must be bool")
         if self.reconnect_initial_delay_s > self.reconnect_max_delay_s:
