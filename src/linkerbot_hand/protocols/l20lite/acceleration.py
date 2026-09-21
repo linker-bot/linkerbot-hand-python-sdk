@@ -1,7 +1,7 @@
-"""LHT10 acceleration writes confirmed by both five-joint echoes."""
+"""LHT10 acceleration writes retain both five-joint responses."""
 
 from ...api.enums import DataOrigin
-from ...api.errors import ProtocolError, UnsupportedOperationError
+from ...api.errors import UnsupportedOperationError
 from ...api.readings import RawNumber
 from ...capabilities.types import CommandSemantic, DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
@@ -14,7 +14,7 @@ from .codec import ACCELERATION_LAYOUT
 def acceleration_transaction(
     values: tuple[RawNumber, ...], capabilities: DeviceCapabilities
 ) -> ProtocolTransaction:
-    """Publish only complete matching echoes; never construct a read request."""
+    """Publish complete device replies unchanged; never construct a read request."""
     semantic = CommandSemantic.ACCELERATIONS
     command = capabilities.command(semantic)
     if command is None:
@@ -26,20 +26,18 @@ def acceleration_transaction(
     assembler = ClassicObjectAssembler(route=route, layout=ACCELERATION_LAYOUT)
 
     def consume(message: object) -> ResponseProgress:
-        matched, echoed = assembler.offer(message)
+        matched, reported = assembler.offer(message)
         if not matched:
             return ResponseProgress(matched=False)
-        if echoed is None:
+        if reported is None:
             return ResponseProgress(matched=True)
-        if echoed != raw:
-            raise ProtocolError("L20Lite accelerations did not echo written values")
         return ResponseProgress(
             matched=True,
             complete=True,
             acknowledged=True,
             result=SamplePayload(
                 semantic=TelemetrySemantic.CONFIGURED_ACCELERATIONS,
-                raw=echoed,
+                raw=reported,
                 origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
             ),
         )

@@ -21,7 +21,11 @@ class CommandStage(str, Enum):
 
 
 class AckSupport(str, Enum):
-    """Whether a command has a matchable positive device-protocol ACK."""
+    """Whether the protocol defines a matchable command acknowledgement.
+
+    Numeric configuration replies acknowledge a complete response, not equality
+    with the requested values or proof that the settings took effect.
+    """
 
     SUPPORTED = "supported"
     UNSUPPORTED = "unsupported"
@@ -70,6 +74,7 @@ class CommandHandle:
 
     ``DISPATCHED`` means every request frame was successfully handed to the
     transport. It is terminal only when :attr:`ack_support` is unsupported.
+    ``ACKNOWLEDGED`` does not imply that returned values equal the target.
     The handle never represents mechanical arrival at the target.
     """
 

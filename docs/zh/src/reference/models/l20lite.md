@@ -42,7 +42,7 @@
 | `set_angles(values)` | `01` 六值 + `04` 四值 | `u8`，0..255 count；写回复为当前角度，来源 `DEVICE_COMMAND_FEEDBACK`；`returns_current_state=True`；`DISPATCHED` 不等于机械到位 |
 | `set_percent_angles(values)` | 十维 0..100 固定映射到上述原值 | 无 LUT；0%=raw 0，100%=raw 255。侧摆/旋转轴方向查 `percent_mapping`，不要把全部 255 当作通用张开姿态 |
 | `set_speeds(values)` | `05/06`，各五值 | 0..255 count，物理比例未知；SDK 终态 `DISPATCHED`，不验证写回显，不发布为配置读取值 |
-| `set_accelerations(values)` | `87/88`，各五值、DLC=6 | 十个 0..254 count；两帧均准确回显才 `ACKNOWLEDGED`，物理比例未知 |
+| `set_accelerations(values)` | `87/88`，各五值、DLC=6 | 写入十个 0..254 count；收齐有效回复后 `ACKNOWLEDGED`，保留设备实际返回值，物理比例未知 |
 | `get_configured_accelerations(timeout)` | 不发 CAN 请求 | `ConfiguredAccelerationSample`；本次连接内最近完整确认的写回显，来源 `DEVICE_CONFIG_RESPONSE`，不是实时加速度 |
 | `set_current_limits(values)` | `02/03`，各五值 | 电流限制原始 count，比例未知；`DISPATCHED` |
 | `get_angles(timeout)` | 单字节 `01/04` | 十个原始角度 count；来源 `DEVICE_RESPONSE` |
@@ -98,13 +98,15 @@ from linkerbot_hand import CommandStage
 handle = hand.set_accelerations([16] * 10)
 if handle.wait(timeout=1.0) is CommandStage.ACKNOWLEDGED:
     sample = hand.get_configured_accelerations(timeout=1.0)
-    print(sample.raw)  # 十关节已确认的设置回显
+    print(sample.raw)  # 十关节最近一次完整设备回复，可能不同于发送值
 ```
 
-加速度使用有界 FIFO，连续配置不会被新值覆盖。仅两组回显完整、长度正确且逐值与
-本次写入一致时才更新 `snapshot.configured_accelerations`。缺帧、长度错误、冲突重复帧或
-数值不一致使命令失败，保留上次完整样本；设备可能已应用其中一组，失败不表示设备
-参数未变化，旧样本也不能证明当前全部配置。无隐式重试、回滚或持久保存。
+加速度使用有界 FIFO，连续配置不会被新值覆盖。两组回复完整且帧结构正确后，按关节
+顺序用实际返回值更新 `snapshot.configured_accelerations`，不要求等于发送值。
+`ACKNOWLEDGED` 表示收到完整有效回复，不证明设定值已原样生效。结构正确但数值超出
+声明范围的回复也保留原值，并标记 `meta.within_declared_range=False`。
+缺帧、长度错误或冲突重复帧使命令失败，保留上次完整样本；设备可能已应用其中一组，
+失败不表示设备参数未变化，旧样本也不能证明当前全部配置。无隐式重试、回滚或持久保存。
 
 协议只明确设置与回显，SDK 不发送裸 `87` / `88` 查询，不加入基线或周期轮询。
 能力中 `read_mode=COMMAND_RESPONSE`、`device_queried=False`、`device_measured=False`；
@@ -122,13 +124,15 @@ Flash，也未声称恢复未知初值。0/254 边界由模拟测试覆盖，实
 
 堵转配置按照 `get_capabilities().joint_names` 接收十个整数，GROUP=1 为前五关节、
 GROUP=2 为后五关节，完整帧 DLC=7，发帧间隔 1 ms。三种设置使用同一 FIFO 配置队列；
-只有两组回显均与写入完全一致时，命令才进入 `ACKNOWLEDGED`，并原子更新对应样本。
+只有两组有效回复完整时，命令才进入 `ACKNOWLEDGED`，并按组号原子发布实际返回值，
+不要求与发送值一致，也不以发送目标填充样本。相同重复帧允许，冲突重复帧仍报错。
+`ACKNOWLEDGED` 不表示所有设置已原样生效。
 可通过 `handle.wait(timeout=1.0)` 等待终态，再调用对应 getter 或读取快照。
 回显不是主动查询；能力中 `read_mode=COMMAND_RESPONSE`、`device_queried=False`，
 `stall_protection.read_supported=False` 表示没有主动回读。
 `stall_protection.hold_current` 给出 C7 元数据，样本为 `StallHoldCurrentSample`，
 快照字段为 `stall_hold_currents`；原 `stall_hold_torques` 名称已删除。
-设备收到每组参数后立即生效，若第二组缺帧或回显错误，SDK 会报失败并保留上次完整
+设备收到每组参数后立即生效，若第二组缺帧或回复结构错误，SDK 会报失败并保留上次完整
 确认样本，但不能撤销设备已应用的第一组；不要把失败解释为“设备没有变化”。
 本次实现没有执行真实设备参数写入或验证物理安全范围，不提供隐式重试和持久保存。
 
@@ -187,7 +191,7 @@ SDK 未发布残缺矩阵，独立原始抓包同样缺行；尚不能将根因�
 | 对象 | 当前证据与边界 |
 | --- | --- |
 | `28/29/30/31/32` 单指四类传感数据 | 同一数据的另一种查询方式；本轮只采用 `20..23` 类别查询，不开放或隐式补发单指查询 |
-| `C5/C6/C7` 堵转配置 | 已按组实现写入和严格回显确认；主动查询和实机恢复验证仍未提供 |
+| `C5/C6/C7` 堵转配置 | 已按组实现写入和完整回复组装，保留实际返回值；主动查询和实机恢复验证仍未提供 |
 | `C3` 地址、`CC` 回复开关、`CE` 出厂恢复、`CF` 保存 | 会改变路由、通信行为或持久配置；未执行、未新增普通操作接口 |
 | `B6` 手掌矩阵 | 资料标为保留，无明确布局 |
 

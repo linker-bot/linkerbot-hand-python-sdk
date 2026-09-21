@@ -153,7 +153,7 @@ def test_l6_stall_configuration_maps_raw_objects_and_echo_responses() -> None:
         assert payload.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
 
 
-def test_l6_limit_compensation_write_requires_documented_exact_echo() -> None:
+def test_l6_limit_compensation_write_retains_actual_response() -> None:
     capabilities = get_declared_capabilities("l6", side="left")
     backend = L6ProtocolBackend(HandSide.LEFT)
     transaction = backend.command_transaction(
@@ -165,11 +165,10 @@ def test_l6_limit_compensation_write_requires_documented_exact_echo() -> None:
     assert _request_data(transaction) == b"\x38\x00\x01\x02\x03\x04\xff"
     assert transaction.next_transaction is None
     assert transaction.terminal_acknowledges_command
-    assert transaction.consume(
-        _reply(HandSide.LEFT, 0x38, (0, 1, 2, 3, 4, 255))
-    ).acknowledged
-    with pytest.raises(ProtocolError, match="did not echo"):
-        transaction.consume(_reply(HandSide.LEFT, 0x38, (0,) * 6))
+    response = transaction.consume(_reply(HandSide.LEFT, 0x38, (0,) * 6))
+    assert response.acknowledged
+    assert isinstance(response.result, SamplePayload)
+    assert response.result.raw == (0,) * 6
 
 
 def test_l6_limit_compensation_read_and_parameter_save_are_response_gated() -> None:
@@ -223,10 +222,11 @@ def test_o6_configuration_queries_are_not_measured_speed_or_torque() -> None:
         assert _request_data(command) == bytes((opcode, *([100] * 6)))
         assert not command.dispatch_publications
         assert command.terminal_acknowledges_command
-        response = command.consume(_reply(HandSide.RIGHT, opcode, (100,) * 6))
+        response = command.consume(_reply(HandSide.RIGHT, opcode, (42,) * 6))
         assert response.acknowledged
         assert isinstance(response.result, SamplePayload)
         assert response.result.semantic is telemetry_semantic
+        assert response.result.raw == (42,) * 6
         assert response.result.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         read = backend.read_transaction(telemetry_semantic, capabilities)
         payload = _payload(read, _reply(HandSide.RIGHT, opcode, (42,) * 6))
@@ -267,15 +267,45 @@ def test_o6_stall_configuration_uses_protocol_specific_opcode_order() -> None:
         )
         assert _request_data(command) == bytes((opcode, *values))
         assert command.terminal_acknowledges_command
-        assert command.consume(_reply(HandSide.RIGHT, opcode, values)).acknowledged
-        with pytest.raises(ProtocolError, match="did not echo"):
-            command.consume(_reply(HandSide.RIGHT, opcode, (0,) * 6))
+        response = command.consume(_reply(HandSide.RIGHT, opcode, (0,) * 6))
+        assert response.acknowledged
+        assert isinstance(response.result, SamplePayload)
+        assert response.result.raw == (0,) * 6
 
         read = backend.read_transaction(telemetry_semantic, capabilities)
         assert _request_data(read) == bytes((opcode,))
         payload = _payload(read, _reply(HandSide.RIGHT, opcode, (1,) * 6))
         assert payload.semantic is telemetry_semantic
         assert payload.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+
+
+@pytest.mark.parametrize(
+    "model,backend_type", [("L6", L6ProtocolBackend), ("O6", O6ProtocolBackend)]
+)
+def test_configuration_responses_still_require_correct_route_opcode_and_length(
+    model, backend_type
+) -> None:
+    capabilities = get_declared_capabilities(model, side="right")
+    transaction = backend_type(HandSide.RIGHT).command_transaction(
+        CommandSemantic.CURRENT_LIMITS, (90,) * 6, capabilities
+    )
+    for overrides in (
+        {"arbitration_id": 0x28},
+        {"is_extended_id": True},
+        {"is_fd": True},
+        {"is_remote_frame": True},
+        {"is_error_frame": True},
+        {"data": bytes((0x05, *([89] * 6)))},
+    ):
+        fields = {
+            "arbitration_id": 0x27,
+            "is_extended_id": False,
+            "data": bytes((0x02, *([89] * 6))),
+        }
+        assert not transaction.consume(can.Message(**(fields | overrides))).matched
+    for count in (0, 5, 7):
+        with pytest.raises(ProtocolError, match="must contain 7 bytes"):
+            transaction.consume(_reply(HandSide.RIGHT, 0x02, (89,) * count))
 
 
 def test_o6_parameter_save_requires_cf_01_response() -> None:

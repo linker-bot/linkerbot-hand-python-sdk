@@ -18,7 +18,7 @@ def limit_compensation_transaction(
     values: tuple[RawNumber, ...],
     capabilities: DeviceCapabilities,
 ) -> ProtocolTransaction:
-    """Write six raw compensation bytes and require the documented exact echo."""
+    """Write six raw compensation bytes and retain the reported values."""
 
     return configuration_transaction(
         CommandSemantic.LIMIT_COMPENSATIONS,

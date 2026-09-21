@@ -196,31 +196,37 @@ def test_l6_zero_stall_detection_time_is_rejected_before_transport() -> None:
         hand.close()
 
 
-def test_l6_bad_stall_echo_fails_command_without_disconnect() -> None:
+def test_l6_stall_response_retains_device_values_without_extra_reads() -> None:
     hand, transport = _make_hand("L6", HandSide.LEFT)
     transport.script.bad_command_echoes[0xC5] = (5,) * 6
     hand.open()
     try:
+        before = len(transport.script.sent_payloads)
         handle = hand.set_stall_detection_times((6,) * 6)
 
-        assert handle.wait(timeout=1) is CommandStage.FAILED
-        assert handle.error is not None
-        assert "did not echo" in handle.error.message
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert handle.error is None
+        sample = hand.get_snapshot().stall_detection_times
+        assert sample.raw == (5,) * 6
+        assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert transport.script.sent_payloads[before:] == [bytes((0xC5, *([6] * 6)))]
         assert hand.get_health().connected
     finally:
         hand.close()
 
 
-def test_l6_limit_compensation_bad_echo_fails_without_disconnect() -> None:
+def test_l6_limit_compensation_response_retains_device_values() -> None:
     hand, transport = _make_hand("L6", HandSide.LEFT)
     transport.script.bad_command_echoes[0x38] = (0,) * 6
     hand.open()
     try:
         handle = hand.set_limit_compensations((1, 2, 3, 4, 5, 6))
 
-        assert handle.wait(timeout=1) is CommandStage.FAILED
-        assert handle.error is not None
-        assert "did not echo" in handle.error.message
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert handle.error is None
+        sample = hand.get_snapshot().limit_compensations
+        assert sample.raw == (0,) * 6
+        assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
         assert transport.script.command_payloads[-1] == (
             b"\x38\x01\x02\x03\x04\x05\x06"
         )
@@ -519,16 +525,39 @@ def test_o6_stall_management_reads_writes_and_saves_parameters() -> None:
         hand.close()
 
 
-def test_o6_bad_configuration_echo_fails_without_disconnecting() -> None:
-    hand, transport = _make_hand("O6", HandSide.RIGHT)
-    transport.script.bad_command_echoes[0xC5] = (128,) * 6
+@pytest.mark.parametrize("side", [HandSide.LEFT, HandSide.RIGHT])
+@pytest.mark.parametrize(
+    "setter,field,opcode",
+    [
+        ("set_current_limits", "current_limits", 0x02),
+        ("set_speeds", "configured_speeds", 0x05),
+        ("set_accelerations", "configured_accelerations", 0x87),
+        ("set_stall_thresholds", "stall_thresholds", 0xC5),
+        ("set_stall_detection_times", "stall_detection_times", 0xC6),
+        ("set_stall_hold_currents", "stall_hold_currents", 0xC7),
+    ],
+)
+def test_o6_configuration_retains_actual_response_without_extra_reads(
+    side, setter, field, opcode
+) -> None:
+    hand, transport = _make_hand("O6", side)
+    reported = (0, 11, 22, 33, 44, 255)
+    transport.script.bad_command_echoes[opcode] = reported
     hand.open()
     try:
-        handle = hand.set_stall_thresholds((129,) * 6)
+        before = len(transport.script.sent_payloads)
+        handle = getattr(hand, setter)((129,) * 6)
 
-        assert handle.wait(timeout=1) is CommandStage.FAILED
-        assert handle.error is not None
-        assert "did not echo" in handle.error.message
+        assert handle.wait(timeout=1) is CommandStage.ACKNOWLEDGED
+        assert handle.error is None
+        sample = getattr(hand.get_snapshot(), field)
+        assert sample.raw == reported
+        assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert sample.meta.valid
+        assert sample.meta.within_declared_range is (opcode != 0x87)
+        assert transport.script.sent_payloads[before:] == [
+            bytes((opcode, *([129] * 6)))
+        ]
         assert hand.get_health().connected
     finally:
         hand.close()
@@ -546,6 +575,27 @@ def test_o6_configuration_timeout_fails_without_firmware_read_degradation() -> N
         assert handle.error.code is ErrorCode.TIMEOUT
         assert hand.get_health().connected
         assert not hand.get_capabilities().firmware_unsupported_telemetry
+    finally:
+        hand.close()
+
+
+@pytest.mark.parametrize("failure", ["missing", "malformed"])
+def test_o6_invalid_configuration_response_preserves_previous_sample(failure) -> None:
+    hand, transport = _make_hand("O6", HandSide.RIGHT)
+    hand.open()
+    try:
+        assert hand.set_speeds((70,) * 6).wait(1) is CommandStage.ACKNOWLEDGED
+        previous = hand.get_snapshot().configured_speeds
+        if failure == "missing":
+            transport.script.dropped_command_responses.add(0x05)
+        else:
+            transport.script.bad_command_echoes[0x05] = (80,) * 5
+        failed = hand.set_speeds((80,) * 6)
+        assert failed.wait(1) is CommandStage.FAILED
+        cached = hand.get_snapshot().configured_speeds
+        assert cached.raw == previous.raw
+        assert cached.meta.sequence == previous.meta.sequence
+        assert hand.get_health().connected
     finally:
         hand.close()
 

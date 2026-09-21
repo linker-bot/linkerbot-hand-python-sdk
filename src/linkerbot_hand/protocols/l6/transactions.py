@@ -79,45 +79,32 @@ class L6ProtocolBackend(ClassicSixAxisBackend):
 
         if semantic is CommandSemantic.LIMIT_COMPENSATIONS:
             return limit_compensation_transaction(values, capabilities)
-        # Only the telemetry pairing and the echo strictness live here. The wire
+        # Only the telemetry pairing lives here. The wire
         # opcode comes from COMMAND_OPCODES so there is one source for it; a
         # second copy here is what let the codec table drift without any test
         # noticing, and L6 and O6 assign 0xC5/0xC6 to opposite semantics.
-        echoed = {
-            CommandSemantic.TORQUES: (TelemetrySemantic.TORQUES, False),
-            CommandSemantic.POSITION_KP: (TelemetrySemantic.POSITION_KP, False),
-            CommandSemantic.POSITION_KD: (TelemetrySemantic.POSITION_KD, False),
-            CommandSemantic.TORQUE_KD: (TelemetrySemantic.TORQUE_KD, False),
-            CommandSemantic.SPEEDS: (
-                TelemetrySemantic.CONFIGURED_SPEEDS,
-                False,
-            ),
-            CommandSemantic.CURRENT_LIMITS: (
-                TelemetrySemantic.CURRENT_LIMITS,
-                False,
-            ),
+        response_semantic = {
+            CommandSemantic.TORQUES: TelemetrySemantic.TORQUES,
+            CommandSemantic.POSITION_KP: TelemetrySemantic.POSITION_KP,
+            CommandSemantic.POSITION_KD: TelemetrySemantic.POSITION_KD,
+            CommandSemantic.TORQUE_KD: TelemetrySemantic.TORQUE_KD,
+            CommandSemantic.SPEEDS: TelemetrySemantic.CONFIGURED_SPEEDS,
+            CommandSemantic.CURRENT_LIMITS: TelemetrySemantic.CURRENT_LIMITS,
             CommandSemantic.STALL_DETECTION_TIMES: (
-                TelemetrySemantic.STALL_DETECTION_TIMES,
-                True,
+                TelemetrySemantic.STALL_DETECTION_TIMES
             ),
-            CommandSemantic.STALL_THRESHOLDS: (
-                TelemetrySemantic.STALL_THRESHOLDS,
-                False,
-            ),
+            CommandSemantic.STALL_THRESHOLDS: TelemetrySemantic.STALL_THRESHOLDS,
             CommandSemantic.STALL_HOLD_CURRENTS: (
-                TelemetrySemantic.STALL_HOLD_CURRENTS,
-                False,
+                TelemetrySemantic.STALL_HOLD_CURRENTS
             ),
         }.get(semantic)
-        if echoed is not None:
-            telemetry_semantic, require_exact_echo = echoed
+        if response_semantic is not None:
             transaction = configuration_transaction(
                 semantic,
-                telemetry_semantic,
+                response_semantic,
                 COMMAND_OPCODES[semantic],
                 values,
                 capabilities,
-                require_exact_echo=require_exact_echo,
             )
             if semantic is CommandSemantic.TORQUES:
                 # Do not infer the device mode from a prior ACK: V2.4.5 replies

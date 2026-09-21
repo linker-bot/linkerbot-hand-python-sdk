@@ -1,4 +1,4 @@
-"""Two-group LHT10 configuration writes with strict atomic echo publication."""
+"""Two-group LHT10 configuration writes with atomic device-response publication."""
 
 from ...api.enums import DataOrigin
 from ...api.errors import ProtocolError, UnsupportedOperationError
@@ -15,7 +15,7 @@ def stall_transaction(
     values: tuple[RawNumber, ...],
     capabilities: DeviceCapabilities,
 ) -> ProtocolTransaction:
-    """Acknowledge only when both five-joint groups exactly echo the write."""
+    """Retain both complete five-joint responses without comparing target values."""
     command = capabilities.command(semantic)
     if command is None:
         raise UnsupportedOperationError(
@@ -24,28 +24,30 @@ def stall_transaction(
     raw = _validated_u8(values, command, semantic.value)
     opcode, telemetry = STALL_COMMANDS[semantic]
     route = classic_route(capabilities.side)
-    expected = {
+    requests = {
         group: bytes((opcode, group, *raw[offset : offset + 5]))
         for group, offset in ((1, 0), (2, 5))
     }
-    received: set[int] = set()
+    received: dict[int, tuple[int, ...]] = {}
 
     def consume(message: object) -> ResponseProgress:
         data = matching_data(message, route)
         if not data or data[0] != opcode:
             return ResponseProgress(matched=False)
         if len(data) != 7:
-            raise ProtocolError(f"L20Lite 0x{opcode:02X} echo must contain 7 bytes")
+            raise ProtocolError(f"L20Lite 0x{opcode:02X} response must contain 7 bytes")
         group = data[1]
-        if group not in expected:
+        if group not in requests:
             raise ProtocolError(
-                f"L20Lite 0x{opcode:02X} echo has invalid group {group}"
+                f"L20Lite 0x{opcode:02X} response has invalid group {group}"
             )
-        if data != expected[group]:
+        reported = tuple(data[2:])
+        previous = received.get(group)
+        if previous is not None and previous != reported:
             raise ProtocolError(
-                f"L20Lite {semantic.value} group {group} did not echo values"
+                f"L20Lite {semantic.value} group {group} conflicts with a duplicate"
             )
-        received.add(group)
+        received[group] = reported
         if len(received) < 2:
             return ResponseProgress(matched=True)
         return ResponseProgress(
@@ -54,7 +56,7 @@ def stall_transaction(
             acknowledged=True,
             result=SamplePayload(
                 semantic=telemetry,
-                raw=raw,
+                raw=received[1] + received[2],
                 origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
             ),
         )
@@ -63,7 +65,7 @@ def stall_transaction(
         key=("command", semantic),
         correlation_key=("l20lite_stall", route, opcode),
         request_messages=tuple(
-            build_classic_message(route, data) for data in expected.values()
+            build_classic_message(route, data) for data in requests.values()
         ),
         request_interval_s=0.001,
         response_timeout_s=0.1,

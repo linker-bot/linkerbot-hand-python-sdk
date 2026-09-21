@@ -158,10 +158,11 @@ class HandDevice(_DeviceCore):
         self,
         timeout: float,
     ) -> ConfiguredAccelerationSample:
-        """Read configured acceleration, or confirmed write echoes on L20Lite.
+        """Read configured acceleration, or complete write responses on L20Lite.
 
-        L20Lite has no active query: this returns the latest complete echo from
-        this connection, raising UnsupportedOperationError until one exists.
+        L20Lite has no active query: this returns the latest complete response
+        from this connection, which may differ from the written target. Raises
+        UnsupportedOperationError until one exists.
         """
 
         return self._read(
@@ -491,7 +492,7 @@ class HandDevice(_DeviceCore):
         self,
         timeout: float,
     ) -> StallDetectionTimeSample:
-        """Read raw stall time; L20Lite returns the last confirmed write echo."""
+        """Read raw stall time; L20Lite returns the last complete write response."""
 
         return self._read(
             TelemetrySemantic.STALL_DETECTION_TIMES,
@@ -513,7 +514,7 @@ class HandDevice(_DeviceCore):
         )
 
     def get_stall_thresholds(self, timeout: float) -> StallThresholdSample:
-        """Read raw stall threshold; L20Lite returns the last confirmed echo."""
+        """Read raw stall threshold; L20Lite returns the last complete response."""
 
         return self._read(
             TelemetrySemantic.STALL_THRESHOLDS,
@@ -535,7 +536,7 @@ class HandDevice(_DeviceCore):
         )
 
     def get_stall_hold_currents(self, timeout: float) -> StallHoldCurrentSample:
-        """Read raw hold current; L20Lite returns the last confirmed write echo."""
+        """Read raw hold current; L20Lite returns the last complete write response."""
 
         return self._read(
             TelemetrySemantic.STALL_HOLD_CURRENTS,

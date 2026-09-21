@@ -51,7 +51,7 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
         values: tuple[RawNumber, ...],
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Confirm acceleration and stall settings through complete write echoes."""
+        """Retain acceleration and stall values from complete write responses."""
         if semantic is CommandSemantic.ACCELERATIONS:
             return acceleration_transaction(values, capabilities)
         if semantic in STALL_COMMANDS:

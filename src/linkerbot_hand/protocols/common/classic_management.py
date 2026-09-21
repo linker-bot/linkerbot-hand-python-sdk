@@ -1,4 +1,4 @@
-"""Echoed configuration and parameter-save transactions shared by L6/O6."""
+"""Configuration responses and parameter-save transactions shared by L6/O6."""
 
 from __future__ import annotations
 
@@ -28,14 +28,11 @@ def configuration_transaction(
     opcode: int,
     values: tuple[RawNumber, ...],
     capabilities: DeviceCapabilities,
-    *,
-    require_exact_echo: bool = True,
 ) -> ProtocolTransaction:
-    """Write one raw vector and publish the documented response as ACK.
+    """Write one raw vector and retain the device's complete response.
 
-    ``require_exact_echo`` gates whether the echoed vector must equal what was
-    written: O6 always requires it, L6 relaxes it for a few configuration
-    writes whose devices acknowledge without echoing the values back.
+    A valid response acknowledges the exchange, not equality with the target.
+    Devices may report previous or quantized values; publish those unchanged.
     """
 
     command = capabilities.command(semantic)
@@ -51,24 +48,20 @@ def configuration_transaction(
     route = classic_route(capabilities.side)
 
     def consume(message: object) -> ResponseProgress:
-        echoed = decode_u8_vector(
+        reported = decode_u8_vector(
             message,
             route=route,
             opcode=opcode,
             count=len(command.channels),
         )
-        if echoed is None:
+        if reported is None:
             return ResponseProgress(matched=False)
-        if require_exact_echo and echoed != raw:
-            raise ProtocolError(
-                f"{capabilities.model} {semantic.value} response did not echo values"
-            )
         return ResponseProgress(
             matched=True,
             complete=True,
             result=SamplePayload(
                 semantic=telemetry_semantic,
-                raw=echoed,
+                raw=reported,
                 origin=DataOrigin.DEVICE_CONFIG_RESPONSE,
             ),
             acknowledged=True,

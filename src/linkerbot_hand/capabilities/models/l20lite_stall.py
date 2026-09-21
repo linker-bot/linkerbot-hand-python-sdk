@@ -54,7 +54,7 @@ def stall_fields(
 
 
 def stall_commands(stall: StallProtectionCapability) -> tuple[CommandCapability, ...]:
-    """Create FIFO configuration commands with exact response acknowledgement."""
+    """Create FIFO commands acknowledged by complete device responses."""
     return tuple(
         command(
             CommandSemantic(name),

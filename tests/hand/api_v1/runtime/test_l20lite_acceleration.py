@@ -130,9 +130,13 @@ def frame(data, **flags):
 def test_two_echoes_assemble_out_of_order_without_partial_publication():
     tx = transaction()
     assert tx.request_interval_s == 0.001
-    first, second = (bytes(m.data) for m in tx.request_messages)
-    assert first == bytes((0x87, *VALUES[:5]))
-    assert second == bytes((0x88, *VALUES[5:]))
+    assert [bytes(m.data) for m in tx.request_messages] == [
+        bytes((0x87, *VALUES[:5])),
+        bytes((0x88, *VALUES[5:])),
+    ]
+    reported = (10, 11, 12, 13, 14, 20, 21, 22, 23, 255)
+    first = bytes((0x87, *reported[:5]))
+    second = bytes((0x88, *reported[5:]))
     for flags in (
         {"arbitration_id": 0x27},
         {"is_extended_id": True},
@@ -148,12 +152,12 @@ def test_two_echoes_assemble_out_of_order_without_partial_publication():
         assert partial.result is None
     complete = tx.consume(frame(first))
     assert complete.complete and complete.acknowledged
-    assert complete.result.raw == VALUES
+    assert complete.result.raw == reported
 
 
 @pytest.mark.parametrize("index", [0, 1])
-@pytest.mark.parametrize("fault", ["short", "long", "wrong_value", "duplicate"])
-def test_malformed_or_mismatched_echoes_cannot_confirm(index, fault):
+@pytest.mark.parametrize("fault", ["short", "long", "duplicate"])
+def test_malformed_or_conflicting_responses_cannot_confirm(index, fault):
     tx = transaction()
     data = bytes(tx.request_messages[index].data)
     if fault == "duplicate":
@@ -163,7 +167,6 @@ def test_malformed_or_mismatched_echoes_cannot_confirm(index, fault):
     bad = {
         "short": data[:-1],
         "long": data + b"\x00",
-        "wrong_value": data[:-1] + bytes((data[-1] ^ 1,)),
         "duplicate": data[:-1] + bytes((data[-1] ^ 1,)),
     }[fault]
     with pytest.raises(ProtocolError):
@@ -171,7 +174,7 @@ def test_malformed_or_mismatched_echoes_cannot_confirm(index, fault):
 
 
 @pytest.mark.parametrize("opcode", [0x87, 0x88])
-@pytest.mark.parametrize("failure", ["missing", "mismatched"])
+@pytest.mark.parametrize("failure", ["missing", "malformed"])
 def test_failed_write_preserves_last_complete_echo_and_connection(opcode, failure):
     hand, script = make_hand()
     with closing(hand.open()):
@@ -180,7 +183,7 @@ def test_failed_write_preserves_last_complete_echo_and_connection(opcode, failur
         if failure == "missing":
             script.dropped_command_responses.add(opcode)
         else:
-            script.bad_command_echoes[opcode] = (1,) * 5
+            script.bad_command_echoes[opcode] = (1,) * 4
         failed = hand.set_accelerations((16,) * 10)
         assert failed.wait(1) is CommandStage.FAILED
         assert failed.error is not None
@@ -188,6 +191,25 @@ def test_failed_write_preserves_last_complete_echo_and_connection(opcode, failur
         assert cached.raw == original.raw
         assert cached.meta.sequence == original.meta.sequence
         assert hand.get_angles(timeout=1).meta.valid
+
+
+@pytest.mark.parametrize("side", [HandSide.LEFT, HandSide.RIGHT])
+def test_acceleration_cache_retains_actual_response_without_invented_queries(side):
+    hand, script = make_hand(side)
+    reported = (10, 11, 12, 13, 14, 20, 21, 22, 23, 255)
+    script.bad_command_echoes.update({0x87: reported[:5], 0x88: reported[5:]})
+    with closing(hand.open()):
+        handle = hand.set_accelerations(VALUES)
+        assert handle.wait(1) is CommandStage.ACKNOWLEDGED
+        assert handle.error is None
+        before = len(script.sent_payloads)
+        sample = hand.get_configured_accelerations(timeout=1)
+        assert sample.raw == reported
+        assert sample.meta.valid and not sample.meta.within_declared_range
+        assert sample.meta.origin is DataOrigin.DEVICE_CONFIG_RESPONSE
+        assert hand.get_snapshot().configured_accelerations.raw == reported
+        assert len(script.sent_payloads) == before
+        assert hand.get_health().connected
 
 
 def test_missing_first_write_echo_leaves_cache_unavailable():
