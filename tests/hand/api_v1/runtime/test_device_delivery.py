@@ -762,6 +762,67 @@ def test_fifo_receipt_wait_keeps_processing_unsolicited_reports() -> None:
         o6.close()
 
 
+@pytest.mark.parametrize("fresh_ack", (False, True))
+def test_shared_channel_presend_ack_cannot_confirm_a_queued_command(fresh_ack) -> None:
+    l6, l6_state, o6, _o6_state, transport = make_shared_hands()
+    backend = transport.backends["l6-left"]
+    original_responses_for = backend.responses_for
+
+    def responses_for(message):
+        responses = original_responses_for(message)
+        if (
+            not fresh_ack
+            and message.kind == "command"
+            and message.semantic == CommandSemantic.CURRENT_LIMITS.value
+        ):
+            return ()
+        return responses
+
+    backend.responses_for = responses_for  # ty: ignore[invalid-assignment]
+    l6.open()
+    o6.open()
+    try:
+        transport.command_send_started.clear()
+        transport.command_gate.clear()
+        blocker = o6.set_angles((30,) * 6)
+        assert transport.command_send_started.wait(timeout=1)
+        queued = l6.set_current_limits((20,) * 6)
+        wait_until(lambda: l6.get_health().transport.pending_tx >= 2)
+
+        transport.emit(
+            WireMessage(
+                "l6-left-rx", "command_ack", CommandSemantic.CURRENT_LIMITS.value
+            )
+        )
+        # Observing the following report proves the older ACK was drained while
+        # the other hand still held the writer. No timing sleeps are needed.
+        transport.emit(
+            WireMessage(
+                "l6-left-rx", "report", TelemetrySemantic.ANGLES.value, (66,) * 6
+            )
+        )
+
+        def report_was_published():
+            angles = l6.get_snapshot().angles
+            return angles is not None and angles.raw == (66,) * 6
+
+        wait_until(report_was_published)
+        assert queued.stage is CommandStage.ACCEPTED
+        transport.command_gate.set()
+        assert blocker.wait(timeout=1) is CommandStage.DISPATCHED
+        expected = CommandStage.ACKNOWLEDGED if fresh_ack else CommandStage.FAILED
+        assert queued.wait(timeout=1) is expected
+        assert queued.sent_frames == 1
+        if not fresh_ack:
+            assert queued.error is not None and queued.error.code is ErrorCode.TIMEOUT
+        with l6_state.lock:
+            assert l6_state.command_log == [(CommandSemantic.CURRENT_LIMITS, (20,) * 6)]
+    finally:
+        transport.command_gate.set()
+        l6.close()
+        o6.close()
+
+
 def test_new_target_waits_in_device_slot_after_prior_target_is_claimed() -> None:
     declared = get_declared_capabilities("l6", side="left")
     capabilities = replace(

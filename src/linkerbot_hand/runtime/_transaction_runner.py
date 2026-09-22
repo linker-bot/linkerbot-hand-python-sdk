@@ -83,6 +83,7 @@ class _BufferedResponse:
     progress: ResponseProgress | None = None
     publication_batches: tuple[tuple[SamplePayload, ...], ...] = ()
     error: BaseException | None = None
+    deferred_inbound: InboundMessage | None = None
 
 
 class TransactionRunner:
@@ -375,6 +376,8 @@ class TransactionRunner:
                 raise TransactionSuperseded
             if result.outcome is not SendOutcome.DISPATCHED:
                 raise ProtocolError(f"send ended as {result.outcome.value}")
+            if result.claimed_at_s is None:
+                raise ProtocolError("dispatched batch has no claim timestamp")
             dispatched_at = result.completed_at_s
             # Reserve the endpoint even if the ACK later times out or fails to
             # parse. The device may already have applied a mode-changing write.
@@ -414,29 +417,18 @@ class TransactionRunner:
             response_deadline = dispatched_at + response_timeout_s
             if pending.deadline_at_s is not None:
                 response_deadline = min(response_deadline, pending.deadline_at_s)
-            try:
-                progress = buffered.progress
-                if progress is None or not progress.complete:
-                    progress, response_publications = self._wait_for_response(
-                        transaction,
-                        capabilities=pending.capabilities,
-                        generation=pending.publish_generation,
-                        deadline_s=response_deadline,
-                        response_timeout_s=response_timeout_s,
-                    )
-                    publications += response_publications
-            except TimeoutError:
-                if transaction.late_response_guard_s > 0:
-                    self._quarantined[transaction.correlation_key] = (
-                        _QuarantinedTransaction(
-                            transaction=transaction,
-                            deadline_at_s=(
-                                self._clock.monotonic()
-                                + transaction.late_response_guard_s
-                            ),
-                        )
-                    )
-                raise
+            progress = buffered.progress
+            if progress is None or not progress.complete:
+                progress, response_publications = self._wait_for_response(
+                    transaction,
+                    capabilities=pending.capabilities,
+                    generation=pending.publish_generation,
+                    not_before_s=result.claimed_at_s,
+                    deadline_s=response_deadline,
+                    response_timeout_s=response_timeout_s,
+                    first_inbound=buffered.deferred_inbound,
+                )
+                publications += response_publications
             if progress.acknowledged != transaction.response_acknowledges_command:
                 raise ProtocolError(
                     "response acknowledgement disagrees with transaction contract"
@@ -491,7 +483,6 @@ class TransactionRunner:
         pending: PendingTransaction,
     ) -> _BufferedResponse:
         receipt = pending.receipt
-        transaction = pending.transaction
         deadline_at_s = pending.deadline_at_s
         buffered = _BufferedResponse()
         while not receipt.done():
@@ -504,10 +495,8 @@ class TransactionRunner:
             if receipt.done():
                 break
             if self._process_before_receipt(
-                transaction,
+                pending,
                 buffered,
-                capabilities=pending.capabilities,
-                generation=pending.publish_generation,
             ):
                 continue
             self.raise_if_interrupted()
@@ -516,22 +505,34 @@ class TransactionRunner:
 
     def _process_before_receipt(
         self,
-        transaction: ProtocolTransaction,
+        pending: PendingTransaction,
         buffered: _BufferedResponse,
-        *,
-        capabilities: DeviceCapabilities,
-        generation: int | None,
     ) -> bool:
         inbound = self._next_message()
         if inbound is None:
             return False
-        self._metrics.received(timestamp=inbound.received_at_s)
-        if self._consume_quarantined(inbound.message):
-            return True
-        if (
+        transaction = pending.transaction
+        waiting_for_response = (
             transaction.expects_response
             and buffered.error is None
             and (buffered.progress is None or not buffered.progress.complete)
+        )
+        if waiting_for_response and pending.receipt.done():
+            # Receipt completion may race the pop above. Defer this frame until
+            # send success and the final response deadline have been checked.
+            buffered.deferred_inbound = inbound
+            return True
+        self._metrics.received(timestamp=inbound.received_at_s)
+        if self._consume_quarantined(inbound.message):
+            return True
+        # Read the claim after popping: a claim racing receive cannot make an
+        # earlier frame eligible. Completion is too late as a lower bound, since
+        # valid replies may arrive while the rest of a batch is still sending.
+        claimed_at_s = pending.receipt.claimed_at_s
+        if (
+            waiting_for_response
+            and claimed_at_s is not None
+            and inbound.received_at_s >= claimed_at_s
         ):
             try:
                 progress = transaction.consume(inbound.message)
@@ -547,8 +548,8 @@ class TransactionRunner:
                 return True
         try:
             self._publish(
-                self._backend.decode_report(inbound.message, capabilities),
-                generation=generation,
+                self._backend.decode_report(inbound.message, pending.capabilities),
+                generation=pending.publish_generation,
             )
         except Exception as error:  # noqa: BLE001 - report callback boundary
             self._report_error(error)
@@ -560,47 +561,93 @@ class TransactionRunner:
         *,
         capabilities: DeviceCapabilities,
         generation: int | None,
+        not_before_s: float,
         deadline_s: float,
         response_timeout_s: float,
+        first_inbound: InboundMessage | None = None,
     ) -> tuple[ResponseProgress, tuple[tuple[SamplePayload, object], ...]]:
+        """Accept only frames received before the response deadline.
+
+        A paused actor may still drain timely frames already in the bounded,
+        timestamp-ordered route queue. Newly received traffic cannot extend
+        that finite backlog past the cutoff. Lifecycle/execution deadlines
+        remain checked on every iteration, even while draining timely frames.
+        """
+
         publications: tuple[tuple[SamplePayload, object], ...] = ()
-        while True:
-            self.raise_if_interrupted()
-            self._wake.clear()
-            inbound = self._next_message()
-            if inbound is not None:
-                self._metrics.received(timestamp=inbound.received_at_s)
-                if self._consume_quarantined(inbound.message):
-                    continue
-                progress = transaction.consume(inbound.message)
-                if not progress.matched:
-                    if generation is not None:
-                        self._publish_report(
-                            inbound,
-                            capabilities=capabilities,
-                            generation=generation,
-                        )
-                    continue
-                payloads = progress.publications
-                if isinstance(progress.result, SamplePayload):
-                    payloads += (progress.result,)
-                publications += self._publish(
-                    _deduplicate_payloads(payloads),
-                    generation=generation,
-                )
-                if progress.complete:
-                    return progress, publications
-                continue
-            remaining = deadline_s - self._clock.monotonic()
-            if remaining <= 0:
+        expired_inbound: InboundMessage | None = None
+        try:
+            while True:
                 self.raise_if_interrupted()
-                raise ResponseTimeoutError(
-                    transaction.key,
-                    response_timeout_s=response_timeout_s,
-                    late_response_guard_s=transaction.late_response_guard_s,
+                self._wake.clear()
+                inbound = first_inbound
+                first_inbound = None
+                if inbound is None:
+                    inbound = self._next_message()
+                remaining = deadline_s - self._clock.monotonic()
+                if (inbound is not None and inbound.received_at_s >= deadline_s) or (
+                    inbound is None and remaining <= 0
+                ):
+                    expired_inbound = inbound
+                    self.raise_if_interrupted()
+                    raise ResponseTimeoutError(
+                        transaction.key,
+                        response_timeout_s=response_timeout_s,
+                        late_response_guard_s=transaction.late_response_guard_s,
+                    )
+                if inbound is not None:
+                    self._metrics.received(timestamp=inbound.received_at_s)
+                    if self._consume_quarantined(inbound.message):
+                        continue
+                    if inbound.received_at_s < not_before_s:
+                        self._publish_report(
+                            inbound, capabilities=capabilities, generation=generation
+                        )
+                        continue
+                    progress = transaction.consume(inbound.message)
+                    if not progress.matched:
+                        if generation is not None:
+                            self._publish_report(
+                                inbound,
+                                capabilities=capabilities,
+                                generation=generation,
+                            )
+                        continue
+                    payloads = progress.publications
+                    if isinstance(progress.result, SamplePayload):
+                        payloads += (progress.result,)
+                    publications += self._publish(
+                        _deduplicate_payloads(payloads),
+                        generation=generation,
+                    )
+                    if progress.complete:
+                        return progress, publications
+                    continue
+                self.raise_if_interrupted()
+                self._clock.wait(self._wake, remaining)
+        except TimeoutError:
+            if transaction.late_response_guard_s > 0:
+                self._quarantined[transaction.correlation_key] = (
+                    _QuarantinedTransaction(
+                        transaction=transaction,
+                        deadline_at_s=(
+                            self._clock.monotonic() + transaction.late_response_guard_s
+                        ),
+                    )
                 )
-            self.raise_if_interrupted()
-            self._clock.wait(self._wake, remaining)
+            if expired_inbound is not None:
+                # The cutoff frame was already popped. Give it to quarantine
+                # first, preserving unrelated reports without completing this
+                # expired transaction or hiding its timeout behind a parser error.
+                try:
+                    self.process_unsolicited(
+                        expired_inbound,
+                        capabilities=capabilities,
+                        generation=generation,
+                    )
+                except Exception as error:  # noqa: BLE001 - expired report boundary
+                    self._report_error(error)
+            raise
 
     def _publish(
         self,
