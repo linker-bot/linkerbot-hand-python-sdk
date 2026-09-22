@@ -153,7 +153,7 @@ candidate = report.require_one()
 hand = candidate.create_hand_device()
 ```
 
-`discover_hands()` 默认只读取处于 `UP` 状态的 SocketCAN 接口，不修改接口配置；探测只读身份，不启动轮询或发送运动、清错、标定命令。多个设备、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`；左右手同时在线时会返回两个候选，`require_one()` 抛 `AmbiguousHandError`。完整协议顺序和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
+`discover_hands()` 默认只读取处于 `UP` 状态的 SocketCAN 接口，不修改接口配置；探测只读身份，不启动轮询或发送运动、清错、标定命令。当前维护范围为一通道一只手，多只手使用不同接口。多个候选、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`。完整协议顺序和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
 
 已知型号和接口时仍可直接构造统一设备类：
 

@@ -11,6 +11,8 @@ O20、L30 和 O30 使用 CAN FD。当前 capability：
 协议 profile 负责 CAN ID、标准/扩展帧、FD 和 BRS 标志。应用只选择物理 transport，
 不再传旧型号类的 `frame_type`、`node_id`、`host_id` 或 manager 参数。
 
+当前维护范围为一通道一只手；多只手使用不同 CAN FD 接口。
+
 ## Linux SocketCAN FD
 
 安装工具：
@@ -101,7 +103,8 @@ transport 和 `HandDevice` 构造都不触碰网络接口。默认
 `auto_reconfigure=False`；`open()` 会使用当前系统配置。只有确认当前进程独占接口且具备
 `CAP_NET_ADMIN` 时才启用自动配置。
 
-同一 SocketCAN 接口不能在同一进程中以冲突的 bitrate/data_bitrate 配置打开。O30 使用 BRS off，数据段恒等于标称速率、接口 dbitrate 不生效，因此 O30 能直接接在 O20/L30 所用的 1M/5M 总线上（这也是推荐 5 Mbit/s 的原因）；其余型号仍需让接口 data_bitrate 与各自 capability 对齐。
+O30 使用 BRS off，数据段恒等于标称速率，接口 dbitrate 不影响 O30 帧的传输速率；
+O20/L30 则需让接口 data_bitrate 与各自 capability 对齐。
 
 ## 厂商 CAN FD backend
 
@@ -119,26 +122,6 @@ transport = CANFDTransport(
 
 厂商 backend 参数只属于 transport。`HandDevice` 构造、生命周期、命令和状态 API 与
 SocketCAN 完全一致。
-
-## 多设备共享
-
-同一物理 CAN FD 配置下的多个设备应复用同一个 transport 对象。共享 runtime 统一串行化
-发送、路由回复并执行公平调度；每个设备不能各自创建 RX/TX 线程并直接写总线。
-
-应用需要同时控制多个设备时，分别创建 `HandDevice`，但传入同一个 transport：
-
-```python
-transport = SocketCANFDTransport(
-    "can0",
-    bitrate=1_000_000,
-    data_bitrate=5_000_000,
-)
-o20 = HandDevice(model="o20", side="right", transport=transport)
-l30 = HandDevice(model="l30", transport=transport)
-```
-
-是否能把两个具体设备接在同一物理线上，仍需同时满足协议地址不冲突、终端电阻、供电和设备
-固件约束。
 
 ## 监控和故障处理
 

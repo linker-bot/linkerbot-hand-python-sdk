@@ -4,6 +4,8 @@ L6、O6、L20Lite 和 L20 使用经典 CAN，当前 profile 要求 1 Mbit/s。�
 由 `linkerbot-hand` 管理，物理连接、收发、路由和发送回执由
 `linkerbot-transport` 管理。
 
+当前维护范围为一通道一只手；多只手使用不同 CAN 接口。
+
 ## Linux SocketCAN 配置
 
 安装工具：
@@ -46,31 +48,6 @@ hand = HandDevice(
 
 有左右手的型号必须传 `left` 或 `right`。profile 根据 side 选择协议 endpoint；应用不应
 自行硬编码 CAN ID。
-
-## 同一总线多个设备
-
-同一进程、同一物理总线上的设备应复用同一个 transport 描述：
-
-```python
-transport = CANTransport("can0")
-
-left = HandDevice(model="l6", side="left", transport=transport)
-right = HandDevice(model="o6", side="right", transport=transport)
-
-left.open()
-right.open()
-try:
-    ...
-finally:
-    right.close()
-    left.close()
-```
-
-`linkerbot-transport` 对同一物理 key 只建立一个共享 runtime、一个 RX owner 和一个 TX
-arbiter。每个 `HandDevice` 仍有独立协议 route、命令调度、轮询计划、缓存和连接代次。
-
-同一接口配置不一致时应失败，不能让“先打开者”的参数静默覆盖后续设备。不同进程无法共享
-内存仲裁器；同一总线的多个 ROS 节点应运行在同一进程或 component container。
 
 ## 其他 python-can backend
 

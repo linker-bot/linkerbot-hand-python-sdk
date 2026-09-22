@@ -4,6 +4,8 @@
 构造 `HandDevice` 都不会扫描总线。默认发现源读取 Linux 中处于 `UP` 状态的 SocketCAN
 接口，不执行 `ip link set`，不改变 bitrate、data bitrate、CAN/CAN FD 模式或接口状态。
 
+当前维护范围为一通道一只手；多只手使用不同 CAN/CAN FD 接口。
+
 ## 基本调用
 
 ```python
@@ -98,20 +100,23 @@ SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 | 接口正常但无设备应答 | 空 | 抛 `NoHandFoundError` |
 | 接口打不开 | 空，原因在 `failures` | 抛 `NoHandFoundError` |
 
-`require_one()` 是**唯一性断言**，不是创建入口：它只在候选恰好一个时返回，绝不静默挑选。因此多设备场景不要用它，直接遍历：
+`require_one()` 是**唯一性断言**，不是创建入口：它只在候选恰好一个时返回，绝不静默挑选。
+多接口使用时，按已知接线逐个接口扫描并校验唯一候选。下面只构造设备，随后由应用显式
+管理 `open()` / `close()`：
 
 ```python
-report = discover_hands()
+from linkerbot_hand import DiscoveryConfig, discover_hands
 
-hands = {
-    candidate.channel.name: candidate.create_hand_device()
-    for candidate in report.verified_candidates
-}
-for name, hand in hands.items():
-    hand.open()
+hands = []
+for channel in ("can0", "can1"):
+    report = discover_hands(DiscoveryConfig(channels=(channel,)))
+    candidate = report.require_one()
+    hands.append(candidate.create_hand_device())
 ```
 
-`verified_candidates` 会自动排除身份不完整的端点；想知道有没有半残设备，再看 `report.partial_candidates` 与 `report.failures`。
+任一接口无候选、候选不完整或有多个候选时，示例会报错，不覆盖或任选设备。
+`verified_candidates` 可用于查看完整身份记录；不完整身份和接口错误分别查看
+`report.partial_candidates` 与 `report.failures`。
 
 ## 候选里要用的四样信息
 
@@ -207,8 +212,6 @@ hand = candidate.create_hand_device()
 ```
 
 不要写死 `side`：候选已有 `side` 时传入不同值会抛 `ValidationError`，写死 `side="right"` 的代码遇到左手 O30 会直接失败。若确实要显式传，必须与发现结果一致。
-
-左右手同时挂在同一总线时，两个端点都会返回候选，`report.require_one()` 会抛 `AmbiguousHandError`；此时按 `candidate.side` 或 `candidate.address` 从 `report.candidates` 中自行选择。
 
 只有固件未提供左右手字段时，O30 候选才会带 `missing_side` 问题、`side` 为 `None`，这种情况需要在确认实物后显式传入：
 
