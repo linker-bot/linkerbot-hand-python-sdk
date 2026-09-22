@@ -186,6 +186,9 @@ class ProtocolTransaction:
     firmware_optional: bool = False
     pre_dispatch_delay_s: float = 0.0
     post_dispatch_delay_s: float = 0.0
+    # Optional failure drain for protocols whose setting echoes share read
+    # opcodes. It must never publish; complete=True may end the guard early.
+    late_response_consumer: ResponseConsumer | None = None
 
     def __post_init__(self) -> None:
         _require_hashable(self.key, "transaction key")
@@ -203,6 +206,13 @@ class ProtocolTransaction:
             _finite_non_negative(getattr(self, name), name)
         if self.response_consumer is not None and not callable(self.response_consumer):
             raise ValidationError("response_consumer must be callable or None")
+        if self.late_response_consumer is not None:
+            if not callable(self.late_response_consumer):
+                raise ValidationError("late_response_consumer must be callable or None")
+            if self.response_consumer is None or self.late_response_guard_s <= 0:
+                raise ValidationError(
+                    "late_response_consumer requires a response and a positive guard"
+                )
         if self.response_consumer is not None and self.response_timeout_s <= 0:
             raise ValidationError("response transactions need a positive timeout")
         if not isinstance(self.response_acknowledges_command, bool):

@@ -19,6 +19,7 @@ from .codec import (
     TELEMETRY_LAYOUTS,
     decode_fault_statuses,
 )
+from .feedback import SETTING_FEEDBACK, setting_feedback_transaction
 from .identity import l20lite_identity_transaction
 from .stall import stall_transaction
 
@@ -51,7 +52,9 @@ class L20LiteProtocolBackend(ClassicMultiAxisBackend):
         values: tuple[RawNumber, ...],
         capabilities: DeviceCapabilities,
     ) -> ProtocolTransaction:
-        """Retain acceleration and stall values from complete write responses."""
+        """Retain setting values separately from same-opcode measurements."""
+        if semantic in SETTING_FEEDBACK:
+            return setting_feedback_transaction(semantic, values, capabilities)
         if semantic is CommandSemantic.ACCELERATIONS:
             return acceleration_transaction(values, capabilities)
         if semantic in STALL_COMMANDS:

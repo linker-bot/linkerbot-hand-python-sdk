@@ -172,7 +172,6 @@ def test_l20_family_queries_return_measurements_not_configuration(model: str) ->
     assert measured is not None
     assert measured.device_measured
     assert measured.device_queried
-    assert capabilities.telemetry_channel(TelemetrySemantic.CONFIGURED_SPEEDS) is None
 
     current = capabilities.telemetry_channel(TelemetrySemantic.CURRENTS)
     assert current is not None
@@ -180,8 +179,18 @@ def test_l20_family_queries_return_measurements_not_configuration(model: str) ->
     assert current.device_queried
     assert current.raw_unit == "count"
     assert "real-time" in (current.raw_scale_note or "")
-    assert capabilities.telemetry_channel(TelemetrySemantic.CURRENT_LIMITS) is None
     assert capabilities.command(CommandSemantic.CURRENT_LIMITS) is not None
+    for semantic in (
+        TelemetrySemantic.CONFIGURED_SPEEDS,
+        TelemetrySemantic.CURRENT_LIMITS,
+    ):
+        channel = capabilities.telemetry_channel(semantic)
+        if model == "l20":
+            assert channel is None
+        else:
+            assert channel is not None
+            assert channel.read_mode is ReadMode.COMMAND_RESPONSE
+            assert not channel.device_queried and not channel.device_measured
 
 
 @pytest.mark.parametrize("model", ("l20lite", "l20"))

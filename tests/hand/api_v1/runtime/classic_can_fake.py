@@ -25,6 +25,7 @@ class ClassicCANDeviceScript:
     product_code: str
     firmware: tuple[int, int, int]
     readings: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    settings: dict[int, tuple[int, ...]] = field(default_factory=dict)
     sent_payloads: list[bytes] = field(default_factory=list)
     command_payloads: list[bytes] = field(default_factory=list)
     read_counts: Counter[int] = field(default_factory=Counter)
@@ -115,10 +116,13 @@ class ClassicCANDeviceScript:
         if len(data) > 1 and data[0] in self.readings:
             self.command_payloads.append(data)
             previous = self.readings[data[0]]
+            setting_only = self.model == "L20Lite" and data[0] in (2, 3, 5, 6)
+            if setting_only:
+                self.settings[data[0]] = tuple(data[1:])
             if self.model == "L20" and data[0] in range(0x59, 0x5E):
                 self.readings[data[0]] = (0,) * 6
-            elif self.model != "O6" or data[0] != 0x02:
-                # An O6 limit write does not replace its measured current.
+            elif not setting_only and (self.model != "O6" or data[0] != 0x02):
+                # Limit/target writes do not replace actual measured values.
                 self.readings[data[0]] = tuple(data[1:])
             angle_opcodes = (
                 {0x01}
@@ -132,13 +136,15 @@ class ClassicCANDeviceScript:
                 if self.model == "L6"
                 else {0x02, 0x05, 0x87, 0xC5, 0xC6, 0xC7}
                 if self.model == "O6"
+                else {0x02, 0x03, 0x05, 0x06}
+                if self.model == "L20Lite"
                 else set()
             )
             echo_opcodes = angle_opcodes | config_echo_opcodes
             if data[0] in echo_opcodes:
                 if data[0] in self.dropped_command_responses:
                     return ()
-                if self.model == "O6" and data[0] == 0x02:
+                if setting_only or (self.model == "O6" and data[0] == 0x02):
                     response_values = tuple(data[1:])
                 elif self.model == "L6" and data[0] in (0x03, 0x06, 0x07, 0x08):
                     response_values = previous

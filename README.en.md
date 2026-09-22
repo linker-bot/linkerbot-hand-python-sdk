@@ -268,8 +268,11 @@ print(angles.physical_rad)  # None where no physical calibration exists
 
 Configured speed, measured speed, current limits, measured current, torque limits,
 and torque data are separate channels. Use `get_currents()` and
-`set_current_limits()` for current; `get_current_limits()` is available only where
-limit readback is supported (not on L20/L20Lite). O30 also provides independent
+`set_current_limits()` for current. L20 has no limit-configuration getter;
+L20Lite exposes `get_current_limits()` and `get_configured_speeds()` as
+`COMMAND_RESPONSE` caches of complete write echoes from this connection, without
+sending queries. Its setting commands finish as `ACKNOWLEDGED` only after both
+groups reply; live current/speed queries remain separate. O30 also provides independent
 `get_torques()` and `set/get_torques_limits()` methods. Values remain protocol raw;
 units and scale notes come from capabilities, without implicit conversion. Check
 `capabilities.command(...)` and `capabilities.telemetry_channel(...)` before

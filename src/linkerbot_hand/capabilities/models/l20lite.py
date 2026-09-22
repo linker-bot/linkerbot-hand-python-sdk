@@ -176,6 +176,7 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_unit="count",
                 raw_scale_note="raw speed setting; physical scale is unverified",
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
             command(
                 CommandSemantic.ACCELERATIONS,
@@ -195,10 +196,36 @@ def declared_capabilities(side: HandSide) -> DeviceCapabilities:
                 raw_unit="count",
                 raw_scale_note=("raw current limit; physical scale is unverified"),
                 unit_confidence=Confidence.UNKNOWN,
+                ack_support=AckSupport.SUPPORTED,
             ),
         ),
         telemetry=(
             *stall_telemetry(stall),
+            *(
+                telemetry(
+                    semantic,
+                    names,
+                    "u8",
+                    shape=(10,),
+                    raw_range=U8_RANGE,
+                    raw_unit="count",
+                    raw_scale_note=(
+                        f"{label}: latest complete write echo, not a live measurement; "
+                        "no active configuration query; physical scale unverified"
+                    ),
+                    unit_confidence=Confidence.UNKNOWN,
+                    read_mode=ReadMode.COMMAND_RESPONSE,
+                    device_queried=False,
+                    device_measured=False,
+                    recommended_hz=0,
+                    stale_after_s=3,
+                    estimated_transaction_s=0,
+                )
+                for semantic, label in (
+                    (TelemetrySemantic.CONFIGURED_SPEEDS, "0x05/0x06 speed setting"),
+                    (TelemetrySemantic.CURRENT_LIMITS, "0x02/0x03 current limit"),
+                )
+            ),
             telemetry(
                 TelemetrySemantic.CONFIGURED_ACCELERATIONS,
                 names,

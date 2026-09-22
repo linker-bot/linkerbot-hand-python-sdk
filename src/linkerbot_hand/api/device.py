@@ -182,7 +182,7 @@ class HandDevice(_DeviceCore):
         )
 
     def get_current_limits(self, timeout: float) -> CurrentLimitSample:
-        """Actively read current-limit protocol values."""
+        """Read current limits, or the latest complete write echo when declared."""
 
         return self._read(
             TelemetrySemantic.CURRENT_LIMITS,

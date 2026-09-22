@@ -8,7 +8,13 @@ from dataclasses import dataclass
 
 from linkerbot_transport import SendOutcome, SendReceipt
 
-from ..api.errors import ClosedError, DeviceNotReadyError, ProtocolError, TimeoutError
+from ..api.errors import (
+    ClosedError,
+    DeviceNotReadyError,
+    ProtocolError,
+    TimeoutError,
+    ValidationError,
+)
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import (
     IdentityResult,
@@ -440,6 +446,14 @@ class TransactionRunner:
                 sent_frames,
             )
         except BaseException as error:
+            if (
+                sent_frames
+                and transaction.late_response_consumer is not None
+                and isinstance(error, ProtocolError)
+            ):
+                # Some write echoes share opcodes with reads. A parse failure
+                # does not mean the device has stopped sending the other groups.
+                self._quarantine_failed_response(transaction)
             _record_sent_frames(error, sent_frames)
             raise
 
@@ -626,15 +640,7 @@ class TransactionRunner:
                 self.raise_if_interrupted()
                 self._clock.wait(self._wake, remaining)
         except TimeoutError:
-            if transaction.late_response_guard_s > 0:
-                self._quarantined[transaction.correlation_key] = (
-                    _QuarantinedTransaction(
-                        transaction=transaction,
-                        deadline_at_s=(
-                            self._clock.monotonic() + transaction.late_response_guard_s
-                        ),
-                    )
-                )
+            self._quarantine_failed_response(transaction)
             if expired_inbound is not None:
                 # The cutoff frame was already popped. Give it to quarantine
                 # first, preserving unrelated reports without completing this
@@ -648,6 +654,15 @@ class TransactionRunner:
                 except Exception as error:  # noqa: BLE001 - expired report boundary
                     self._report_error(error)
             raise
+
+    def _quarantine_failed_response(self, transaction: ProtocolTransaction) -> None:
+        if transaction.late_response_guard_s > 0:
+            self._quarantined[transaction.correlation_key] = _QuarantinedTransaction(
+                transaction=transaction,
+                deadline_at_s=(
+                    self._clock.monotonic() + transaction.late_response_guard_s
+                ),
+            )
 
     def _publish(
         self,
@@ -750,7 +765,16 @@ class TransactionRunner:
                 del self._quarantined[correlation_key]
                 continue
             try:
-                progress = quarantined.transaction.consume(message)
+                consumer = quarantined.transaction.late_response_consumer
+                progress = (
+                    quarantined.transaction.consume(message)
+                    if consumer is None
+                    else consumer(message)
+                )
+                if not isinstance(progress, ResponseProgress):
+                    raise ValidationError(
+                        "late_response_consumer must return ResponseProgress"
+                    )
             except Exception as error:  # noqa: BLE001 - quarantine parse boundary
                 # A quarantined transaction's parse failure must never be
                 # attributed to whichever transaction is in flight now — the

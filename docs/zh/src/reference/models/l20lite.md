@@ -41,10 +41,12 @@
 | --- | --- | --- |
 | `set_angles(values)` | `01` 六值 + `04` 四值 | `u8`，0..255 count；写回复为当前角度，来源 `DEVICE_COMMAND_FEEDBACK`；`returns_current_state=True`；`DISPATCHED` 不等于机械到位 |
 | `set_percent_angles(values)` | 十维 0..100 固定映射到上述原值 | 无 LUT；0%=raw 0，100%=raw 255。侧摆/旋转轴方向查 `percent_mapping`，不要把全部 255 当作通用张开姿态 |
-| `set_speeds(values)` | `05/06`，各五值 | 0..255 count，物理比例未知；SDK 终态 `DISPATCHED`，不验证写回显，不发布为配置读取值 |
+| `set_speeds(values)` | `05/06`，各五值 | 0..255 count，物理比例未知；收齐有效写回复后 `ACKNOWLEDGED`，实际回值保存为配置样本 |
+| `get_configured_speeds(timeout)` | 不发 CAN 请求 | 本次连接内最近完整写回显，来源 `DEVICE_CONFIG_RESPONSE`；不是实时速度 |
 | `set_accelerations(values)` | `87/88`，各五值、DLC=6 | 写入十个 0..254 count；收齐有效回复后 `ACKNOWLEDGED`，保留设备实际返回值，物理比例未知 |
 | `get_configured_accelerations(timeout)` | 不发 CAN 请求 | `ConfiguredAccelerationSample`；本次连接内最近完整确认的写回显，来源 `DEVICE_CONFIG_RESPONSE`，不是实时加速度 |
-| `set_current_limits(values)` | `02/03`，各五值 | 电流限制原始 count，比例未知；`DISPATCHED` |
+| `set_current_limits(values)` | `02/03`，各五值 | 电流限制原始 count，比例未知；收齐有效写回复后 `ACKNOWLEDGED` |
+| `get_current_limits(timeout)` | 不发 CAN 请求 | 本次连接内最近完整写回显，来源 `DEVICE_CONFIG_RESPONSE`；不是实时电流 |
 | `get_angles(timeout)` | 单字节 `01/04` | 十个原始角度 count；来源 `DEVICE_RESPONSE` |
 | `get_speeds(timeout)` | 单字节 `05/06` | 十个实时速度原值；不是速度设定回读，比例未知 |
 | `get_currents(timeout)` | 单字节 `02/03` | 十个实时电流原始 count，`DEVICE_RESPONSE`；不等于限制设定值，不自动换算成 mA |
@@ -65,12 +67,34 @@
 `telemetry_channel(...).raw_unit/raw_scale_note/unit_confidence` 查询。角度样本附带固定
 百分比投影，但 `raw` 仍是设备原值；无已确认物理映射时 `physical_rad` 为 `None`。
 
-本型号未声明 `get_configured_speeds()`、`set_percent_speeds()`、`get_current_limits()`、转矩读写、
+本型号未声明 `set_percent_speeds()`、转矩读写、
 限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
 L20Lite 没有清除错误码命令，`35/36` 仅用于查询。SDK 不发送猜测的清错帧。
 电流查询使用 `PollingPlan(current_hz=...)`，样本在 `snapshot.currents`；
-没有限制配置回读，不能用实时电流恢复原配置。
+没有主动限制配置查询，不能用实时电流恢复原配置。
+
+## 速度和电流限制的写回显
+
+`05/06` 和 `02/03` 的写回复分别表示速度设定和电流限制；同功能码的裸查询回复却表示
+实时速度和实时电流。SDK 将两组完整写回显保存到 `snapshot.configured_speeds` 或
+`snapshot.current_limits`，不更新 `snapshot.measured_speeds` / `snapshot.currents`。
+`get_configured_speeds()` / `get_current_limits()` 的能力为 `COMMAND_RESPONSE`，仅返回
+本次连接内的完整确认样本，不发查询、不加入基线或轮询；尚无样本时报告
+`UnsupportedOperationError`，恢复连接会清空样本且不重放设置。
+
+这两类设置的成功终态现在为 `ACKNOWLEDGED`；`DISPATCHED` 只表示两个请求均已发送。
+SDK 透传设备实际回值，不要求与发送值相等，也不由目标值构造样本。
+缺组、错误长度或冲突重复回复使命令失败，保留上次完整配置样本；设备可能已经应用
+部分设置，旧样本不能证明当前完整配置。SDK 不自动重试、补零、回滚或保存 Flash。
+
+失败后的同功能码读写先经过 100 ms 固定迟到隔离，再允许下一事务发送；该窗口中的
+残片、畸形回复和冲突重复帧只丢弃，不发布、不提前结束隔离，也不会延长隔离窗口。
+正常完整回显不增加隔离等待，不增加 CAN 请求。响应等待本身为 100 ms，独立于这段
+失败后的隔离时间；getter 调用者的等待超时也独立计算。
+协议没有请求序号，无法区分超出隔离窗口后才到达、并与新查询重叠的旧回复；不承诺
+任意延迟下绝不混淆。该隔离时长是 SDK 有界策略，不是已验证的固件最大延迟。
+本次用设定值和实测值不同的模拟设备覆盖延迟、缺组、畸形和乱序，未进行实机写入。
 
 故障样本 `sample.raw` 保留十关节原始字节；`sample.statuses` 按同一顺序返回
 `L20LiteFaultStatus`。可读取 `load_overload`（负载过载）、`over_current`（过流）、

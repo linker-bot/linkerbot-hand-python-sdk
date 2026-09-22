@@ -1027,7 +1027,10 @@ def test_read_without_target_publication_accumulates_like_a_timeout() -> None:
         hand.close()
 
 
-def test_quarantined_parse_failure_is_not_attributed_to_the_next_transaction() -> None:
+@pytest.mark.parametrize("failure", ("raise", "none", "false"))
+def test_quarantined_parse_failure_is_not_attributed_to_the_next_transaction(
+    failure,
+) -> None:
     hand, state, transport = make_hand()
     backend = transport.backends["fake-hand"]
     original_read_transaction = backend.read_transaction
@@ -1046,7 +1049,14 @@ def test_quarantined_parse_failure_is_not_attributed_to_the_next_transaction() -
                 raise ProtocolError("quarantined assembler rejected a late frame")
             return transaction.consume(message)
 
-        return replace(transaction, response_consumer=consume)
+        if failure == "raise":
+            return replace(transaction, response_consumer=consume)
+        # An optional drain is still a codec boundary. Its invalid return must
+        # be reported on the quarantined operation, not on the following read.
+        return replace(
+            transaction,
+            late_response_consumer=lambda _: None if failure == "none" else False,
+        )
 
     backend.read_transaction = read_transaction  # ty: ignore[invalid-assignment]
     hand.open()

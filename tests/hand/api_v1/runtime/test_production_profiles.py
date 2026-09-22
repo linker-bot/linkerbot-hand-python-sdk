@@ -901,34 +901,46 @@ def test_extended_classic_profiles_open_and_control_multi_frame_objects(
         assert snapshot.faults is not None and snapshot.faults.meta.valid
         assert snapshot.currents is not None
         assert snapshot.currents.raw == (80,) * joint_count
-        assert snapshot.current_limits is None
+        if model == "L20Lite":
+            assert not snapshot.current_limits.meta.valid
+        else:
+            assert snapshot.current_limits is None
 
         values = tuple(range(joint_count))
         angles = hand.set_angles(values)
         assert angles.wait(timeout=1) is CommandStage.DISPATCHED
         speeds = hand.set_speeds((70,) * joint_count)
-        assert speeds.wait(timeout=1) is CommandStage.DISPATCHED
-        # The protocol returns the live speed for a bare query, so this is an
-        # actual device reading rather than a configuration echo. The fake
-        # replays the last written value because it does not simulate motion;
-        # what this asserts is the semantic and the origin.
+        terminal = (
+            CommandStage.ACKNOWLEDGED if model == "L20Lite" else CommandStage.DISPATCHED
+        )
+        assert speeds.wait(timeout=1) is terminal
+        # L20Lite's fake keeps measurements independent of setting echoes.
         measured = hand.get_speeds(timeout=0.2)
 
-        assert measured.raw == (70,) * joint_count
+        assert measured.raw == ((90,) if model == "L20Lite" else (70,)) * joint_count
         assert measured.meta.origin is DataOrigin.DEVICE_RESPONSE
-        with pytest.raises(UnsupportedOperationError):
-            hand.get_configured_speeds(timeout=0.2)
+        if model == "L20Lite":
+            assert hand.get_configured_speeds(timeout=0.2).raw == (70,) * joint_count
+        else:
+            with pytest.raises(UnsupportedOperationError):
+                hand.get_configured_speeds(timeout=0.2)
         sent_before = len(transport.script.sent_payloads)
         with pytest.raises(UnsupportedOperationError):
             hand.get_current_limits(timeout=0.2)
         assert len(transport.script.sent_payloads) == sent_before
         current_limit = hand.set_current_limits((60,) * joint_count)
-        assert current_limit.wait(1) is CommandStage.DISPATCHED
+        assert current_limit.wait(1) is terminal
         currents = hand.get_currents(timeout=0.2)
-        assert currents.raw == (60,) * joint_count
+        expected_current = 80 if model == "L20Lite" else 60
+        assert currents.raw == (expected_current,) * joint_count
         assert currents.meta.origin is DataOrigin.DEVICE_RESPONSE
-        assert hand.get_snapshot().current_limits is None
-        assert all(j.current_raw == 60 for j in hand.get_snapshot().joints)
+        if model == "L20Lite":
+            assert hand.get_current_limits(timeout=0.2).raw == (60,) * joint_count
+        else:
+            assert hand.get_snapshot().current_limits is None
+        assert all(
+            j.current_raw == expected_current for j in hand.get_snapshot().joints
+        )
         opcodes = (0x02, 0x03) if model == "L20Lite" else tuple(range(0x51, 0x56))
         before = transport.script.read_counts[opcodes[0]]
         hand.start_polling(PollingPlan(current_hz=20))
