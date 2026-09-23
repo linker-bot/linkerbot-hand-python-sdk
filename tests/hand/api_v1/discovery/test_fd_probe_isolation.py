@@ -6,6 +6,10 @@ import pytest
 
 from linkerbot_hand import TransportKind, discover_hands
 from linkerbot_transport import SendReceipt, TransportState
+from tests.hand.api_v1.runtime.l30_canfd_fake import (
+    L30DeviceScript,
+    ScriptedL30Transport,
+)
 from tests.hand.api_v1.runtime.o30_canfd_fake import (
     O30DeviceScript,
     ScriptedO30Transport,
@@ -82,8 +86,7 @@ def test_model_failure_keeps_later_o30_probe(fail_o20, fail_l30, failed_receipt)
     expected = []
     if fail_o20:
         expected.append("probe_o20_identity")
-    if fail_l30:
-        expected.append("probe_l30_identity")
+    # O30 is now checked before L30; a verified single-hand channel stops here.
     assert [failure.operation for failure in report.failures] == expected
     assert all(failure.error_type == "ValueError" for failure in report.failures)
     assert transport.get_health().state is TransportState.CLOSED
@@ -110,3 +113,41 @@ def test_closed_link_after_non_transport_exception_is_still_stopped():
     assert not report.candidates
     assert len(transport.attempts) == 1
     assert len(report.failures) == 1
+
+
+@pytest.mark.parametrize("failed_receipt", [False, True])
+def test_o20_and_o30_send_failures_keep_l30_probe(failed_receipt):
+    class L30OnlyTransport(ScriptedL30Transport):
+        def send(self, message):
+            # Real L30 request IDs are above 0x600000; O20 and O30 requests
+            # are independently rejected while the adapter stays healthy.
+            if message.arbitration_id < 0x600000:
+                error = ValueError("model-specific request rejected")
+                if failed_receipt:
+                    return SendReceipt.failed(error)
+                raise error
+            return super().send(message)
+
+    transport = L30OnlyTransport(L30DeviceScript())
+    report = run(transport)
+    assert report.require_one().model == "L30"
+    assert [f.operation for f in report.failures] == [
+        "probe_o20_identity",
+        "probe_o30_identity",
+    ]
+    assert transport.get_health().state is TransportState.CLOSED
+
+
+def test_fatal_error_during_full_o30_identity_stops_other_addresses():
+    class LostO30Transport(ScriptedO30Transport):
+        def send(self, message):
+            if not message.is_extended_id and message.data[:2] == b"\x41\x10":
+                return SendReceipt.failed(OSError(errno.ENODEV, "adapter unplugged"))
+            return super().send(message)
+
+    transport = LostO30Transport(O30DeviceScript())
+    report = run(transport)
+    assert not report.verified_candidates
+    assert [f.operation for f in report.failures] == ["probe_o30_identity"]
+    assert not any(message.arbitration_id == 2 for message in transport.sent)
+    assert transport.get_health().state is TransportState.CLOSED

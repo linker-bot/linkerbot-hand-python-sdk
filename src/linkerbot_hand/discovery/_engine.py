@@ -5,7 +5,9 @@ from __future__ import annotations
 import errno
 import time
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import replace
+from functools import partial
 from typing import cast
 
 import can
@@ -20,10 +22,17 @@ from linkerbot_transport import (
 from linkerbot_transport import ClosedError as TransportClosedError
 from linkerbot_transport import DeviceNotReadyError as TransportNotReadyError
 from linkerbot_transport import TimeoutError as RxTimeout
+from linkerbot_transport import UnsupportedOperationError as TransportUnsupportedError
+from linkerbot_transport import ValidationError as TransportValidationError
 from linkerbot_transport.canfd import CANFDMessage
 
 from ..api.enums import HandSide, TransportKind
-from ..api.errors import HandError, IdentityMismatchError, ProtocolError
+from ..api.errors import (
+    HandError,
+    IdentityMismatchError,
+    ProtocolError,
+    ValidationError,
+)
 from ..capabilities.registry import get_declared_capabilities
 from ..protocols.base import IdentityResult, ProtocolTransaction
 from ..protocols.common.classic_can import (
@@ -36,6 +45,7 @@ from ..protocols.common.classic_can import (
 )
 from ..protocols.l30.codec import PARENT_CONFIG, SUB_DEVICE_INFO, SUB_PRODUCT_CODE
 from ..protocols.l30.framing import build_request as build_l30_request
+from ..protocols.l30.framing import parse_can_id as parse_l30_can_id
 from ..protocols.l30.framing import response_route as l30_response_route
 from ..protocols.l30.identity import l30_identity_transaction
 from ..protocols.o20.codec import (
@@ -62,6 +72,7 @@ from ..protocols.o30.framing import (
 )
 from ..protocols.o30.identity import o30_identity_transaction
 from ..protocols.registry import create_protocol_backend
+from . import _budget
 from ._classic_routes import (
     CLASSIC_BROADCAST_ROUTE,
     CLASSIC_DEFAULT_ROUTES,
@@ -81,7 +92,7 @@ from .contracts import (
     TransportSpec,
 )
 from .errors import DiscoveryError
-from .socketcan import SocketCANDiscoverySource
+from .sources import PlatformDiscoverySource, enumerate_source
 
 _CLASSIC_RESPONSE_GUARD_S = 0.02
 
@@ -97,12 +108,6 @@ _CLASSIC_MODELS = {
     "LHL25": "L20",
     "LHG20": "L20",
 }
-
-
-@dataclass(frozen=True, slots=True)
-class _ClassicProbeOutcome:
-    responded: bool
-    failed: bool
 
 
 class _NoResponse(Exception):
@@ -135,16 +140,27 @@ def discover_hands(
         raise DiscoveryError(
             "config must be DiscoveryConfig", operation="discover_hands"
         )
-    resolved_source = SocketCANDiscoverySource() if source is None else source
+    resolved_source = PlatformDiscoverySource() if source is None else source
     if not isinstance(resolved_source, DiscoverySource):
         raise DiscoveryError(
             "source must implement DiscoverySource",
             operation="discover_hands",
         )
     started = time.monotonic()
+    token = _budget.deadline.set(started + resolved_config.total_timeout_s)
     try:
-        channels = resolved_source.list_channels(resolved_config)
-    except DiscoveryError:
+        return _discover(resolved_config, resolved_source, started)
+    finally:
+        _budget.deadline.reset(token)
+
+
+def _discover(
+    resolved_config: DiscoveryConfig, resolved_source: DiscoverySource, started: float
+) -> DiscoveryReport:
+    try:
+        enumeration = enumerate_source(resolved_source, resolved_config)
+        channels = enumeration.channels
+    except (DiscoveryError, ValidationError):
         raise
     except Exception as error:
         raise DiscoveryError(
@@ -160,29 +176,36 @@ def discover_hands(
             operation="discover_hands",
         )
     candidates: list[DiscoveryCandidate] = []
-    failures: list[DiscoveryFailure] = []
+    failures = list(enumeration.failures)
     for channel in channels:
-        classic = _ClassicProbeOutcome(responded=False, failed=False)
-        if _channel_matches_classic(channel):
-            classic = _probe_classic(
-                resolved_source,
-                channel,
-                resolved_config,
-                candidates,
-                failures,
+        if _budget.expired():
+            break
+        for wire in channel.probe_protocols or ():
+            if _budget.expired():
+                break
+            failed = False
+            if wire is TransportKind.CAN and _channel_matches_classic(channel):
+                failed = _probe_classic(
+                    resolved_source, channel, resolved_config, candidates, failures
+                )
+            elif wire is TransportKind.CAN_FD:
+                failed = _probe_can_fd(
+                    resolved_source, channel, resolved_config, candidates, failures
+                )
+            if failed or any(
+                c.channel == channel and c.status is DiscoveryStatus.VERIFIED
+                for c in candidates
+            ):
+                break
+    if _budget.expired() and not any(f.code == "scan_timeout" for f in failures):
+        failures.append(
+            DiscoveryFailure(
+                operation="discover_hands",
+                code="scan_timeout",
+                message="discovery total time budget exhausted; remaining probes were skipped",
+                error_type="TimeoutError",
             )
-        if (
-            channel.kind is TransportKind.CAN_FD
-            and not classic.responded
-            and not classic.failed
-        ):
-            _probe_can_fd(
-                resolved_source,
-                channel,
-                resolved_config,
-                candidates,
-                failures,
-            )
+        )
     return DiscoveryReport(
         channels=channels,
         candidates=tuple(candidates),
@@ -197,13 +220,16 @@ def _probe_classic(
     config: DiscoveryConfig,
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
-) -> _ClassicProbeOutcome:
+) -> bool:
     transport: object | None = None
     failed = False
+    mode_initialization = True
     products: dict[CANRouteKey, DiscoveryCandidate] = {}
     try:
+        _budget.remaining(config.total_timeout_s)
         transport = source.create_transport(channel, TransportKind.CAN)
         _open_transport(transport)
+        mode_initialization = False
         for attempt, request_route in enumerate(
             (CLASSIC_BROADCAST_ROUTE, *CLASSIC_DEFAULT_ROUTES)
         ):
@@ -240,7 +266,10 @@ def _probe_classic(
                 _verify_classic_candidate(transport, product, config, failures)
             )
     except Exception as error:  # noqa: BLE001 - discovery source boundary
-        failed = True
+        # A mode-specific construction/open failure is isolated from the next
+        # explicitly requested wire mode. Once the mode is open, a dead link
+        # still stops the channel and prevents sends on a failed generation.
+        failed = _fatal_link_error(error, transport, initializing=mode_initialization)
         _record_failure(
             failures,
             operation="probe_classic_identity",
@@ -277,8 +306,9 @@ def _probe_classic(
                     error=error,
                     channel=channel,
                     wire_protocol=TransportKind.CAN,
+                    cleanup=partial(_close_transport, transport),
                 )
-    return _ClassicProbeOutcome(responded=bool(products), failed=failed)
+    return failed
 
 
 def _classic_product_candidate(
@@ -418,6 +448,8 @@ def _verify_classic_candidate(
     except _ResponseError as wrapped:
         problem = _problem_from_error(wrapped.error)
     except _TransportProbeError as wrapped:
+        if _fatal_link_error(wrapped, transport):
+            raise
         _record_failure(
             failures,
             operation="verify_classic_identity",
@@ -445,28 +477,25 @@ def _probe_can_fd(
     config: DiscoveryConfig,
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
-) -> None:
+) -> bool:
     compatible_o20 = _channel_matches_model(channel, "O20", HandSide.LEFT)
     compatible_l30 = _channel_matches_model(channel, "L30", None)
     compatible_o30 = _channel_matches_model(channel, "O30", HandSide.LEFT)
     if not any((compatible_o20, compatible_l30, compatible_o30)):
-        return
+        return False
     transport: object | None = None
+    failed = False
+    mode_initialization = True
     try:
+        _budget.remaining(config.total_timeout_s)
         transport = source.create_transport(channel, TransportKind.CAN_FD)
         _open_transport(transport)
+        mode_initialization = False
         probes = (
             (
                 "o20",
                 compatible_o20,
                 lambda: _probe_o20(source, channel, transport, config, candidates),
-            ),
-            (
-                "l30",
-                compatible_l30,
-                lambda: _probe_l30(
-                    source, channel, transport, config, candidates, failures
-                ),
             ),
             (
                 "o30",
@@ -475,11 +504,20 @@ def _probe_can_fd(
                     source, channel, transport, config, candidates, failures
                 ),
             ),
+            (
+                "l30",
+                compatible_l30,
+                lambda: _probe_l30(
+                    source, channel, transport, config, candidates, failures
+                ),
+            ),
         )
         for model, compatible, probe in probes:
+            _budget.remaining(config.total_timeout_s)
             if not compatible:
                 continue
             if not _probe_transport_open(transport):
+                failed = True
                 break
             try:
                 probe()
@@ -491,18 +529,16 @@ def _probe_can_fd(
                     channel=channel,
                     wire_protocol=TransportKind.CAN_FD,
                 )
-                cause = (
-                    error.error if isinstance(error, _TransportProbeError) else error
-                )
-                if isinstance(
-                    cause, (TransportClosedError, TransportNotReadyError)
-                ) or (
-                    isinstance(cause, OSError)
-                    and cause.errno
-                    in {errno.ENETDOWN, errno.ENODEV, errno.EBADF, errno.ENXIO}
-                ):
+                if _fatal_link_error(error, transport):
+                    failed = True
                     break
+            if any(
+                c.channel == channel and c.status is DiscoveryStatus.VERIFIED
+                for c in candidates
+            ):
+                break
     except Exception as error:  # noqa: BLE001 - discovery source boundary
+        failed = _fatal_link_error(error, transport, initializing=mode_initialization)
         _record_failure(
             failures,
             operation="probe_can_fd_identity",
@@ -515,13 +551,61 @@ def _probe_can_fd(
             try:
                 _close_transport(transport)
             except Exception as error:  # noqa: BLE001 - transport boundary
+                failed = True
                 _record_failure(
                     failures,
                     operation="close_can_fd_probe_transport",
                     error=error,
                     channel=channel,
                     wire_protocol=TransportKind.CAN_FD,
+                    cleanup=partial(_close_transport, transport),
                 )
+    return failed
+
+
+def _fatal_link_error(
+    error: Exception, transport: object | None, *, initializing: bool = False
+) -> bool:
+    if not initializing and (transport is None or not _probe_transport_open(transport)):
+        return True
+    cause: BaseException | None = error
+    seen: set[int] = set()
+    mode_error = False
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        if isinstance(cause, (TransportClosedError, TransportNotReadyError)):
+            return True
+        if isinstance(cause, OSError) and cause.errno in {
+            errno.ENETDOWN,
+            errno.ENODEV,
+            errno.EBADF,
+            errno.ENXIO,
+            errno.EBUSY,
+            errno.EACCES,
+            errno.EPERM,
+        }:
+            return True
+        if isinstance(
+            cause,
+            (
+                can.CanInitializationError,
+                can.CanInterfaceNotImplementedError,
+                TransportUnsupportedError,
+                TransportValidationError,
+                ValidationError,
+                NotImplementedError,
+            ),
+        ):
+            mode_error = True
+        cause = (
+            getattr(cause, "error", None)
+            or getattr(cause, "cause", None)
+            or cause.__cause__
+        )
+    # Before open succeeds, CLOSED/FAULTED alone says nothing about the next
+    # wire mode. Allow diagnosed initialization/configuration failures only;
+    # unknown I/O failures remain terminal. The caller still requires cleanup.
+    return initializing and not mode_error
 
 
 def _probe_transport_open(transport: object) -> bool:
@@ -741,6 +825,8 @@ def _probe_l30(
                 )
             )
         except _TransportProbeError as wrapped:
+            if _fatal_link_error(wrapped, transport):
+                raise
             _record_failure(
                 failures,
                 operation="verify_l30_identity",
@@ -928,6 +1014,8 @@ def _probe_o30_endpoint(
             )
         )
     except _TransportProbeError as wrapped:
+        if _fatal_link_error(wrapped, transport):
+            raise
         _record_failure(
             failures,
             operation="verify_o30_identity",
@@ -999,7 +1087,7 @@ def _collect(
     requests: tuple[object, ...],
     config: DiscoveryConfig,
     *,
-    discard_s: float = 0.0,
+    discard_s: float = _CLASSIC_RESPONSE_GUARD_S,
 ) -> tuple[object, ...]:
     subscribe = getattr(transport, "subscribe_routes", None)
     if not callable(subscribe):
@@ -1011,10 +1099,10 @@ def _collect(
     messages: list[object] = []
     try:
         _discard_responses(subscription, discard_s)
-        overflows = subscription.get_health().overflows if discard_s else 0
+        overflows = subscription.get_health().overflows
         results = _send_requests(transport, requests, config)
-        claims = _classic_claim_times(requests, results) if discard_s else {}
-        deadline = time.monotonic() + config.response_timeout_s
+        claims = _claim_times(route_keys, requests, results)
+        deadline = time.monotonic() + _budget.remaining(config.response_timeout_s)
         while True:
             remaining = max(0.0, deadline - time.monotonic())
             if remaining == 0:
@@ -1023,12 +1111,12 @@ def _collect(
                 routed = subscription.receive(timeout_s=remaining)
             except RxTimeout:
                 break
-            if not discard_s or _classic_response_after_claim(
-                routed.message, routed.received_at_s, claims
+            if _response_after_claim(
+                routed.route_key, routed.message, routed.received_at_s, claims
             ):
                 messages.append(routed.message)
-        if discard_s and subscription.get_health().overflows != overflows:
-            raise DiscoveryError("classic discovery receive queue overflowed")
+        if subscription.get_health().overflows != overflows:
+            raise DiscoveryError("discovery receive queue overflowed")
     finally:
         subscription.close()
     return tuple(messages)
@@ -1040,7 +1128,7 @@ def _execute_identity(
     transaction: ProtocolTransaction,
     config: DiscoveryConfig,
     *,
-    discard_s: float = 0.0,
+    discard_s: float = _CLASSIC_RESPONSE_GUARD_S,
 ) -> IdentityResult:
     subscribe = getattr(transport, "subscribe_routes", None)
     if not callable(subscribe):
@@ -1063,7 +1151,7 @@ def _execute_identity(
         except Exception as error:
             raise _TransportProbeError(error) from error
         while current is not None:
-            overflows = subscription.get_health().overflows if discard_s else 0
+            overflows = subscription.get_health().overflows
             try:
                 results = _send_requests(
                     transport,
@@ -1071,21 +1159,17 @@ def _execute_identity(
                     config,
                     minimum_interval_s=current.request_interval_s,
                 )
-                claims = (
-                    _classic_claim_times(current.request_messages, results)
-                    if discard_s
-                    else {}
-                )
+                claims = _claim_times(route_keys, current.request_messages, results)
             except Exception as error:
                 raise _TransportProbeError(error) from error
-            deadline = time.monotonic() + config.response_timeout_s
+            deadline = time.monotonic() + _budget.remaining(config.response_timeout_s)
             complete = False
             # Classic identities have no transaction token. Check the whole
             # response window, including contradictory trailing duplicates.
             while not complete or discard_s:
-                if discard_s and subscription.get_health().overflows != overflows:
+                if subscription.get_health().overflows != overflows:
                     raise _TransportProbeError(
-                        DiscoveryError("classic identity receive queue overflowed")
+                        DiscoveryError("identity receive queue overflowed")
                     )
                 remaining = max(0.0, deadline - time.monotonic())
                 if remaining == 0:
@@ -1098,8 +1182,8 @@ def _execute_identity(
                     if complete:
                         break
                     raise _NoResponse(matched=matched_any) from error
-                if discard_s and not _classic_response_after_claim(
-                    routed.message, routed.received_at_s, claims
+                if not _response_after_claim(
+                    routed.route_key, routed.message, routed.received_at_s, claims
                 ):
                     continue
                 try:
@@ -1132,7 +1216,7 @@ def _discard_responses(
 ) -> None:
     """Drain one bounded late-response window before starting a fresh attempt."""
 
-    deadline = time.monotonic() + duration_s
+    deadline = time.monotonic() + _budget.remaining(duration_s)
     while (remaining := deadline - time.monotonic()) > 0:
         try:
             subscription.receive(timeout_s=remaining)
@@ -1152,8 +1236,9 @@ def _send_requests(
         raise DiscoveryError("probe transport lacks send()")
     results: list[SendResult] = []
     for index, request in enumerate(requests):
+        _budget.remaining(config.send_timeout_s)
         receipt = send(request)
-        result = receipt.result(timeout=config.send_timeout_s)
+        result = receipt.result(timeout=_budget.remaining(config.send_timeout_s))
         if result.outcome is not SendOutcome.DISPATCHED:
             raise DiscoveryError(
                 f"probe send completed as {result.outcome.value}",
@@ -1162,31 +1247,90 @@ def _send_requests(
         results.append(result)
         interval = max(config.inter_request_delay_s, minimum_interval_s)
         if index + 1 < len(requests) and interval:
-            time.sleep(interval)
+            time.sleep(_budget.remaining(interval))
     return tuple(results)
 
 
-def _classic_claim_times(
-    requests: tuple[object, ...], results: tuple[SendResult, ...]
-) -> dict[int, float]:
-    """Retain each identity query's claim, not the batch's completion time."""
+def _claim_times(
+    route_keys: tuple[CANRouteKey, ...],
+    requests: tuple[object, ...],
+    results: tuple[SendResult, ...],
+) -> dict[tuple[CANRouteKey, int | None], float]:
+    """Associate each sent request with its exact response route.
 
-    claims: dict[int, float] = {}
+    A transaction may subscribe to more routes than its current stage uses
+    (for example L30 identity keeps both DeviceInfo and product-code routes).
+    Derive the stage route from the request and retain the individual claim
+    timestamp so a later request cannot authorize an earlier response.
+    """
+
+    if len(requests) != len(results):
+        raise DiscoveryError("identity request and receipt counts differ")
+    claims: dict[tuple[CANRouteKey, int | None], float] = {}
     for request, result in zip(requests, results, strict=True):
-        if not isinstance(request, can.Message) or not request.data:
-            raise DiscoveryError("classic identity probe has an invalid request")
         if result.claimed_at_s is None:
             raise DiscoveryError("dispatched identity probe has no claim timestamp")
-        claims.setdefault(request.data[0], result.claimed_at_s)
+        route = _response_route_for_request(request, route_keys)
+        discriminator = (
+            request.data[0]
+            if isinstance(request, can.Message) and request.data
+            else None
+        )
+        claims.setdefault((route, discriminator), result.claimed_at_s)
     return claims
 
 
-def _classic_response_after_claim(
-    message: object, received_at_s: float, claims: dict[int, float]
+def _response_route_for_request(
+    request: object, route_keys: tuple[CANRouteKey, ...]
+) -> CANRouteKey:
+    """Find the subscribed route corresponding to one protocol request."""
+
+    candidates: list[CANRouteKey] = []
+    if isinstance(request, can.Message):
+        candidates.append(CANRouteKey(request.arbitration_id, request.is_extended_id))
+    elif isinstance(request, CANFDMessage):
+        if request.is_extended_id:
+            # O20 responses use the same extended ID. L30 responses swap the
+            # source/destination fields, so add that route as a second form.
+            candidates.append(CANRouteKey(request.arbitration_id, True))
+            try:
+                frame = parse_l30_can_id(request.arbitration_id)
+            except (HandError, ValueError):
+                pass
+            else:
+                candidates.append(
+                    l30_response_route(
+                        parent=frame.parent,
+                        subcommand=frame.subcommand,
+                        write=frame.access == 1,
+                        node_id=frame.destination_id,
+                        host_id=frame.source_id,
+                    )
+                )
+        else:
+            # O30 uses standard request IDs and response_id=request_id|0x400.
+            candidates.append(CANRouteKey(request.arbitration_id | 0x400, False))
+    for candidate in candidates:
+        if candidate in route_keys:
+            return candidate
+    raise DiscoveryError("identity request has no subscribed response route")
+
+
+def _response_after_claim(
+    route: CANRouteKey,
+    message: object,
+    received_at_s: float,
+    claims: dict[tuple[CANRouteKey, int | None], float],
 ) -> bool:
-    if not isinstance(message, can.Message) or not message.data:
-        return False
-    claimed_at_s = claims.get(message.data[0])
+    discriminator = (
+        message.data[0] if isinstance(message, can.Message) and message.data else None
+    )
+    claimed_at_s = claims.get((route, discriminator))
+    # The broadcast C0 request is sent to 0xFF while a transport routes a
+    # device's reply on its real 0x27/0x28 address. Permit that explicit
+    # discovery claim for either default reply route only.
+    if claimed_at_s is None and route in CLASSIC_DEFAULT_ROUTES:
+        claimed_at_s = claims.get((CLASSIC_BROADCAST_ROUTE, discriminator))
     return claimed_at_s is not None and received_at_s >= claimed_at_s
 
 
@@ -1267,6 +1411,11 @@ def _transport_spec(
     channel: DiscoveryChannel,
     wire_protocol: TransportKind,
 ) -> TransportSpec:
+    if channel.transport_specs:
+        for spec in channel.transport_specs:
+            if spec.kind is wire_protocol:
+                return spec
+        raise DiscoveryError("channel has no matching transport recipe")
     return TransportSpec(
         provider=channel.provider,
         channel=channel.name,
@@ -1369,17 +1518,24 @@ def _record_failure(
     error: Exception,
     channel: DiscoveryChannel,
     wire_protocol: TransportKind,
+    cleanup: Callable[[], None] | None = None,
 ) -> None:
     cause = error.error if isinstance(error, _TransportProbeError) else error
     code_value = getattr(getattr(cause, "code", None), "value", None)
     failures.append(
         DiscoveryFailure(
             operation=operation,
-            code=code_value or "discovery_failure",
+            code=code_value
+            or (
+                "scan_timeout"
+                if isinstance(cause, TimeoutError) and _budget.expired()
+                else "discovery_failure"
+            ),
             message=str(cause) or type(cause).__name__,
             error_type=type(cause).__name__,
             channel=channel,
             wire_protocol=wire_protocol,
+            cleanup=cleanup,
         )
     )
 

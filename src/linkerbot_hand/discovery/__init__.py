@@ -7,6 +7,7 @@ from .contracts import (
     DiscoveryCandidate,
     DiscoveryChannel,
     DiscoveryConfig,
+    DiscoveryEnumeration,
     DiscoveryFailure,
     DiscoveryIdentity,
     DiscoveryProblem,
@@ -21,14 +22,24 @@ from .errors import (
     IncompleteIdentityError,
     NoHandFoundError,
 )
+from .options import MiniCANFDDiscoveryConfig, PythonCANDiscoveryConfig
 from .socketcan import SocketCANDiscoverySource
+from .sources import (
+    CompositeDiscoverySource,
+    MiniCANFDDiscoverySource,
+    PCANDiscoverySource,
+    PlatformDiscoverySource,
+    SLCANDiscoverySource,
+)
 
 __all__ = [
     "AmbiguousHandError",
+    "CompositeDiscoverySource",
     "DiscoveryAddress",
     "DiscoveryCandidate",
     "DiscoveryChannel",
     "DiscoveryConfig",
+    "DiscoveryEnumeration",
     "DiscoveryError",
     "DiscoveryFailure",
     "DiscoveryIdentity",
@@ -37,7 +48,13 @@ __all__ = [
     "DiscoverySource",
     "DiscoveryStatus",
     "IncompleteIdentityError",
+    "MiniCANFDDiscoveryConfig",
+    "MiniCANFDDiscoverySource",
     "NoHandFoundError",
+    "PCANDiscoverySource",
+    "PlatformDiscoverySource",
+    "PythonCANDiscoveryConfig",
+    "SLCANDiscoverySource",
     "SocketCANDiscoverySource",
     "TransportSpec",
     "classic_discovery_route_key",

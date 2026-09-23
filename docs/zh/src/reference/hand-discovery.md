@@ -1,10 +1,83 @@
 # 自动发现与身份识别
 
 `discover_hands()` 是显式调用的主动发现函数。导入 `linkerbot_hand`、构造 transport 或
-构造 `HandDevice` 都不会扫描总线。默认发现源读取 Linux 中处于 `UP` 状态的 SocketCAN
-接口，不执行 `ip link set`，不改变 bitrate、data bitrate、CAN/CAN FD 模式或接口状态。
+构造 `HandDevice` 都不会扫描总线。默认 `PlatformDiscoverySource` 根据操作系统组合
+可用后端。SocketCAN 只读取已启用接口，不执行 `ip link set`；USB 来源按显式配置打开
+适配器，退出探测时关闭。缺库、占用或单后端失败进入报告，不丢弃其他后端的结果。
 
 当前维护范围为一通道一只手；多只手使用不同 CAN/CAN FD 接口。
+
+## 平台与适配器配置
+
+| 来源 | 默认平台 | 枚举方式 | 默认探测策略 | 报告通道名示例 |
+| --- | --- | --- | --- | --- |
+| SocketCAN | Linux | 已处于 UP 状态的 CAN 网络接口 | classic 接口只 CAN；FD 接口先 CAN 再 FD | `can0` |
+| PCAN | Windows | PCANBasic 附加通道表，只选可用通道 | CAN；可显式启用 FD | `pcan:PCAN_USBBUS1` |
+| SLCAN | Windows | 已知 USB 候选或指定串口 | FD；可显式选择 CAN | `slcan:COM5` |
+| MiniCANFD | Linux、Windows | 厂商库扫描与通道类型检查 | 仅 FD | `minicanfd:0:0` |
+
+`DiscoveryConfig.backends` 限定来源；`channels` 在汇总后筛选上述报告通道名。
+后端配置的 `channels` 则使用原生名称，例如 `PCAN_USBBUS1` 或 `COM5`。未枚举到指定
+通道时报告 `unavailable`，不探测其他通道。PCAN/SLCAN 的原生枚举不打开总线或串口，
+实际探测阶段才初始化适配器并发送身份请求。
+
+```python
+from linkerbot_hand import DiscoveryConfig, PythonCANDiscoveryConfig, discover_hands
+
+report = discover_hands(
+    DiscoveryConfig(
+        backends=("pcan", "slcan"),  # Windows 默认还包含 minicanfd
+        pcan=PythonCANDiscoveryConfig(channels=("PCAN_USBBUS1",)),
+        slcan=PythonCANDiscoveryConfig(
+            channels=("COM5",),
+            bus_options={"tty_baudrate": 460800},  # 串口速率，与 CAN bitrate 独立
+        ),
+        total_timeout_s=30.0,
+    )
+)
+```
+
+PCAN 需安装 PCANBasic 动态库和设备驱动。SLCAN 需安装 pyserial，自动模式仅筛选
+`16D0:117E` CANable 2.0 USB 候选；其他串口需明确指定。`supports_fd=None` 表示
+固件能力未知，USB 标识不保证支持 FD；FD 探测需要 CANable 2.0 FD 扩展固件。
+不会向机器上的所有串口发送初始化指令。
+
+需要改变某个后端的顺序时，可设置
+`PythonCANDiscoveryConfig(probe_protocols=(TransportKind.CAN, TransportKind.CAN_FD))`，
+或反向顺序、单一协议；`TransportKind` 从 `linkerbot_hand` 导入。PCAN 只有驱动报告
+FD 能力时才启用 FD；FD-only 策略遇到经典 CAN 适配器时报告 `unsupported_protocol`。
+两种模式会分别打开和关闭，不同时占用串口/PCAN 通道。默认 nominal/data 速率为
+1/5 Mbit/s，可用 `bitrate`、`data_bitrate` 修改；PCAN FD 可传 `fd_timing`，未传时
+使用 80 MHz 时钟生成匹配速率的 timing。`bus_options` 仅接受不可变标量值，
+`channel`、`bitrate`、`timing` 等专门配置项不能重复放入该映射。
+
+Linux MiniCANFD 需要明确有效通道，不能从设备数量推断每台设备有几路：
+
+```python
+from linkerbot_hand import DiscoveryConfig, MiniCANFDDiscoveryConfig, discover_hands
+from linkerbot_transport.canfd import CANFDConfigOptions
+
+report = discover_hands(
+    DiscoveryConfig(
+        backends=("minicanfd",),
+        minicanfd=MiniCANFDDiscoveryConfig(
+            library_path="/opt/minicanfd/libcanbus.so",
+            linux_channels={0: (0,), 1: (0,)},  # 两只已确认单通道的适配器
+            config=CANFDConfigOptions(config=0x06),  # 不启用适配器内置终端电阻
+        ),
+    )
+)
+```
+
+`library_path=None` 沿用 transport 的库查找规则。Linux 未给布局的设备报告 `layout`，
+不猜通道。Windows 使用 `HCanbus.dll`，省略 `linux_channels`；DLL 的 `devNum`
+直接作为 `device_index`，`channel_index=0`，不按 Linux 的二维索引换算。枚举时需关闭
+本进程中使用同一厂商库的连接，否则返回 `busy`。库和原始协议材料不随 SDK 分发。
+
+`total_timeout_s` 默认 30 秒，包含枚举、打开、请求、回复等待；预算耗尽时停止后续
+探测并报告 `scan_timeout`。这是协作式预算：无法强行取消阻塞的厂商库/驱动调用，
+调用返回后的必要清理也可能超时，不承诺函数必定在 30 秒内返回。不会留下后台扫描
+线程继续发送。发送和单次响应仍分别受 `send_timeout_s`、`response_timeout_s` 限制。
 
 ## 基本调用
 
@@ -74,7 +147,7 @@ SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 
 | 字段 | 内容 |
 | --- | --- |
-| `report.channels` | 本次扫描覆盖了哪些接口 |
+| `report.channels` | 本次枚举并选中的接口；预算耗尽时可能有接口未开始探测 |
 | `report.candidates` | 每个应答的端点一条记录：接在哪个 CAN 口、什么型号、左手右手、支持哪些方法；另附序列号、各版本号与内部选路信息 |
 | `report.failures` | 接口打不开、发送失败或发现源自身出错；与「设备响应但身份不完整」的候选分开记录 |
 | `report.elapsed_s` | 本次扫描耗时 |
@@ -83,7 +156,7 @@ SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 
 | 步骤 | 产出 | 是否产生设备 I/O |
 | --- | --- | --- |
-| `discover_hands()` | 信息报告 | 是，只发身份读取；返回前关闭所有探测 transport |
+| `discover_hands()` | 信息报告 | 是，只发身份读取；返回前尝试关闭所有探测 transport，关闭失败另附清理入口 |
 | `candidate.create_hand_device()` | **关闭状态**的 `HandDevice` | 否，纯内存构造 |
 | `hand.open()` | 已连接、已验证身份的设备 | 是，建连、读身份、读基线 |
 
@@ -124,7 +197,7 @@ for channel in ("can0", "can1"):
 
 | 要知道的事 | 读哪个字段 | 说明 |
 | --- | --- | --- |
-| 接在哪个 CAN 口 | `candidate.channel.name` | 例如 `can0`；`channel.kind` 是接口模式，`wire_protocol` 是实际线路协议 |
+| 接在哪个 CAN 口 | `candidate.channel.name` | 例如 `can0`、`slcan:COM5`；`wire_protocol` 是已验证的实际线路协议 |
 | 什么型号 | `candidate.model` | 公开型号名，例如 `O30`、`L20`；线级工厂前缀已归一 |
 | 左手还是右手 | `candidate.side` | `LEFT` / `RIGHT`；L30 不分左右手，为 `NOT_APPLICABLE` |
 | 支持哪些方法 | `candidate.capabilities` | **`open()` 之前就能查**，见下 |
@@ -139,7 +212,14 @@ print([channel.semantic.value for channel in caps.telemetry])  # 可读状态
 print(caps.operations)  # 清错、使能、标定等
 ```
 
-其余字段各有用途但不在正常流程里：序列号、产品编号与各版本号用于记录和排查；`address`、`transport`、`raw_identity`、`fingerprint` 是发现内部选路与去重用的，`create_hand_device()` 会自己消费它们，应用不需要读，也不应基于它们自行拼装设备。
+其余字段用于记录和排查：序列号、产品编号与各版本号描述设备；`address`、`transport`、
+`raw_identity`、`fingerprint` 保留选路及身份依据，`create_hand_device()` 自动使用这些信息。
+USB 来源的 `candidate.transport.connection_key` 保存原生通道、速率、串口参数、FD timing
+或厂商库路径/索引/配置，不依赖来源对象随后是否再次枚举。构造的 transport 仍为关闭状态。
+
+`channel.supports_classic` / `supports_fd` 描述适配器能力（FD 可为未知），
+`channel.probe_protocols` 描述本轮顺序，`candidate.wire_protocol` 描述设备验证结果；
+不能仅凭 `channel.kind=CAN_FD` 判断接的是 FD 手。
 
 `candidate.reported_side` 是设备**单独上报的物理侧字段**，与 `candidate.side` 不是同一件事：判断「用哪个 side 建设备」一律看 `side`，`reported_side` 只作为设备自报证据。L30 是两者不一致的典型，说明见下文「已验证、部分识别与失败」。
 
@@ -151,8 +231,8 @@ print(caps.operations)  # 清错、使能、标定等
 | --- | --- | --- | --- |
 | L6、O6、L20Lite、L20 | classic CAN | `0xFF#C0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 广播优先，无回复或缺片时依次回退 `0x27`、`0x28` |
 | O20 | CAN FD | DeviceInfo 寄存器 `0x00` | Device ID `1/2` |
-| L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
 | O30 | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 每侧一对固定 ID：右手请求 `0x001`、响应 `0x401`；左手请求 `0x002`、响应 `0x402`。两对都探测 |
+| L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
 
 L20 对外始终报告公共型号 `L20`。发现和身份校验接受常见的 `LHT20-...` 产品编号（例如
 `LHT20-10-499-L-B-1-D`），并继续兼容已部署设备上的 `L20-...`、`L25-...`、
@@ -167,10 +247,10 @@ O30 对外始终报告公共型号 `O30`。发现和身份校验接受 `O30`、`
 产品编号均不能作为配置值；传入这些值会在设备 I/O 前抛出 `ValidationError`。
 
 已知 nominal bitrate 不是 1 Mbit/s 的接口不会发送 Linkerbot 身份探针；元数据无法提供
-bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送 classic 探针。CAN FD
-接口先通过 classic 帧执行广播及必要的默认地址回退；
-只要 classic 身份有响应，就停止该接口上的后续 FD 探测。原因是“网卡支持 CAN FD”和
-“设备使用 FD 帧”不是同一件事，而且向包含经典 CAN 节点的总线发送 FD 帧可能触发错误。
+bitrate 时则由发现源决定是否允许探测。各通道按 `probe_protocols` 顺序探测；默认策略
+见平台表。FD 型号按 O20、O30、L30 顺序查询，一旦获得完整验证的候选就停止该通道的
+后续型号/协议探测。部分经典 CAN 身份保留诊断，继续执行策略允许的 FD 探测。
+非致命单型号错误不遮蔽后续型号；拔出、失效链路或关闭失败时停止该通道。
 
 只有接口当前配置与型号声明匹配时才发送对应 FD 探针：O20/L30 要求 1 Mbit/s nominal 与 5 Mbit/s data；O30 只要求 1 Mbit/s nominal，它的 profile 不声明 data bitrate（BRS off，数据段恒等于标称速率），因此接口 dbitrate 取任意值都会被探测。发现不为尝试另一协议而重新配置接口。
 
@@ -192,9 +272,10 @@ bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送
 完整身份还保留协议要求的请求间隔，不新增运动或遥测请求。协议没有事务编号，无法
 绝对区分隔离窗口之后才到达的同地址旧回复。
 
-当前源码的回执时间过滤需要配套使用包含同步发送时间修正的 transport 源码。
+当前源码的回执时间过滤、MiniCANFD 与 PCAN/SLCAN 枚举需要配套更新后的 transport 源码。
 已发布的 `linkerbot-transport 1.0.0` 在底层发送返回后才记录 claim，可能误丢同步快速
-回复；正式发布时须先发布该传输层修正，并同步提高 SDK 的最低依赖版本。
+回复，也不包含这些枚举入口。正式发布时须先发布传输层更新，并同步提高 SDK 的最低
+依赖版本。源码联调需在同一虚拟环境安装两个仓库的当前源码。
 
 当前经典 CAN 控制使用默认左右手地址。广播收到其他地址时保留真实 ID、产品码及
 可解析侧别，返回 `unsupported_address`，拒绝创建设备；不会改地址或静默改用默认地址。
@@ -253,19 +334,39 @@ hand = candidate.create_hand_device(side="left")
 身份不完整”的候选分开。`report.require_one()` 在无设备、多个候选或唯一候选不完整时分别
 抛出 `NoHandFoundError`、`AmbiguousHandError` 或 `IncompleteIdentityError`，不会静默选择。
 
+枚举错误通过 `failure.backend`、`native_channel`、`code` 定位后端和原生通道。
+探测关闭失败时 `failure.cleanup` 保留可再次调用的关闭操作；先处理清理失败，再重新
+扫描或连接该通道，避免仍有旧连接占用：
+
+```python
+for failure in report.failures:
+    print(failure.operation, failure.message)
+    if failure.cleanup is not None:
+        failure.cleanup()  # 仍失败会抛异常；不应忽略后继续打开相同通道
+```
+
+`require_one()` 仅检查候选数量和完整性，不替应用处理 `failures`。
+
 CAN 无法证明两个完全相同的节点是否在同一时刻发送了逐位相同的帧。经典 CAN 中内容
 一致的重复分片可以由重发造成，因此不单独作为地址冲突证据；冲突内容仍拒绝验证。
 总线拓扑应保证每个接口只连接一只手。
 
 ## 自定义发现源
 
-默认源是 `SocketCANDiscoverySource`。非 SocketCAN 或厂商适配器可实现公开
+默认源是 `PlatformDiscoverySource`，可显式传入 `SocketCANDiscoverySource`、
+`PCANDiscoverySource`、`SLCANDiscoverySource` 或 `MiniCANFDDiscoverySource`。
+`CompositeDiscoverySource({"pcan": PCANDiscoverySource(), ...})` 用于组合所需来源。
+其他适配器可实现公开
 `DiscoverySource`：`list_channels()` 只枚举通道，`create_transport()` 按请求的实际线路
 协议返回关闭状态 transport。测试也使用同一接口注入内存设备，不需要 ROS 或硬件。
+
+旧自定义来源接口继续有效；新增可选 `enumerate_channels(config)` 方法时，返回
+`DiscoveryEnumeration(channels=..., failures=...)`，发现引擎优先使用它以保留后端诊断。
+来源只负责通道及连接配置，型号身份校验仍由公共发现引擎完成。
 
 经典 CAN 自定义来源可使用
 `from linkerbot_hand.discovery import classic_discovery_route_key`，并将其传给
 `CANTransport(..., route_key_of=classic_discovery_route_key)`。它保留默认地址的正常
 路由，将其他地址的 C0 回复归入广播收件路由，原帧 CAN ID 和数据不变，避免注册全部
-CAN ID。内置 SocketCAN 来源已采用该规则；只支持精确默认地址路由的自定义来源仍能
+CAN ID。内置经典 CAN 来源均采用该规则；只支持精确默认地址路由的自定义来源仍能
 发现默认地址设备，但不会收集其他地址的广播回复。

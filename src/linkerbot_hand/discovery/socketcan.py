@@ -11,6 +11,7 @@ from linkerbot_transport.canfd import SocketCANFDTransport
 
 from ..api.enums import TransportKind
 from ..api.errors import ValidationError
+from . import _budget
 from ._classic_routes import classic_discovery_route_key
 from .contracts import DiscoveryChannel, DiscoveryConfig
 from .errors import DiscoveryError
@@ -121,10 +122,17 @@ def _run_command(command: Sequence[str]) -> str:
             check=True,
             capture_output=True,
             text=True,
+            timeout=_budget.remaining(5.0),
         )
     except FileNotFoundError as error:
         raise DiscoveryError(
             "the ip command is required for SocketCAN discovery",
+            operation="list_discovery_channels",
+            cause=error,
+        ) from error
+    except subprocess.TimeoutExpired as error:
+        raise DiscoveryError(
+            "SocketCAN enumeration timed out",
             operation="list_discovery_channels",
             cause=error,
         ) from error
@@ -178,6 +186,7 @@ def _parse_channel(item: object) -> DiscoveryChannel | None:
         kind=kind,
         nominal_bitrate=nominal,
         data_bitrate=data,
+        supports_fd=kind is TransportKind.CAN_FD,
     )
 
 

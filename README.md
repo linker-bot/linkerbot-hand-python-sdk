@@ -154,7 +154,9 @@ candidate = report.require_one()
 hand = candidate.create_hand_device()
 ```
 
-`discover_hands()` 默认只读取处于 `UP` 状态的 SocketCAN 接口，不修改接口配置；探测只读身份，不启动轮询或发送运动、清错、标定命令。当前维护范围为一通道一只手，多只手使用不同接口。多个候选、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`。完整协议顺序和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
+`discover_hands()` 按平台组合发现源：Linux 使用 SocketCAN 和 MiniCANFD，Windows 使用 PCAN、SLCAN 和 MiniCANFD。SocketCAN 只读取已启用接口，不改变系统配置；USB 后端需要安装驱动，Linux MiniCANFD 还需提供已确认的通道布局。PCAN 默认探测经典 CAN，SLCAN 与 MiniCANFD 默认探测 CAN FD。配置、依赖要求和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
+
+探测只读身份，不启动轮询或发送运动、清错、标定命令。当前维护范围为一通道一只手，多只手使用不同接口。多个候选、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`。
 
 经典 CAN 的 L6、O6、L20Lite、L20 优先通过 `0xFF#C0` 查询产品码，无回复或缺片时依次回退 `0x27/0x28`；两种分片编号均可解析，后续连接保留真实默认地址，非默认地址以部分候选报告。
 

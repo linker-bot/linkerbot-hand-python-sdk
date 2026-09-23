@@ -234,12 +234,20 @@ candidate = report.require_one()
 hand = candidate.create_hand_device()
 ```
 
-The default source enumerates active Linux SocketCAN links without changing
-their state or bitrates. Discovery reads identity only; it never starts polling
-or sends motion, fault-clear, calibration, or configuration commands. A CAN FD
-link is probed with classic frames first, and FD probes are skipped if a classic
-hand responds. O20, L30, and O30 then use their own identity protocols rather
-than `0xC0`.
+The default source combines SocketCAN and MiniCANFD on Linux, or PCAN, SLCAN,
+and MiniCANFD on Windows. SocketCAN links must already be up; discovery never
+changes their state or bitrates. USB backends require their drivers, and Linux
+MiniCANFD requires an explicitly confirmed channel layout. PCAN defaults to
+classic CAN; SLCAN and MiniCANFD default to CAN FD. See the
+[discovery reference](./docs/zh/src/reference/hand-discovery.md) for configuration
+and the required transport source version.
+
+Discovery reads identity only; it never starts polling or sends motion,
+fault-clear, calibration, or hand configuration commands. SocketCAN FD links
+are probed with classic frames first. A fully verified identity ends probing
+on that channel; a partial reply does not suppress the next protocol. FD probes
+use the O20, O30, then L30 identity protocols. A backend failure is reported
+without discarding results from other backends.
 
 L6, O6, L20Lite, and L20 first query `0xFF#C0`, falling back to `0x27` and
 then `0x28` if the product reply is absent or incomplete. Both fragment indices
@@ -261,9 +269,12 @@ Do not hard-code the side: passing one that disagrees with the discovered identi
 raises `ValidationError`. Restrict discovery to the intended interface and use
 `require_one()` to check that it has exactly one candidate before creating a device.
 
-Probe transports are closed before `discover_hands()` returns. The candidate
-retains a closed transport recipe, and the returned `HandDevice` remains closed
-until `open()` is called.
+Discovery closes probe transports before returning; a failed close is reported
+with a `failure.cleanup()` callback to retry before reopening that channel.
+The candidate retains the full connection recipe, and the returned `HandDevice`
+remains closed until `open()` is called. `DiscoveryConfig.total_timeout_s`
+(default 30 seconds) bounds protocol waits and admission of further probes;
+blocking native driver calls and required cleanup can exceed that budget.
 
 ## Value Semantics
 

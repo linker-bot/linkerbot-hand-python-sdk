@@ -18,6 +18,7 @@ from .errors import (
     IncompleteIdentityError,
     NoHandFoundError,
 )
+from .options import MiniCANFDDiscoveryConfig, PythonCANDiscoveryConfig, protocol_order
 
 if TYPE_CHECKING:
     from ..api.device import HandDevice
@@ -41,8 +42,33 @@ class DiscoveryConfig:
     route_queue_capacity: int = 256
     l30_node_ids: tuple[int, ...] = tuple(range(1, 32))
     o30_request_ids: tuple[int, ...] = (0x001, 0x002)
+    backends: tuple[str, ...] | None = None
+    total_timeout_s: float = 30.0
+    pcan: PythonCANDiscoveryConfig = field(default_factory=PythonCANDiscoveryConfig)
+    slcan: PythonCANDiscoveryConfig = field(default_factory=PythonCANDiscoveryConfig)
+    minicanfd: MiniCANFDDiscoveryConfig = field(
+        default_factory=MiniCANFDDiscoveryConfig
+    )
 
     def __post_init__(self) -> None:
+        if self.backends is not None and (
+            not isinstance(self.backends, tuple)
+            or not self.backends
+            or any(
+                not isinstance(value, str)
+                or value not in {"socketcan", "pcan", "slcan", "minicanfd"}
+                for value in self.backends
+            )
+            or len(set(self.backends)) != len(self.backends)
+        ):
+            raise ValidationError(
+                "backends must contain unique supported backend names"
+            )
+        for name in ("pcan", "slcan"):
+            if not isinstance(getattr(self, name), PythonCANDiscoveryConfig):
+                raise ValidationError(f"{name} must be PythonCANDiscoveryConfig")
+        if not isinstance(self.minicanfd, MiniCANFDDiscoveryConfig):
+            raise ValidationError("minicanfd must be MiniCANFDDiscoveryConfig")
         if self.channels is not None:
             if (
                 not isinstance(self.channels, tuple)
@@ -56,7 +82,7 @@ class DiscoveryConfig:
                 )
             if len(set(self.channels)) != len(self.channels):
                 raise ValidationError("channels must not contain duplicates")
-        for name in ("response_timeout_s", "send_timeout_s"):
+        for name in ("response_timeout_s", "send_timeout_s", "total_timeout_s"):
             value = getattr(self, name)
             if (
                 isinstance(value, bool)
@@ -112,6 +138,10 @@ class DiscoveryChannel:
     kind: TransportKind
     nominal_bitrate: int | None = None
     data_bitrate: int | None = None
+    supports_classic: bool = True
+    supports_fd: bool | None = None
+    probe_protocols: tuple[TransportKind, ...] | None = None
+    transport_specs: tuple[TransportSpec, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         for name in ("provider", "name"):
@@ -126,6 +156,40 @@ class DiscoveryChannel:
                 raise ValidationError(f"{name} must be a positive int or None")
         if self.kind is TransportKind.CAN and self.data_bitrate is not None:
             raise ValidationError("classic CAN channels cannot have a data bitrate")
+        if type(self.supports_classic) is not bool or (
+            self.supports_fd is not None and type(self.supports_fd) is not bool
+        ):
+            raise ValidationError("channel capabilities must be boolean or unknown FD")
+        order = self.probe_protocols
+        if order is None:
+            order = (
+                (TransportKind.CAN, TransportKind.CAN_FD)
+                if self.kind is TransportKind.CAN_FD
+                else (TransportKind.CAN,)
+            )
+        protocol_order(order)
+        if TransportKind.CAN in order and not self.supports_classic:
+            raise ValidationError("classic probing requires classic support")
+        if TransportKind.CAN_FD in order and (
+            self.kind is not TransportKind.CAN_FD or self.supports_fd is False
+        ):
+            raise ValidationError(
+                "FD probing requires an FD-capable or unconfirmed channel"
+            )
+        object.__setattr__(self, "probe_protocols", order)
+        if not isinstance(self.transport_specs, tuple) or any(
+            not isinstance(spec, TransportSpec) for spec in self.transport_specs
+        ):
+            raise ValidationError("transport_specs must contain TransportSpec values")
+        if len({spec.kind for spec in self.transport_specs}) != len(
+            self.transport_specs
+        ):
+            raise ValidationError("transport_specs must not repeat wire protocols")
+        for spec in self.transport_specs:
+            if spec.provider != self.provider or spec.channel != self.name:
+                raise ValidationError(
+                    "transport recipe must match its discovery channel"
+                )
 
 
 @runtime_checkable
@@ -158,6 +222,7 @@ class TransportSpec:
     nominal_bitrate: int | None
     data_bitrate: int | None
     factory: Callable[[], object] = field(repr=False, compare=False)
+    connection_key: Hashable | None = None
 
     def __post_init__(self) -> None:
         for name in ("provider", "channel"):
@@ -176,6 +241,13 @@ class TransportSpec:
             )
         if not callable(self.factory):
             raise ValidationError("transport spec factory must be callable")
+        if self.connection_key is not None:
+            try:
+                hash(self.connection_key)
+            except TypeError as error:
+                raise ValidationError(
+                    "connection_key must be immutable/hashable"
+                ) from error
 
     def create_transport(self) -> object:
         """Create a new closed transport; this method performs no device I/O."""
@@ -453,6 +525,9 @@ class DiscoveryFailure:
     error_type: str
     channel: DiscoveryChannel | None = None
     wire_protocol: TransportKind | None = None
+    backend: str | None = None
+    native_channel: str | None = None
+    cleanup: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         for name in ("operation", "code", "message", "error_type"):
@@ -469,8 +544,26 @@ class DiscoveryFailure:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryEnumeration:
+    """Channel enumeration with backend failures, before identity traffic."""
+
+    channels: tuple[DiscoveryChannel, ...] = ()
+    failures: tuple[DiscoveryFailure, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.channels, tuple) or any(
+            not isinstance(c, DiscoveryChannel) for c in self.channels
+        ):
+            raise ValidationError("channels must contain DiscoveryChannel values")
+        if not isinstance(self.failures, tuple) or any(
+            not isinstance(f, DiscoveryFailure) for f in self.failures
+        ):
+            raise ValidationError("failures must contain DiscoveryFailure values")
+
+
+@dataclass(frozen=True, slots=True)
 class DiscoveryReport:
-    """Complete bounded discovery result; no probe transport remains open."""
+    """Discovery result; failed closes retain a cleanup callable in failures."""
 
     channels: tuple[DiscoveryChannel, ...]
     candidates: tuple[DiscoveryCandidate, ...]
@@ -570,6 +663,7 @@ __all__ = [
     "DiscoveryCandidate",
     "DiscoveryChannel",
     "DiscoveryConfig",
+    "DiscoveryEnumeration",
     "DiscoveryFailure",
     "DiscoveryIdentity",
     "DiscoveryProblem",
