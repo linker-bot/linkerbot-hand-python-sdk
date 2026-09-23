@@ -1,5 +1,6 @@
 """Explicit, identity-only discovery for Linkerbot hand endpoints."""
 
+from ._classic_routes import classic_discovery_route_key
 from ._engine import discover_hands
 from .contracts import (
     DiscoveryAddress,
@@ -39,5 +40,6 @@ __all__ = [
     "NoHandFoundError",
     "SocketCANDiscoverySource",
     "TransportSpec",
+    "classic_discovery_route_key",
     "discover_hands",
 ]

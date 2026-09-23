@@ -120,6 +120,7 @@ from .discovery import (
     NoHandFoundError,
     SocketCANDiscoverySource,
     TransportSpec,
+    classic_discovery_route_key,
     discover_hands,
 )
 
@@ -238,6 +239,7 @@ __all__ = [
     "VersionField",
     "VersionRaw",
     "VoltageSample",
+    "classic_discovery_route_key",
     "discover_hands",
     "get_declared_capabilities",
 ]

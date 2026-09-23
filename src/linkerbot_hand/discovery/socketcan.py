@@ -11,6 +11,7 @@ from linkerbot_transport.canfd import SocketCANFDTransport
 
 from ..api.enums import TransportKind
 from ..api.errors import ValidationError
+from ._classic_routes import classic_discovery_route_key
 from .contracts import DiscoveryChannel, DiscoveryConfig
 from .errors import DiscoveryError
 
@@ -94,7 +95,7 @@ class SocketCANDiscoverySource:
         if channel.provider != "socketcan":
             raise ValidationError("SocketCAN source received a foreign channel")
         if wire_protocol is TransportKind.CAN:
-            return CANTransport(channel.name)
+            return CANTransport(channel.name, route_key_of=classic_discovery_route_key)
         if wire_protocol is not TransportKind.CAN_FD:
             raise ValidationError("wire_protocol must be CAN or CAN FD")
         if channel.kind is not TransportKind.CAN_FD:

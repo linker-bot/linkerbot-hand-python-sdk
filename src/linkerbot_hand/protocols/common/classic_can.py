@@ -18,6 +18,10 @@ _SERIAL_FRAGMENT_SIZE = 6
 _SERIAL_OFFSETS = (0, 6, 12, 18)
 
 
+class ClassicIdentityConflictError(ProtocolError):
+    """Two product-code fragments disagree at the same byte offset."""
+
+
 def classic_route(side: HandSide) -> CANRouteKey:
     """Return the exact standard-frame route assigned to a hand side."""
 
@@ -167,7 +171,9 @@ class _SerialFragments:
             raise ProtocolError("serial fragment must contain 1..6 payload bytes")
         previous = self.fragments.get(offset)
         if previous is not None and previous != payload:
-            raise ProtocolError("serial fragment conflicts with a duplicate")
+            raise ClassicIdentityConflictError(
+                "serial fragment conflicts with a duplicate"
+            )
         self.fragments[offset] = payload
         # The code ends at the earliest terminator, so a later one must not push
         # the boundary back out.
@@ -248,8 +254,13 @@ class ClassicIdentityCollector:
     def complete(self) -> bool:
         """Return whether product code and all supported versions are complete."""
 
-        serial_complete = self._serial.complete or (self._short_product_code_complete())
-        return serial_complete and set(self._versions) == {0xC1, 0xC2, 0xC4}
+        return self.product_code_complete and set(self._versions) == {0xC1, 0xC2, 0xC4}
+
+    @property
+    def product_code_complete(self) -> bool:
+        """Return whether all product-code fragments have arrived."""
+
+        return self._serial.complete or self._short_product_code_complete()
 
     @property
     def product_code_bytes(self) -> bytes:
@@ -262,15 +273,17 @@ class ClassicIdentityCollector:
     def _short_product_code_complete(self) -> bool:
         if not self._serial.legacy_short_complete:
             return False
+        data = self._serial.result(allow_legacy_short=True)
+        fields = data.split(b"-")
         if self._l6_pcb_format:
-            return True
+            # Legacy L6 omits the factory suffix. A newer code cut just after
+            # a separator is incomplete even when three full frames arrived.
+            return len(fields) in (6, 7) and all(field.strip() for field in fields)
         if not self._allow_short_product_code:
             return False
         # LHT10 devices may send exactly 18 ASCII bytes without a terminal
         # frame. Require all seven factory fields and the one-byte factory
         # suffix, so a longer code missing its last frame is still incomplete.
-        data = self._serial.result(allow_legacy_short=True)
-        fields = data.split(b"-")
         return (
             len(data) == 18
             and len(fields) == 7

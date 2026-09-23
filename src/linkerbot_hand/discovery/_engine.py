@@ -5,12 +5,18 @@ from __future__ import annotations
 import errno
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 import can
 
-from linkerbot_transport import CANRouteKey, SendOutcome, TransportState
+from linkerbot_transport import (
+    CANRouteKey,
+    RouteSubscription,
+    SendOutcome,
+    SendResult,
+    TransportState,
+)
 from linkerbot_transport import ClosedError as TransportClosedError
 from linkerbot_transport import DeviceNotReadyError as TransportNotReadyError
 from linkerbot_transport import TimeoutError as RxTimeout
@@ -22,9 +28,11 @@ from ..capabilities.registry import get_declared_capabilities
 from ..protocols.base import IdentityResult, ProtocolTransaction
 from ..protocols.common.classic_can import (
     ClassicIdentityCollector,
+    ClassicIdentityConflictError,
     build_classic_message,
     classic_route,
     matching_data,
+    parse_factory_identity,
 )
 from ..protocols.l30.codec import PARENT_CONFIG, SUB_DEVICE_INFO, SUB_PRODUCT_CODE
 from ..protocols.l30.framing import build_request as build_l30_request
@@ -54,6 +62,11 @@ from ..protocols.o30.framing import (
 )
 from ..protocols.o30.identity import o30_identity_transaction
 from ..protocols.registry import create_protocol_backend
+from ._classic_routes import (
+    CLASSIC_BROADCAST_ROUTE,
+    CLASSIC_DEFAULT_ROUTES,
+    CLASSIC_DISCOVERY_ROUTES,
+)
 from .contracts import (
     DiscoveryAddress,
     DiscoveryCandidate,
@@ -69,6 +82,8 @@ from .contracts import (
 )
 from .errors import DiscoveryError
 from .socketcan import SocketCANDiscoverySource
+
+_CLASSIC_RESPONSE_GUARD_S = 0.02
 
 _CLASSIC_MODELS = {
     "LHL6": "L6",
@@ -185,42 +200,44 @@ def _probe_classic(
 ) -> _ClassicProbeOutcome:
     transport: object | None = None
     failed = False
+    products: dict[CANRouteKey, DiscoveryCandidate] = {}
     try:
         transport = source.create_transport(channel, TransportKind.CAN)
         _open_transport(transport)
-        endpoints = (
-            (HandSide.LEFT, classic_route(HandSide.LEFT)),
-            (HandSide.RIGHT, classic_route(HandSide.RIGHT)),
-        )
-        messages = _collect(
-            transport,
-            tuple(route for _, route in endpoints),
-            tuple(build_classic_message(route, b"\xc0") for _, route in endpoints),
-            config,
-        )
-        grouped = _group_by_route(messages)
-        responded = False
-        for side, route in endpoints:
-            responses = tuple(
-                message
-                for message in grouped.get(route, ())
-                if (data := matching_data(message, route)) is not None
-                and data
-                and data[0] == 0xC0
-            )
-            if not responses:
-                continue
-            responded = True
-            _resolve_classic_endpoint(
-                source,
-                channel,
+        for attempt, request_route in enumerate(
+            (CLASSIC_BROADCAST_ROUTE, *CLASSIC_DEFAULT_ROUTES)
+        ):
+            routes = CLASSIC_DISCOVERY_ROUTES if attempt == 0 else (request_route,)
+            messages = _collect(
                 transport,
-                side,
-                route,
-                responses,
+                routes,
+                (build_classic_message(request_route, b"\xc0"),),
                 config,
-                candidates,
-                failures,
+                discard_s=_CLASSIC_RESPONSE_GUARD_S,
+            )
+            found: list[DiscoveryCandidate] = []
+            for route, replies in _group_by_route(messages).items():
+                responses = tuple(
+                    message
+                    for message in replies
+                    if (data := matching_data(message, route)) is not None
+                    and data.startswith(b"\xc0")
+                    and len(data) > 1
+                )
+                if not responses:
+                    continue
+                product = _classic_product_candidate(source, channel, route, responses)
+                # Replace a previous incomplete attempt; never join its fragments.
+                products[route] = product
+                found.append(product)
+            if any(
+                product.problems[0].code != "product_code_incomplete"
+                for product in found
+            ):
+                break
+        for product in products.values():
+            candidates.append(
+                _verify_classic_candidate(transport, product, config, failures)
             )
     except Exception as error:  # noqa: BLE001 - discovery source boundary
         failed = True
@@ -231,7 +248,23 @@ def _probe_classic(
             channel=channel,
             wire_protocol=TransportKind.CAN,
         )
-        responded = False
+        # A failed fallback must not erase evidence from the broadcast attempt.
+        for product in products.values():
+            if not any(
+                candidate.channel == channel and candidate.address == product.address
+                for candidate in candidates
+            ):
+                candidates.append(
+                    replace(
+                        product,
+                        problems=(
+                            DiscoveryProblem(
+                                "transport_error",
+                                "transport failed during classic discovery",
+                            ),
+                        ),
+                    )
+                )
     finally:
         if transport is not None:
             try:
@@ -245,171 +278,165 @@ def _probe_classic(
                     channel=channel,
                     wire_protocol=TransportKind.CAN,
                 )
-    return _ClassicProbeOutcome(responded=responded, failed=failed)
+    return _ClassicProbeOutcome(responded=bool(products), failed=failed)
 
 
-def _resolve_classic_endpoint(
+def _classic_product_candidate(
     source: DiscoverySource,
     channel: DiscoveryChannel,
-    transport: object,
-    side: HandSide,
     route: CANRouteKey,
     responses: tuple[object, ...],
-    config: DiscoveryConfig,
-    candidates: list[DiscoveryCandidate],
-    failures: list[DiscoveryFailure],
-) -> None:
+) -> DiscoveryCandidate:
     address = DiscoveryAddress(
         scheme="classic_can_id",
         request_id=route.arbitration_id,
         response_id=route.arbitration_id,
         is_extended_id=False,
     )
-    spec = _transport_spec(source, channel, TransportKind.CAN)
-    collector = ClassicIdentityCollector(route, l6_pcb_format=True)
-    markers = tuple(
-        data[1]
-        for message in responses
-        if (data := matching_data(message, route)) is not None and len(data) >= 2
+    prefix = (
+        next(
+            (
+                data[2:]
+                for message in responses
+                if (data := matching_data(message, route)) is not None
+                and len(data) >= 3
+                and data[1] == 0
+            ),
+            b"",
+        )
+        .split(b"-", 1)[0]
+        .strip()
+        .upper()
     )
-    duplicate_marker = len(markers) != len(set(markers))
+    collector = ClassicIdentityCollector(
+        route,
+        l6_pcb_format=prefix == b"LHL6",
+        allow_short_product_code=prefix == b"LHT10",
+    )
+    product_code: str | None = None
+    model: str | None = None
+    side: HandSide | None = None
+    raw = _classic_response_bytes(responses, route)
     try:
         for message in responses:
             collector.offer(message)
-        raw = collector.product_code_bytes
-        product_code = collector.product_code()
-    except HandError as error:
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=None,
-                side=side,
-                raw_identity=_classic_response_bytes(responses, route),
-                problem=(
-                    DiscoveryProblem(
-                        "address_collision",
-                        "multiple classic identity fragments used the same marker",
-                    )
-                    if duplicate_marker
-                    else _problem_from_error(error)
-                ),
+        if not collector.product_code_complete:
+            problem = DiscoveryProblem(
+                "product_code_incomplete", "classic product code has missing fragments"
             )
-        )
-        return
-    model = _classic_model(product_code)
-    if duplicate_marker:
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=model,
-                side=side,
-                product_code=product_code,
-                raw_identity=raw,
-                problem=DiscoveryProblem(
-                    "address_collision",
-                    "multiple classic identity fragments used the same marker",
-                ),
-            )
-        )
-        return
-    if model is None:
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=None,
-                side=side,
-                product_code=product_code,
-                raw_identity=raw,
-                problem=DiscoveryProblem(
+        else:
+            raw = collector.product_code_bytes
+            product_code = collector.product_code()
+            model = _classic_model(product_code)
+            fields = product_code.split("-")
+            if len(fields) > 3:
+                side = {"L": HandSide.LEFT, "R": HandSide.RIGHT}.get(
+                    fields[3].strip().upper()
+                )
+            if model is None:
+                problem = DiscoveryProblem(
                     "unknown_model",
                     f"unrecognized classic product code {product_code!r}",
-                ),
-            )
-        )
-        return
-    capabilities = get_declared_capabilities(model, side=side)
+                )
+            elif side is None:
+                problem = DiscoveryProblem(
+                    "malformed_identity", "classic product code has no valid hand side"
+                )
+            else:
+                product_code = parse_factory_identity(
+                    product_code,
+                    expected_model=tuple(
+                        prefix
+                        for prefix, public in _CLASSIC_MODELS.items()
+                        if public == model
+                    ),
+                    configured_side=side,
+                ).product_code
+                if route not in CLASSIC_DEFAULT_ROUTES:
+                    problem = DiscoveryProblem(
+                        "unsupported_address",
+                        "classic control supports only the default 0x27/0x28 addresses",
+                    )
+                elif route != classic_route(side):
+                    problem = DiscoveryProblem(
+                        "identity_mismatch",
+                        "product code side disagrees with the responding CAN address",
+                    )
+                else:
+                    problem = DiscoveryProblem(
+                        "identity_pending",
+                        "complete classic identity needs verification",
+                    )
+    except ClassicIdentityConflictError as error:
+        problem = DiscoveryProblem("address_collision", str(error))
+    except HandError as error:
+        problem = _problem_from_error(error)
+    return _partial_candidate(
+        channel=channel,
+        wire_protocol=TransportKind.CAN,
+        address=address,
+        transport=_transport_spec(source, channel, TransportKind.CAN),
+        model=model,
+        side=side,
+        product_code=product_code,
+        raw_identity=raw,
+        problem=problem,
+    )
+
+
+def _verify_classic_candidate(
+    transport: object,
+    candidate: DiscoveryCandidate,
+    config: DiscoveryConfig,
+    failures: list[DiscoveryFailure],
+) -> DiscoveryCandidate:
+    if candidate.problems[0].code != "identity_pending":
+        return candidate
+    assert candidate.model is not None and candidate.side is not None
+    capabilities = get_declared_capabilities(candidate.model, side=candidate.side)
     backend = create_protocol_backend(capabilities)
     try:
+        transaction = backend.identity_transaction(capabilities)
         result = _execute_identity(
             transport,
             cast(tuple[CANRouteKey, ...], backend.route_keys),
-            backend.identity_transaction(capabilities),
+            transaction,
             config,
+            discard_s=max(_CLASSIC_RESPONSE_GUARD_S, transaction.late_response_guard_s),
         )
-    except _NoResponse:
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=model,
-                side=side,
-                product_code=product_code,
-                raw_identity=raw,
-                problem=DiscoveryProblem(
-                    "identity_timeout",
-                    "classic product code responded but complete identity timed out",
-                ),
+        if result.device_info.product_code != candidate.identity.product_code:
+            raise _ResponseError(
+                IdentityMismatchError(
+                    "product code changed during identity verification"
+                )
             )
+    except _NoResponse:
+        problem = DiscoveryProblem(
+            "identity_timeout",
+            "classic product code responded but complete identity timed out",
         )
     except _ResponseError as wrapped:
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=model,
-                side=side,
-                product_code=product_code,
-                raw_identity=raw,
-                problem=_problem_from_error(wrapped.error),
-            )
-        )
+        problem = _problem_from_error(wrapped.error)
     except _TransportProbeError as wrapped:
         _record_failure(
             failures,
             operation="verify_classic_identity",
             error=wrapped.error,
-            channel=channel,
+            channel=candidate.channel,
             wire_protocol=TransportKind.CAN,
         )
-        candidates.append(
-            _partial_candidate(
-                channel=channel,
-                wire_protocol=TransportKind.CAN,
-                address=address,
-                transport=spec,
-                model=model,
-                side=side,
-                product_code=product_code,
-                raw_identity=raw,
-                problem=DiscoveryProblem(
-                    "transport_error",
-                    "transport failed during complete identity verification",
-                ),
-            )
+        problem = DiscoveryProblem(
+            "transport_error", "transport failed during complete identity verification"
         )
     else:
-        candidates.append(
-            _verified_candidate(
-                channel,
-                TransportKind.CAN,
-                address,
-                spec,
-                result,
-            )
+        return _verified_candidate(
+            candidate.channel,
+            TransportKind.CAN,
+            candidate.address,
+            candidate.transport,
+            result,
         )
+    return replace(candidate, problems=(problem,))
 
 
 def _probe_can_fd(
@@ -971,6 +998,8 @@ def _collect(
     route_keys: tuple[CANRouteKey, ...],
     requests: tuple[object, ...],
     config: DiscoveryConfig,
+    *,
+    discard_s: float = 0.0,
 ) -> tuple[object, ...]:
     subscribe = getattr(transport, "subscribe_routes", None)
     if not callable(subscribe):
@@ -981,7 +1010,10 @@ def _collect(
     )
     messages: list[object] = []
     try:
-        _send_requests(transport, requests, config)
+        _discard_responses(subscription, discard_s)
+        overflows = subscription.get_health().overflows if discard_s else 0
+        results = _send_requests(transport, requests, config)
+        claims = _classic_claim_times(requests, results) if discard_s else {}
         deadline = time.monotonic() + config.response_timeout_s
         while True:
             remaining = max(0.0, deadline - time.monotonic())
@@ -991,7 +1023,12 @@ def _collect(
                 routed = subscription.receive(timeout_s=remaining)
             except RxTimeout:
                 break
-            messages.append(routed.message)
+            if not discard_s or _classic_response_after_claim(
+                routed.message, routed.received_at_s, claims
+            ):
+                messages.append(routed.message)
+        if discard_s and subscription.get_health().overflows != overflows:
+            raise DiscoveryError("classic discovery receive queue overflowed")
     finally:
         subscription.close()
     return tuple(messages)
@@ -1002,6 +1039,8 @@ def _execute_identity(
     route_keys: tuple[CANRouteKey, ...],
     transaction: ProtocolTransaction,
     config: DiscoveryConfig,
+    *,
+    discard_s: float = 0.0,
 ) -> IdentityResult:
     subscribe = getattr(transport, "subscribe_routes", None)
     if not callable(subscribe):
@@ -1019,26 +1058,50 @@ def _execute_identity(
     current: ProtocolTransaction | None = transaction
     result: IdentityResult | None = None
     try:
+        try:
+            _discard_responses(subscription, discard_s)
+        except Exception as error:
+            raise _TransportProbeError(error) from error
         while current is not None:
+            overflows = subscription.get_health().overflows if discard_s else 0
             try:
-                _send_requests(
+                results = _send_requests(
                     transport,
                     current.request_messages,
                     config,
                     minimum_interval_s=current.request_interval_s,
                 )
+                claims = (
+                    _classic_claim_times(current.request_messages, results)
+                    if discard_s
+                    else {}
+                )
             except Exception as error:
                 raise _TransportProbeError(error) from error
             deadline = time.monotonic() + config.response_timeout_s
             complete = False
-            while not complete:
+            # Classic identities have no transaction token. Check the whole
+            # response window, including contradictory trailing duplicates.
+            while not complete or discard_s:
+                if discard_s and subscription.get_health().overflows != overflows:
+                    raise _TransportProbeError(
+                        DiscoveryError("classic identity receive queue overflowed")
+                    )
                 remaining = max(0.0, deadline - time.monotonic())
                 if remaining == 0:
+                    if complete:
+                        break
                     raise _NoResponse(matched=matched_any)
                 try:
                     routed = subscription.receive(timeout_s=remaining)
                 except RxTimeout as error:
+                    if complete:
+                        break
                     raise _NoResponse(matched=matched_any) from error
+                if discard_s and not _classic_response_after_claim(
+                    routed.message, routed.received_at_s, claims
+                ):
+                    continue
                 try:
                     progress = current.consume(routed.message)
                 except Exception as error:
@@ -1046,6 +1109,10 @@ def _execute_identity(
                 if not progress.matched:
                     continue
                 matched_any = True
+                if complete and not progress.complete:
+                    raise _ResponseError(
+                        ProtocolError("trailing response invalidated complete identity")
+                    )
                 complete = progress.complete
                 if isinstance(progress.result, IdentityResult):
                     result = progress.result
@@ -1060,16 +1127,30 @@ def _execute_identity(
     return result
 
 
+def _discard_responses(
+    subscription: RouteSubscription[object, CANRouteKey], duration_s: float
+) -> None:
+    """Drain one bounded late-response window before starting a fresh attempt."""
+
+    deadline = time.monotonic() + duration_s
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            subscription.receive(timeout_s=remaining)
+        except RxTimeout:
+            break
+
+
 def _send_requests(
     transport: object,
     requests: tuple[object, ...],
     config: DiscoveryConfig,
     *,
     minimum_interval_s: float = 0.0,
-) -> None:
+) -> tuple[SendResult, ...]:
     send = getattr(transport, "send", None)
     if not callable(send):
         raise DiscoveryError("probe transport lacks send()")
+    results: list[SendResult] = []
     for index, request in enumerate(requests):
         receipt = send(request)
         result = receipt.result(timeout=config.send_timeout_s)
@@ -1078,9 +1159,35 @@ def _send_requests(
                 f"probe send completed as {result.outcome.value}",
                 operation="send_identity_probe",
             )
+        results.append(result)
         interval = max(config.inter_request_delay_s, minimum_interval_s)
         if index + 1 < len(requests) and interval:
             time.sleep(interval)
+    return tuple(results)
+
+
+def _classic_claim_times(
+    requests: tuple[object, ...], results: tuple[SendResult, ...]
+) -> dict[int, float]:
+    """Retain each identity query's claim, not the batch's completion time."""
+
+    claims: dict[int, float] = {}
+    for request, result in zip(requests, results, strict=True):
+        if not isinstance(request, can.Message) or not request.data:
+            raise DiscoveryError("classic identity probe has an invalid request")
+        if result.claimed_at_s is None:
+            raise DiscoveryError("dispatched identity probe has no claim timestamp")
+        claims.setdefault(request.data[0], result.claimed_at_s)
+    return claims
+
+
+def _classic_response_after_claim(
+    message: object, received_at_s: float, claims: dict[int, float]
+) -> bool:
+    if not isinstance(message, can.Message) or not message.data:
+        return False
+    claimed_at_s = claims.get(message.data[0])
+    return claimed_at_s is not None and received_at_s >= claimed_at_s
 
 
 def _open_transport(transport: object) -> None:

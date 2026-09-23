@@ -149,7 +149,7 @@ print(caps.operations)  # 清错、使能、标定等
 
 | 型号 | 线路协议 | 最小身份探针 | 地址范围 |
 | --- | --- | --- | --- |
-| L6、O6、L20Lite、L20 | classic CAN | `0xC0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 左手 `0x28`、右手 `0x27` |
+| L6、O6、L20Lite、L20 | classic CAN | `0xFF#C0` 产品码；识别型号后读取 `C0/C1/C2/C4` 完整身份 | 广播优先，无回复或缺片时依次回退 `0x27`、`0x28` |
 | O20 | CAN FD | DeviceInfo 寄存器 `0x00` | Device ID `1/2` |
 | L30 | CAN FD | 配置对象 DeviceInfo `0x02`，响应后读取 ProductCode `0x03` | Node ID `1..31`，可配置 |
 | O30 | CAN FD | HOP ProductInfo `MI 0x41`，随后读取完整身份字段 | 每侧一对固定 ID：右手请求 `0x001`、响应 `0x401`；左手请求 `0x002`、响应 `0x402`。两对都探测 |
@@ -168,11 +168,36 @@ O30 对外始终报告公共型号 `O30`。发现和身份校验接受 `O30`、`
 
 已知 nominal bitrate 不是 1 Mbit/s 的接口不会发送 Linkerbot 身份探针；元数据无法提供
 bitrate 时则由发现源决定是否允许探测。classic CAN 接口只发送 classic 探针。CAN FD
-接口先通过 classic 帧检查 `0x27/0x28`；
+接口先通过 classic 帧执行广播及必要的默认地址回退；
 只要 classic 身份有响应，就停止该接口上的后续 FD 探测。原因是“网卡支持 CAN FD”和
 “设备使用 FD 帧”不是同一件事，而且向包含经典 CAN 节点的总线发送 FD 帧可能触发错误。
 
 只有接口当前配置与型号声明匹配时才发送对应 FD 探针：O20/L30 要求 1 Mbit/s nominal 与 5 Mbit/s data；O30 只要求 1 Mbit/s nominal，它的 profile 不声明 data bitrate（BRS off，数据段恒等于标称速率），因此接口 dbitrate 取任意值都会被探测。发现不为尝试另一协议而重新配置接口。
+
+### 经典 CAN 广播与回退
+
+每轮初筛先发送一条标准数据帧 `0FF#C0`，按设备实际回复的 CAN ID 分别收集产品码。
+`0xFF` 是设备协议接受的查询地址，设备通常仍使用自身 `0x27/0x28` 回复。
+广播无回复或缺片时依次查询 `0x27#C0`、`0x28#C0`；获得完整产品码后停止回退，
+随后在真实地址完成身份验证。未知型号、冲突或不支持的地址作为部分候选保留。
+
+四款均接受片序号 `00/01/02/03` 和字节偏移 `00/06/0C/12`（十六进制），支持乱序及
+内容一致的重复片。L6 旧版三片产品码和 L20Lite 18 字节无结束帧格式继续支持；缺失
+长产品码末片不会借用另一轮的片段补齐。初筛与完整身份查询的产品码必须一致。
+完整身份收齐后仍检查本次响应窗口内的尾帧，出现矛盾版本或产品码时拒绝验证。
+
+各次经典 CAN 查询前排空一个有界的 20 ms 迟到回复窗口，并按对应功能码的发送回执
+`claimed_at_s` 忽略接管发送任务前已进入路由的帧；早于整批发送完成的有效快速回复
+仍会保留。收包等待使用 `response_timeout_s`，发送等待使用 `send_timeout_s`。经典 CAN
+完整身份还保留协议要求的请求间隔，不新增运动或遥测请求。协议没有事务编号，无法
+绝对区分隔离窗口之后才到达的同地址旧回复。
+
+当前源码的回执时间过滤需要配套使用包含同步发送时间修正的 transport 源码。
+已发布的 `linkerbot-transport 1.0.0` 在底层发送返回后才记录 claim，可能误丢同步快速
+回复；正式发布时须先发布该传输层修正，并同步提高 SDK 的最低依赖版本。
+
+当前经典 CAN 控制使用默认左右手地址。广播收到其他地址时保留真实 ID、产品码及
+可解析侧别，返回 `unsupported_address`，拒绝创建设备；不会改地址或静默改用默认地址。
 
 ## 安全边界
 
@@ -199,9 +224,11 @@ L30 的能力映射不按左右手分叉，因此 `candidate.side` 为 `NOT_APPL
 `candidate.problems`，例如：
 
 - `identity_timeout`：最小身份有响应，但完整身份字段超时；
+- `product_code_incomplete`：C0 产品码缺片或未结束，回退后仍未收齐；
 - `malformed_identity` / `identity_mismatch`：响应结构或字段互相矛盾；
 - `unknown_model`：classic 产品码无法映射到公开型号；
-- `address_collision`：同一地址收到重复或冲突身份响应；
+- `address_collision`：经典 CAN 同一字节偏移的分片内容冲突，或 FD 身份响应发生重复/冲突；
+- `unsupported_address`：经典 CAN 回复地址不能用于当前 SDK 控制；
 - `missing_side`：协议没有给出可验证左右手。
 
 O30 会完整返回型号、UID、协议、硬件、固件、机械和传感器身份，并从身份字段解析左右手，因此候选通常是完整的、`side` 已确定，直接创建即可：
@@ -226,12 +253,19 @@ hand = candidate.create_hand_device(side="left")
 身份不完整”的候选分开。`report.require_one()` 在无设备、多个候选或唯一候选不完整时分别
 抛出 `NoHandFoundError`、`AmbiguousHandError` 或 `IncompleteIdentityError`，不会静默选择。
 
-CAN 无法证明两个完全相同的节点是否在同一时刻发送了逐位相同的帧；如果控制器只交付一帧，
-软件没有独立证据区分一个节点和多个相同节点。发现会把可观察到的重复分片、重复完整响应或
-冲突数据标为 `address_collision`，但总线拓扑仍应保证固定地址唯一。
+CAN 无法证明两个完全相同的节点是否在同一时刻发送了逐位相同的帧。经典 CAN 中内容
+一致的重复分片可以由重发造成，因此不单独作为地址冲突证据；冲突内容仍拒绝验证。
+总线拓扑应保证每个接口只连接一只手。
 
 ## 自定义发现源
 
 默认源是 `SocketCANDiscoverySource`。非 SocketCAN 或厂商适配器可实现公开
 `DiscoverySource`：`list_channels()` 只枚举通道，`create_transport()` 按请求的实际线路
 协议返回关闭状态 transport。测试也使用同一接口注入内存设备，不需要 ROS 或硬件。
+
+经典 CAN 自定义来源可使用
+`from linkerbot_hand.discovery import classic_discovery_route_key`，并将其传给
+`CANTransport(..., route_key_of=classic_discovery_route_key)`。它保留默认地址的正常
+路由，将其他地址的 C0 回复归入广播收件路由，原帧 CAN ID 和数据不变，避免注册全部
+CAN ID。内置 SocketCAN 来源已采用该规则；只支持精确默认地址路由的自定义来源仍能
+发现默认地址设备，但不会收集其他地址的广播回复。

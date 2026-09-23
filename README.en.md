@@ -241,6 +241,11 @@ link is probed with classic frames first, and FD probes are skipped if a classic
 hand responds. O20, L30, and O30 then use their own identity protocols rather
 than `0xC0`.
 
+L6, O6, L20Lite, and L20 first query `0xFF#C0`, falling back to `0x27` and
+then `0x28` if the product reply is absent or incomplete. Both fragment indices
+and byte offsets are accepted. Replies retain their actual CAN ID; non-default
+classic addresses are reported as partial candidates and cannot create a device.
+
 The maintained setup is one hand per channel; use separate interfaces for multiple
 hands. Multiple candidates, observable same-address collisions, malformed identity,
 and missing required fields are never silently resolved. O30 identity reports the

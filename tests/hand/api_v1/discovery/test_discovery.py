@@ -99,7 +99,14 @@ class _MultiClassicTransport(FakeTransport[can.Message]):
         receipt = self._send_without_responses(message)
         if receipt.exception() is None:
             for script in self.scripts:
-                for response in script.respond(message):
+                request = message
+                if message.arbitration_id == 0xFF:
+                    request = can.Message(
+                        arbitration_id=script.arbitration_id,
+                        data=message.data,
+                        is_extended_id=False,
+                    )
+                for response in script.respond(request):
                     self.emit(response)
         return receipt
 
@@ -357,7 +364,7 @@ def test_same_classic_address_collision_is_partial_and_never_guessed() -> None:
     candidate = discover_hands(_FAST, source=source).require_one(allow_partial=True)
 
     assert candidate.status is DiscoveryStatus.PARTIAL
-    assert candidate.side is HandSide.LEFT
+    assert candidate.side is None
     assert candidate.problems[0].code == "address_collision"
     with pytest.raises(IncompleteIdentityError):
         candidate.create_hand_device()
@@ -446,7 +453,7 @@ def test_l20lite_short_hardware_code_is_verified_and_candidate_is_constructible(
     assert candidate.create_hand_device().get_capabilities().model == "L20Lite"
 
 
-def test_malformed_classic_product_response_returns_partial_candidate() -> None:
+def test_unterminated_classic_product_response_returns_partial_candidate() -> None:
     script = ClassicCANDeviceScript(
         model="L6",
         side=HandSide.LEFT,
@@ -462,7 +469,7 @@ def test_malformed_classic_product_response_returns_partial_candidate() -> None:
 
     assert candidate.model is None
     assert candidate.status is DiscoveryStatus.PARTIAL
-    assert candidate.problems[0].code == "malformed_identity"
+    assert candidate.problems[0].code == "product_code_incomplete"
 
 
 def test_o20_device_info_is_verified_without_baseline_queries() -> None:

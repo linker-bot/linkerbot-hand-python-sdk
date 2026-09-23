@@ -182,6 +182,26 @@ def test_l6_identity_verifies_versions_and_profile() -> None:
 
 
 @pytest.mark.parametrize("markers", ((0, 1, 2), (0, 6, 12)))
+def test_l6_long_product_code_requires_its_last_fragment(markers) -> None:
+    transaction = l6_identity_transaction(get_declared_capabilities("l6", side="left"))
+    final_marker = 3 if markers[1] == 1 else 18
+    frames = _identity_frames(
+        HandSide.LEFT,
+        b"LHL6-03.3-595-L-B-1-D",
+        l6=True,
+        markers=(*markers, final_marker),
+    )
+
+    for frame in frames[:3] + frames[4:]:
+        progress = transaction.consume(frame)
+        assert progress.matched and not progress.complete
+
+    progress = transaction.consume(frames[3])
+    assert progress.complete
+    assert progress.result.device_info.product_code == "LHL6-03.3-595-L-B-1-D"
+
+
+@pytest.mark.parametrize("markers", ((0, 1, 2), (0, 6, 12)))
 def test_l6_identity_accepts_three_contiguous_full_factory_frames(
     markers: tuple[int, ...],
 ) -> None:
