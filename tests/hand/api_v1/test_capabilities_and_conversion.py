@@ -41,7 +41,7 @@ from linkerbot_hand.conversion.percent import (
         ("o30", 20),
     ],
 )
-def test_all_declared_profiles_expose_ordered_joint_layout(
+def test_all_declared_profiles_expose_joint_layout_and_raw_speed_command(
     model: str,
     joint_count: int,
 ) -> None:
@@ -56,6 +56,9 @@ def test_all_declared_profiles_expose_ordered_joint_layout(
         range(joint_count)
     )
     assert capabilities.command(CommandSemantic.ANGLES) is not None
+    speed_command = capabilities.command(CommandSemantic.SPEEDS)
+    assert speed_command is not None
+    assert speed_command.percent_mappings is None
     assert capabilities.telemetry_channel(TelemetrySemantic.ANGLES) is not None
     with pytest.raises(FrozenInstanceError):
         capabilities.joints = ()  # ty: ignore[invalid-assignment]

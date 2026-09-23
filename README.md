@@ -14,6 +14,7 @@ L20Lite、L20、O20、L30 和 O30 共用唯一的 `HandDevice` 接口；型号�
 - `open()`、`close()`、`start_polling()` 和 `stop_polling()` 显式且幂等。
 - `set_*()` 非阻塞，返回 `CommandHandle`；连续目标使用 latest-wins。
 - 普通 `set_*()` / `get_*()` 使用设备协议原值，不做隐式物理量换算。
+- `set_speeds()` 使用设备协议原值。
 - `set_percent_angles()` 使用 `0..100`；屈伸轴统一为
   `0=弯曲/闭合，100=伸直/张开`。
 - 查询型 `get_*()` 主动执行一次新事务；声明为 `COMMAND_CACHE` 或

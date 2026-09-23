@@ -149,9 +149,7 @@ L20Lite 的加速度 `87/88` 仅支持设置与回显，范围 0..254 count。
 七型号的 angle command 都有逐关节 `PercentMapping`。屈伸轴使用统一产品契约
 `0=弯曲，100=伸直`；侧摆、旋转和腕轴通过 `zero_label` / `hundred_label` 描述端点。
 
-当前速度命令没有 profile 声明可验证的 percent mapping，因此
-`set_percent_speeds()` 目前会抛出 unsupported。只有将来某个 profile 明确给出端点、
-方向和量化规则时才会开放。
+速度设置使用 `set_speeds()` 发送协议原值。
 
 `PhysicalAngleMapping` 只有在真实物理标定可信时存在。没有映射时
 `AngleSample.physical_rad` 对应轴为 `None`，不能把协议 count 或 percent 伪装成弧度。

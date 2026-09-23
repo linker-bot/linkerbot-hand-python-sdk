@@ -8,6 +8,10 @@
 
 ## 未发布
 
+- **破坏性接口变更：** 删除所有型号公共入口 `set_percent_speeds()`。
+  速度设置统一使用 `set_speeds()` 发送协议原值；
+  `set_percent_angles()` 继续提供固定百分比角度映射。
+
 - 文档统一为一通道一只手，移除同通道多设备的发现与 CAN/CAN FD 控制说明。
   多接口示例逐通道校验唯一候选，避免以通道名为字典键覆盖设备；发现和传输实现不变。
 
@@ -328,8 +332,8 @@
   L20Lite 和 L20 还支持显式百分比速度接口。
   <br>**后续变更（加注，非勘误）**：上述名称已不再存在。百分比角度接口现命名为
   `set_percent_angles()`；`submit_*` 系列在「收敛为唯一 `HandDevice` 内核」时整体移除；
-  百分比速度接口现为 `set_percent_speeds()`，且因七个型号都没有 profile 声明速度的百分比
-  映射，当前对所有型号返回 unsupported。按本条目查找方法名会找不到。
+  速度设置统一使用 `set_speeds()` 发送协议原值。
+  按本条目的历史名称查找方法会找不到。
 - `SensorSample.values` 只包含协议解码值，并补充 `unit`、`encoding`、`physical_unit`、
   `scale`、`offset`、`value_kind` 与 `matrix_shape`；删除重复的原始值通道，
   `JointState.angle` 也直接保存协议位置。

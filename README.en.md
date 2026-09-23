@@ -43,6 +43,7 @@ The complete Chinese API reference is under
   Continuous targets use latest-wins scheduling.
 - Plain `set_*()` and `get_*()` methods use exact protocol values without
   implicit physical-unit conversion.
+- `set_speeds()` accepts exact protocol values.
 - `set_percent_angles()` accepts `0..100`. Flexion axes consistently use
   `0=flexed/closed` and `100=extended/open`.
 - Query-backed `get_*()` methods perform a fresh on-demand transaction.

@@ -48,7 +48,6 @@ _PUBLIC_METHODS = (
     "set_percent_angles",
     "get_angles",
     "set_speeds",
-    "set_percent_speeds",
     "get_speeds",
     "get_configured_speeds",
     "set_accelerations",
@@ -623,8 +622,6 @@ def test_unsupported_capability_is_reported_before_closed_state() -> None:
         hand.get_speeds(timeout=0.1)
     with pytest.raises(UnsupportedOperationError):
         hand.set_torques((0,) * 6)
-    with pytest.raises(UnsupportedOperationError):
-        hand.set_percent_speeds((0,) * 6)
 
 
 @pytest.mark.parametrize("timeout", (0, -1, float("nan"), float("inf"), True))

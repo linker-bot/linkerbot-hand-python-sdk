@@ -161,8 +161,7 @@ assert verified.identity.verified
 | --- | --- |
 | `set_angles(values)` | 精确角度协议值 |
 | `set_percent_angles(values)` | `0..100`，按逐关节固定 capability 映射 |
-| `set_speeds(values)` | 配置速度协议值 |
-| `set_percent_speeds(values)` | 仅 profile 明确提供速度百分比映射时支持 |
+| `set_speeds(values)` | 配置速度协议原值 |
 | `set_accelerations(values)` | 配置加速度协议值 |
 | `set_current_limits(values)` | 已确认表示电流上限的协议值 |
 | `set_position_kp(values)` / `set_position_kd(values)` | L6 位置控制增益原值；Kp 默认 50、实际为 raw × 10，Kd 默认 21 |

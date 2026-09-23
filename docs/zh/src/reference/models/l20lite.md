@@ -67,7 +67,7 @@
 `telemetry_channel(...).raw_unit/raw_scale_note/unit_confidence` 查询。角度样本附带固定
 百分比投影，但 `raw` 仍是设备原值；无已确认物理映射时 `physical_rad` 为 `None`。
 
-本型号未声明 `set_percent_speeds()`、转矩读写、
+本型号未声明转矩读写、
 限位补偿、使能/失能/标定、保存参数和 `clear_faults()`。
 这些入口报告 `UnsupportedOperationError`。尤其不能将 L20 的清错帧发送给 L20Lite；
 L20Lite 没有清除错误码命令，`35/36` 仅用于查询。SDK 不发送猜测的清错帧。

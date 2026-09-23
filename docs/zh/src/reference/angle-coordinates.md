@@ -97,7 +97,7 @@ print(angles.meta)
 
 - 配置速度不等于实测速度。
 - 电流上限不等于机械扭矩。
-- O20 协议速度即使范围是 `0..100`，也不自动成为 percent。
+- O20 的 `set_speeds()` 使用 `0..100` 范围内的协议原值。
 - 协议 count 有 RPM/mA 比例说明时，比例属于 capability metadata，不改变返回值。
 - 单位或物理含义未确认时标记为 unknown/conflicting，不能伪装成弧度、RPM、mA 或 N.m。
 

@@ -116,15 +116,6 @@ class HandDevice(_DeviceCore):
 
         return self._submit_raw(CommandSemantic.SPEEDS, values, operation="set_speeds")
 
-    def set_percent_speeds(self, values: Iterable[RawNumber]) -> CommandHandle:
-        """Submit ``0..100`` speed values only when a mapping is declared."""
-
-        return self._submit_percent(
-            CommandSemantic.SPEEDS,
-            values,
-            operation="set_percent_speeds",
-        )
-
     def get_speeds(self, timeout: float) -> MeasuredSpeedSample:
         """Actively read device-measured speed protocol values."""
 
