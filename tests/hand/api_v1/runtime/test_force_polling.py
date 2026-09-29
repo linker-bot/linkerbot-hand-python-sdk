@@ -147,3 +147,54 @@ def test_o30_unknown_absent_field_disables_poll_without_disconnect(caplog):
         assert fields["fn"].query_hz == fields["fns"].query_hz == 20
         hand.stop_polling()
         assert not hand.get_health().polling_active
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        PollingPlan(force_hz=20),
+        PollingPlan(force_fn_hz=20, force_ft_hz=10, force_fd_hz=10, force_px_hz=5),
+    ],
+    ids=["default_without_fns", "four_shared_fields"],
+)
+def test_tashan_polling_learns_four_fields_and_keeps_one_physical_schedule(plan):
+    script = O30DeviceScript(sensor_variant="TASHAN_GATHER")
+    hand = HandDevice(model="O30", side="right", transport=ScriptedO30Transport(script))
+    with closing(hand.open()):
+        assert hand.get_capabilities().force_field("fns").supported is None
+        hand.start_polling(plan)
+        deadline = monotonic() + 1
+        while hand.get_snapshot().force.meta.sequence < 2:
+            assert monotonic() < deadline
+            previous = hand.get_snapshot()
+            hand.wait_for_snapshot(previous, timeout=0.01)
+        force = hand.get_snapshot().force
+        assert tuple(field.name for field in force.fields) == ("fn", "ft", "fd", "px")
+        assert force.status("fns") == "unsupported"
+        assert all(field.meta.sequence == force.meta.sequence for field in force.fields)
+        health = hand.get_health()
+        assert health.connected and health.polling_active
+        fields = {field.field: field for field in health.force_fields}
+        for name in ("fn", "ft", "fd", "px"):
+            assert fields[name].supported
+            assert fields[name].query_channel == "force"
+            assert fields[name].query_hz == 20
+        assert not fields["fns"].supported
+        assert fields["fns"].achieved_hz == 0
+
+        # Use a deterministic scheduler to verify de-duplication, without
+        # asserting wall-clock throughput against an immediate-response fake.
+        capabilities = hand.get_capabilities()
+        assert resolve_poll_rates(plan, capabilities) == {TelemetrySemantic.FORCE: 20}
+        scheduler = PollScheduler(capabilities)
+        scheduler.replace(plan, now=0)
+        assert scheduler.take_due(now=0) is TelemetrySemantic.FORCE
+        assert scheduler.take_due(now=0) is None
+        scheduler.mark_completed(
+            TelemetrySemantic.FORCE, now=0.01, requested_by_poll=True
+        )
+        assert scheduler.take_due(now=0.049) is None
+        assert scheduler.take_due(now=0.05) is TelemetrySemantic.FORCE
+        assert scheduler.take_due(now=0.05) is None
+        hand.stop_polling()
+        assert not hand.get_health().polling_active

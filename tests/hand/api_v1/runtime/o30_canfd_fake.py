@@ -61,6 +61,7 @@ class SensorFinger:
     maximum_columns: int
     descriptor_text: str
     data: bytes
+    rectangle_fill: bool = True
 
 
 def _tssp_jzg_finger(selected_sensor: int) -> SensorFinger:
@@ -91,9 +92,35 @@ def _no_sensor_finger(_selected_sensor: int) -> SensorFinger:
     )
 
 
+def _tashan_gather_finger(selected_sensor: int) -> SensorFinger:
+    """First samples captured on 2026-09-29, O30 HOP 0.0.4 / app 1.2.2.
+
+    Preserve the actual zero thumb and nonzero F32/U16/U32 fingertip streams.
+    These are wire values, not evidence of physical calibration.
+    """
+    samples = (
+        "0000000000000000000000000000",
+        "64F8C540F269353E1901C6501300",
+        "488DFA402AD7E33E2D01736A1500",
+        "9511DE404CEF823E6501F11A1600",
+        "C6C98740459B213E56005C4E1200",
+    )
+    return SensorFinger(
+        sensor_type="TASHAN_GATHER",
+        data_unit="N",
+        data_range=20,
+        maximum_rows=0,
+        maximum_columns=0,
+        descriptor_text="Fn_F32_1;Ft_F32_1;Fd_U16_1;Px_U32_1",
+        data=bytes.fromhex(samples[selected_sensor - 1]),
+        rectangle_fill=False,
+    )
+
+
 _SENSOR_VARIANTS = {
     "NO_SENSOR": _no_sensor_finger,
     "TSSP_JZG": _tssp_jzg_finger,
+    "TASHAN_GATHER": _tashan_gather_finger,
 }
 
 
@@ -299,7 +326,7 @@ class O30DeviceScript:
         data[_SI_REQUESTED_ROWS] = finger.maximum_rows
         data[_SI_REQUESTED_COLUMNS] = finger.maximum_columns
         data[_SI_VALID_DATA_POSITION_MODE] = 0
-        data[_SI_RECTANGLE_FILL] = 1 if finger.data else 0
+        data[_SI_RECTANGLE_FILL] = int(bool(finger.data) and finger.rectangle_fill)
         return bytes(data)
 
     def _write_sensor(

@@ -8,6 +8,10 @@
 
 ## 未发布
 
+- 补充 O30 TASHAN_GATHER 三维力使用说明与真实数据回归，区分单值 Fn、设备 FnS
+  和点阵，说明一次查询复用 Fn/Ft/Fd/Px、缺失字段、零值与共享轮询。保留现有 SDK
+  接口和运行时逻辑；方向特殊值的含义仍待确认。
+
 - 自动发现新增 PCAN、SLCAN、MiniCANFD 来源及不可变后端配置，按平台选择默认来源。
   PCAN 默认经典 CAN，SLCAN 默认 CAN FD，MiniCANFD 仅 CAN FD；支持全局通道筛选、
   原生通道配置、串口波特率、FD timing 与 MiniCANFD 已确认布局。发现结果保留完整

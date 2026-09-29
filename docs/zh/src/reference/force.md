@@ -8,9 +8,9 @@
 
 | 字段 | 含义 | 数据形态 |
 | --- | --- | --- |
-| `fn` | 法向触觉测点 | 每指一组测点/展平点阵，保留原矩阵或 descriptor 布局 |
+| `fn` | 法向力采样值 | 每指一个或多个值，也可以是展平点阵；保留原矩阵或 descriptor 布局 |
 | `fns` | 设备上报的法向合力或法向汇总 | 每指一个或多个原始值，不由 SDK 对点阵求和 |
-| `ft` / `fts` | 切向测点 / 设备上报的切向汇总 | 每指一组测点 / 一个或多个汇总值 |
+| `ft` / `fts` | 切向力采样值 / 设备上报的切向汇总 | 每指一个或多个采样值 / 汇总值 |
 | `fd` / `fds` | 切向方向测点 / 切向汇总方向 | 原始方向编码，不自动换算成角度 |
 | `px` | 接近感应 | 原始接近值，不推断距离或接触布尔值 |
 
@@ -25,7 +25,7 @@
 | O30 | `MI 0x31` descriptor，`0x32..0x34` 完整原生数据流 | descriptor 定义时支持 | 各字段由 descriptor 决定，不按型号或固件号推断 |
 
 六款矩阵型号的公共 `fn` 是原始计数，不是已标定的 N 或 Pa。单位、比例及可信度
-保留在 capability。O30 的力字段保留传感器上报单位，例如 `g`，不自动转为 N；
+保留在 capability。O30 的力字段保留传感器上报单位，例如 `g` 或 `N`，不自动换算；
 方向和接近字段没有明确物理单位时返回 `None`，不套用传感器的力单位。
 
 L20Lite 的 `fns/fts/fds/px` 各使用一个独立功能码，单次请求 DLC=1，回复 DLC=6，
@@ -38,16 +38,20 @@ O30 的 `FnS_U16_1;Fn_U8_70` 表示每指 1 个小端 U16 合力值和 70 个 U8
 不是 SDK 计算了合力。协议也允许多个 `FnS`，接口不会强行压成一个数。
 同一语义有多个 descriptor 段时按段顺序连接；原始段与编码仍在 `sample.sensors` 中。
 
+同为 O30，TASHAN_GATHER 的实测 descriptor 为
+`Fn_F32_1;Ft_F32_1;Fd_U16_1;Px_U32_1`：每指四个标量，共 14 字节，力单位为 `N`。
+它提供 `fn/ft/fd/px`，没有独立的 `fns/fts/fds`，当前协议输出也没有原始点阵。
+`fn` 只有一个值不表示该字段应改名为 `fns`。传感器类型、字段数量和单位见
+`capabilities.tactile_sensors`；两种变体的完整示例见 [O30 触觉与合力](./models/o30.md#触觉与合力)。
+
 ## 主动查询与返回值
 
 ```python
 sample = hand.get_force(timeout=1.0)          # 可用的 fn + fns
-sample = hand.get_force("fn", timeout=1.0)
-sample = hand.get_force("fn", "px", timeout=1.0)  # 型号支持才可使用
 
 if sample.fn is not None:
     print(sample.fn.sensor_names)             # thumb, index, middle, ring, pinky
-    print(sample.fn.raw[0])                   # 拇指原始测点元组
+    print(sample.fn.raw[0])                   # 拇指原始值元组，单个值也保留元组
     print(sample.fn.units, sample.fn.encodings)
     print(sample.fn.valid_values[0])          # 与 raw 逐值对齐
     print(sample.fn.meta.collected_at, sample.fn.meta.sequence)
@@ -69,9 +73,24 @@ print(sample.status("fns"))
 - 总 `timeout` 包括排队、指间让步和全部查询。缺片不会发布不完整多指矩阵，不将其他
   轮次的片段拼入本轮；跨连接代次不能组成一个返回值。
 
-O30 的单独 `fn`、单独 `fns` 和两者一起读取，都只执行一次完整原生触觉事务，返回
-流中所有已定义字段。事务包含多帧、选指和数据段请求，“一次”不等于“一帧”。
+O30 请求一个或多个实际支持的字段时，都只执行一轮完整原生触觉事务，返回流中
+所有已定义字段；字段参数不裁剪同流返回值。例如 TASHAN_GATHER 的默认读取、单独
+`"fn"` 或 `"fn", "ft", "fd", "px"` 均返回四个字段。TSSP_JZG 单独读取 `"fn"` 或
+`"fns"` 均返回两者；TASHAN_GATHER 显式请求 `"fns"` 则报不支持。
+事务包含多帧、选指和数据段请求，“一轮”不等于“一帧”。
 其他型号按支持的独立协议码查询，不为未选择类别增加请求。
+
+```python
+# 已连接的 O30 / TASHAN_GATHER：一次取数，再复用同一份样本。
+sample = hand.get_force(timeout=1.0)
+for name in ("fn", "ft", "fd", "px"):
+    field = sample.field(name)  # 访问返回字段不发帧
+    if field is not None:
+        print(name, field.raw, field.units)
+```
+
+连续分别调用四次 `get_force("fn")`、`get_force("ft")` 等，会主动读取四轮；
+从同一个 `sample` 读取 `.fn/.ft/.fd/.px` 则不增加查询。
 
 保留 `sample.tactile`（矩阵）、`sample.sensors`（O30 descriptor/原始字节）和旧 `raw`
 视图；新代码使用 `.fn/.fns/...` 避免混淆。`get_normal_force_resultant(timeout=...)`
@@ -109,6 +128,11 @@ L20Lite 的默认 getter / `force_hz` 现在同时请求点阵和 `0x20` 标量�
 | fn=0，fns=20 | 两字段共用一组 20 Hz 查询 | 仅查询 fns |
 | fn=0，fns=0 | 不由这两个字段产生查询；同流其他启用字段仍可带回它们 | 两字段均不查询 |
 | force_hz=20 | 一组 20 Hz 查询 | 各受支持默认字段 20 Hz，按实际事务计费 |
+
+表中显式字段频率以该传感器支持相应字段为前提。TASHAN_GATHER 可使用
+`PollingPlan(force_hz=10)`：默认字段中的 `fns` 缺失会被跳过，四个原生字段仍随
+`fn` 查询返回。也可设置 `force_fn_hz=10, force_ft_hz=5, force_fd_hz=5, force_px_hz=2`，
+它们共用一组 10 Hz 查询，四个字段都随流更新；这些频率不能实现设备侧独立采样。
 
 O30 其他 descriptor 字段也随完整流读取，共享查询键。首次读取后停止只为不存在字段
 安排的查询并告警，保留连接与其他有效轮询。非共享型号的可选查询按功能分别降级，
