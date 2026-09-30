@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Hashable
 from typing import cast
 
 from ..api.commands import AckSupport, CommandHandle
@@ -53,6 +54,8 @@ class DeviceRuntime:
         initial_health: HealthStatus,
         clock: object | None,
         protocol_backend: object | None,
+        expected_fingerprint: Hashable | None = None,
+        identity_context: str | None = None,
     ) -> None:
         if not isinstance(capabilities, DeviceCapabilities):
             raise ValidationError("capabilities must be DeviceCapabilities")
@@ -61,7 +64,11 @@ class DeviceRuntime:
         self._clock = resolve_clock(clock)
         self._backend = _resolve_backend(protocol_backend, capabilities, config)
         self._config = config
-        self._state = RuntimeState(capabilities)
+        self._state = RuntimeState(
+            capabilities,
+            expected_fingerprint=expected_fingerprint,
+            identity_context=identity_context,
+        )
         self._wake = threading.Event()
         self._commands = CommandIngress(
             discrete_capacity=config.discrete_queue_capacity,

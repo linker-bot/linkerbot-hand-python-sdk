@@ -154,6 +154,24 @@ candidate = report.require_one()
 hand = candidate.create_hand_device()
 ```
 
+上例用于单手。多只手接在不同接口时，直接使用命名字典，无需调用 `require_one()`：
+
+```python
+from linkerbot_hand import discover_hands
+
+report = discover_hands()
+named = report.named_candidates()  # 例如 l6l、l6r、o6l、o6r
+hands = report.create_hand_devices()  # 仅 VERIFIED 候选，全部为关闭状态
+```
+
+同型号同侧别有多只时使用 `l6l1`、`l6l2` 等编号，L30 依据已验证的物理侧别使用
+`l30l` / `l30r`。名称是本次扫描的别名，设备增减时可能改变。无已验证候选时返回空字典；
+打开设备前仍需检查报告的部分身份、失败及清理问题，详见发现文档。
+
+候选工厂会保存已有身份指纹，首次 `open()` 及重试必须与扫描身份一致；例如扫描 L30
+左手后在同一通道换成右手，会拒绝打开。更换设备或改变指纹中的版本信息后需重新扫描、
+构造；具体边界见[身份绑定说明](./docs/zh/src/reference/hand-discovery.md#扫描身份与首次打开)。
+
 `discover_hands()` 按平台组合发现源：Linux 使用 SocketCAN 和 MiniCANFD，Windows 使用 PCAN、SLCAN 和 MiniCANFD。SocketCAN 只读取已启用接口，不改变系统配置；USB 后端需要安装驱动，Linux MiniCANFD 还需提供已确认的通道布局。PCAN 默认探测经典 CAN，SLCAN 与 MiniCANFD 默认探测 CAN FD。配置、依赖要求和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
 
 探测只读身份，不启动轮询或发送运动、清错、标定命令。当前维护范围为一通道一只手，多只手使用不同接口。多个候选、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`。
@@ -215,7 +233,7 @@ SDK 也不会自动重复最后一个运动目标。详见
 `set_percent_angles()` 会产生运动。实机首次验证时应使用当前姿态附近的小幅目标，并先确认
 型号、左右手、关节顺序和百分比端点。
 
-L30 不区分左右手，构造时不得传 `side`：
+L30 设备会报告左右手，但当前控制能力不按侧别分叉，构造时不得传 `side`：
 
 ```python
 from linkerbot_hand import HandDevice

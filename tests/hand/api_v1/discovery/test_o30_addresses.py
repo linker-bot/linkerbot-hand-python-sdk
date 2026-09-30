@@ -64,7 +64,10 @@ def test_public_constructor_uses_o30_address_and_rejects_other_models():
 
 
 @pytest.mark.parametrize("request_id", [0, 1, 0x123, 0x3FE])
-def test_discovery_preserves_endpoint_even_when_side_differs_from_default(request_id):
+@pytest.mark.parametrize("batch", [False, True])
+def test_discovery_preserves_endpoint_even_when_side_differs_from_default(
+    request_id, batch
+):
     script = O30DeviceScript(
         reported_side=HandSide.LEFT,
         request_id=request_id,
@@ -95,7 +98,11 @@ def test_discovery_preserves_endpoint_even_when_side_differs_from_default(reques
         "create_transport",
         return_value=ScriptedO30Transport(script),
     ):
-        hand = candidate.create_hand_device()
+        hand = (
+            report.create_hand_devices()["o30l"]
+            if batch
+            else candidate.create_hand_device()
+        )
     hand.open()
     try:
         assert hand.get_angles(timeout=1).raw == tuple(range(20))

@@ -6,6 +6,7 @@ import math
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from functools import partial
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ..api.config import DeviceConfig
@@ -13,8 +14,10 @@ from ..api.device_info import DeviceInfo, VersionField
 from ..api.enums import HandSide, TransportKind
 from ..api.errors import ValidationError
 from ..capabilities.types import DeviceCapabilities
+from ._naming import name_candidates
 from .errors import (
     AmbiguousHandError,
+    DiscoveryError,
     IncompleteIdentityError,
     NoHandFoundError,
 )
@@ -443,8 +446,13 @@ class DiscoveryCandidate:
         side: HandSide | str | None = None,
         config: DeviceConfig | None = None,
     ) -> HandDevice:
-        """Create a closed ``HandDevice`` after resolving any missing side."""
+        """Create a closed device, pinning any recorded fingerprint for open.
 
+        Identity must match discovery before the first baseline and on retries.
+        Missing-side partial candidates still require an explicit side.
+        """
+
+        from ..api._device_core import _default_runtime_factory
         from ..api.device import HandDevice
 
         model = self.model
@@ -462,6 +470,14 @@ class DiscoveryCandidate:
                 model=model,
             )
         resolved_side = _resolved_candidate_side(self, side)
+        # Keep the expectation on the factory, not a one-shot runtime: a failed
+        # first open discards its runtime and must retain the same constraint.
+        runtime_factory = partial(
+            _default_runtime_factory,
+            expected_fingerprint=self.identity.fingerprint,
+            identity_context=f"{self.channel.provider}:{self.channel.name} "
+            f"({self.address})",
+        )
         if model == "O30":
             from ..protocols.o30.framing import HOPAddressing
 
@@ -486,6 +502,7 @@ class DiscoveryCandidate:
                 config=replace(
                     config or DeviceConfig(), o30_request_id=addressing.request_id
                 ),
+                runtime_factory=runtime_factory,
             )
         transport = self.transport.create_transport()
         if model == "L30":
@@ -506,12 +523,14 @@ class DiscoveryCandidate:
                     HandSide.NOT_APPLICABLE,
                     node_id=node_id,
                 ),
+                runtime_factory=runtime_factory,
             )
         return HandDevice(
             model=model,
             side=resolved_side.value,
             transport=transport,
             config=config,
+            runtime_factory=runtime_factory,
         )
 
 
@@ -608,6 +627,49 @@ class DiscoveryReport:
             for candidate in self.candidates
             if candidate.status is DiscoveryStatus.PARTIAL
         )
+
+    def named_candidates(self) -> dict[str, DiscoveryCandidate]:
+        """Index verified candidates by scan-local model/physical-side aliases.
+
+        A single L6 left hand is ``l6l``; multiple are ``l6l1``, ``l6l2``, etc.
+        Groups sort by alias, then provider, channel, wire protocol and address.
+        L30 uses ``reported_side`` without changing its construction contract.
+        Missing sides raise IncompleteIdentityError; conflicting identities or
+        duplicate endpoints raise ValidationError before any construction.
+
+        This creates neither transports nor devices. Partial candidates and
+        failures remain in the report; no verified candidates returns ``{}``.
+        Aliases can change when devices or channels change and are not IDs.
+        """
+
+        return name_candidates(self.verified_candidates)
+
+    def create_hand_devices(self) -> dict[str, HandDevice]:
+        """Construct fresh closed devices using the same keys as named_candidates.
+
+        Reuses each candidate's factory, preserving its transport recipe and
+        endpoint and pinning any recorded fingerprint for open. No scan, device
+        I/O, open or polling occurs. For per-device configuration, use
+        named_candidates() and the individual factory.
+
+        A factory failure raises DiscoveryError with alias/channel context and
+        the original cause; no partial dictionary is returned. Diagnostics and
+        probe cleanup remain the caller's responsibility before opening devices.
+        """
+
+        hands: dict[str, HandDevice] = {}
+        for name, candidate in self.named_candidates().items():
+            try:
+                hands[name] = candidate.create_hand_device()
+            except Exception as error:
+                raise DiscoveryError(
+                    f"failed to construct {name} on "
+                    f"{candidate.channel.provider}:{candidate.channel.name}: {error}",
+                    operation="discovery_create_hand_devices",
+                    model=candidate.model,
+                    cause=error,
+                ) from error
+        return hands
 
     def require_one(self, *, allow_partial: bool = False) -> DiscoveryCandidate:
         """Return one unique candidate or raise a stable discovery error."""

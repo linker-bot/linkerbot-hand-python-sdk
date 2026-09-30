@@ -23,13 +23,33 @@ _ResultT = TypeVar("_ResultT")
 class RuntimeState:
     """Protect verified capabilities, fingerprint, and connection generation."""
 
-    def __init__(self, declared: DeviceCapabilities) -> None:
+    def __init__(
+        self,
+        declared: DeviceCapabilities,
+        *,
+        expected_fingerprint: Hashable | None = None,
+        identity_context: str | None = None,
+    ) -> None:
         if not isinstance(declared, DeviceCapabilities):
             raise ValidationError("declared must be DeviceCapabilities")
+        if expected_fingerprint is not None:
+            try:
+                hash(expected_fingerprint)
+            except TypeError as error:
+                raise ValidationError(
+                    "expected_fingerprint must be hashable"
+                ) from error
+        if identity_context is not None and (
+            not isinstance(identity_context, str) or not identity_context
+        ):
+            raise ValidationError("identity_context must be a non-empty str or None")
         self._lock = threading.Lock()
         self._declared = declared
         self._capabilities = declared
-        self._fingerprint: Hashable | None = None
+        # Discovery can pin identity before the first connection. This does not
+        # verify capabilities or admit work until open completes its baseline.
+        self._fingerprint: Hashable | None = expected_fingerprint
+        self._identity_context = identity_context
         self._generation = 0
         self._ready = False
         self._admitting = False
@@ -100,7 +120,13 @@ class RuntimeState:
                 and self._fingerprint != identity.fingerprint
             ):
                 raise IdentityMismatchError(
-                    "connected physical device fingerprint changed",
+                    "connected physical device fingerprint changed"
+                    + (
+                        f" on {self._identity_context}"
+                        if self._identity_context is not None
+                        else ""
+                    )
+                    + f": expected {self._fingerprint!r}, got {identity.fingerprint!r}",
                     operation="recover" if recovery else "open",
                     model=self._declared.model,
                     generation=self._generation,

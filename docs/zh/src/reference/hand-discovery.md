@@ -158,6 +158,7 @@ SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 | --- | --- | --- |
 | `discover_hands()` | 信息报告 | 是，只发身份读取；返回前尝试关闭所有探测 transport，关闭失败另附清理入口 |
 | `candidate.create_hand_device()` | **关闭状态**的 `HandDevice` | 否，纯内存构造 |
+| `report.create_hand_devices()` | 按名称索引的**关闭状态**设备字典 | 否，复用已验证候选的构造工厂 |
 | `hand.open()` | 已连接、已验证身份的设备 | 是，建连、读身份、读基线 |
 
 三步互相解耦：可以只跑第一步做现场勘查；也可以完全跳过前两步，直接用 `HandDevice(model=..., side=..., transport=...)` 走第三步。发现**不会**替调用方创建对象、打开设备、启动轮询或在多个候选中挑选。
@@ -174,7 +175,7 @@ SDK 按字段内容识别布局，不按固件版本号拒绝连接。
 | 接口打不开 | 空，原因在 `failures` | 抛 `NoHandFoundError` |
 
 `require_one()` 是**唯一性断言**，不是创建入口：它只在候选恰好一个时返回，绝不静默挑选。
-多接口使用时，按已知接线逐个接口扫描并校验唯一候选。下面只构造设备，随后由应用显式
+多接口可以使用下节的命名字典。如果需要严格核对每个预期接口，也可以按已知接线逐个接口扫描并校验唯一候选。下面只构造设备，随后由应用显式
 管理 `open()` / `close()`：
 
 ```python
@@ -191,6 +192,126 @@ for channel in ("can0", "can1"):
 `verified_candidates` 可用于查看完整身份记录；不完整身份和接口错误分别查看
 `report.partial_candidates` 与 `report.failures`。
 
+## 按名称使用多只手
+
+`DiscoveryReport` 提供两个便利方法，均只使用本次报告中 VERIFIED 的候选：
+
+| 方法 | 返回值 | 行为 |
+| --- | --- | --- |
+| `named_candidates()` | `dict[str, DiscoveryCandidate]` | 按名称访问身份、能力、通道与构造配方；不创建 transport |
+| `create_hand_devices()` | `dict[str, HandDevice]` | 使用同一套名称逐个调用候选工厂，返回全新、关闭状态的设备 |
+
+```python
+from linkerbot_hand import discover_hands
+
+report = discover_hands()
+for failure in report.failures:
+    print(failure.code, failure.message)
+    if failure.cleanup is not None:
+        failure.cleanup()  # 失败会抛异常；先处理旧探测连接再使用受影响通道
+for candidate in report.partial_candidates:
+    print(candidate.channel.name, candidate.problems)
+
+hands = report.create_hand_devices()  # 不再次扫描，不打开连接或启动轮询
+print(list(hands))
+
+# 假设本次扫描包含 L6 左右手和 O6 左右手，且各接独立接口。
+l6r = hands["l6r"]
+l6l = hands["l6l"]
+o6r = hands["o6r"]
+o6l = hands["o6l"]
+
+try:
+    l6r.open()
+    print(l6r.get_angles(timeout=0.2).raw)
+finally:
+    l6r.close()
+```
+
+名称是字典键，需要变量时由用户赋值；SDK 不向调用者注入变量。不存在的名称按普通
+字典行为抛 `KeyError`，可先查看或检查键是否存在。
+
+### 命名与编号
+
+基础名为规范型号的小写形式，加 `l`（左）或 `r`（右）。同型号、同侧别只有一只时
+不加编号，多只时全部从 1 编号：
+
+| 本次已验证候选 | 名称 |
+| --- | --- |
+| L6 左右手、O6 左右手 | `l6l`、`l6r`、`o6l`、`o6r` |
+| 两只 L6 左手、一只 L6 右手 | `l6l1`、`l6l2`、`l6r` |
+| L20Lite 左右手 | `l20litel`、`l20liter` |
+| L20 / O20 左右手 | `l20l`、`l20r` / `o20l`、`o20r` |
+| L30 / O30 左右手 | `l30l`、`l30r` / `o30l`、`o30r` |
+
+L30 的物理左右手由 `candidate.reported_side` 决定；构造工厂仍使用发现的 Node ID，
+不传 `side`。其他型号使用已验证的 `candidate.side`，不能根据 CAN 地址猜测左右手。
+
+名称组按基础名排序；同组按后端、通道名、线路协议、地址方案、请求 ID、回复 ID、
+标准/扩展帧标志、Node ID 排序。字符串使用字典序（例如 `can10` 在 `can2` 前），
+地址使用数值顺序，缺少 Node ID 排在已有值前。不按身份对象或回复到达顺序排序。
+这些方法不修改原报告或 `candidates` 顺序，PARTIAL 候选不占用编号。
+
+编号是本次扫描的别名，不是永久设备身份。增加第二只 L6 左手后，原来的 `l6l` 会变成
+`l6l1` 或 `l6l2`；设备增减或通道改名也可能改变编号。固定工位应将业务角色绑定到
+经过唯一性核验的设备身份，不应长期绑定 `l6l1`。当前仍维护一通道一只手的拓扑。
+
+### 单独配置设备
+
+批量构造使用默认 `DeviceConfig`，并保留候选工厂所需的 O30 地址等端点配置。需要
+不同配置时，先获取命名候选，再使用现有工厂：
+
+```python
+from linkerbot_hand import DeviceConfig
+
+named = report.named_candidates()
+candidate = named["l6l"]
+print(candidate.channel.name, candidate.identity.serial_number)
+hand = candidate.create_hand_device(config=DeviceConfig(command_rate_hz=100.0))
+```
+
+O30 非默认请求/回复 ID、L30 非默认 Node ID 和后端连接参数都由候选工厂保留。
+无需根据名称重新拼接 `HandDevice(model=..., side=..., transport=...)`。
+
+### 空结果、错误与重复调用
+
+- 没有 VERIFIED 候选时两个方法都返回 `{}`；这可能是未发现设备，也可能是只有
+  PARTIAL 或扫描失败，应继续检查报告。`require_one()` 的原有异常语义不变。
+- 候选的型号/侧别证据矛盾或同一后端、通道、线路协议及端点重复时抛 `ValidationError`。
+  缺少可验证的物理侧别时抛 `IncompleteIdentityError`。批量方法先完成全部命名校验，
+  再调用任何工厂，不将同一端点编号成多只手或覆盖结果。
+- 工厂构造失败时抛 `DiscoveryError`，消息带名称和通道，`cause` / `__cause__` 保留
+  原始异常，不返回部分字典。已构造的设备依照工厂契约保持关闭，不产生设备 I/O。
+- 每次 `named_candidates()` 返回新字典，可复用不可变候选；每次
+  `create_hand_devices()` 都创建新的设备对象，不复用以前已打开的对象。
+- 两个方法不消除 PARTIAL、`failures`，也不代为处理 cleanup。仅缺侧别的 PARTIAL
+  仍需按现有单候选工厂显式补充侧别，不能由批量构造默认猜测。
+
+别名与重复端点校验不保证识别所有跨后端的物理设备别名，也不解决总线地址冲突。
+再次调用批量构造不代表可以为同一端点同时打开多个 runtime；应明确管理已有对象。
+
+### 扫描身份与首次打开
+
+`candidate.create_hand_device()` 会保存 `candidate.identity.fingerprint`（如果存在），
+`report.create_hand_devices()` 复用同一机制。构造仍然不访问设备；首次 `open()` 使用
+现有身份查询取得实际指纹，核验一致后才读取基线并允许控制，不额外增加一轮身份查询。
+指纹不一致抛 `IdentityMismatchError`，消息包含通道、端点和预期/实际指纹，沿用现有
+打开失败清理流程。失败重试、关闭后再打开、恢复连接和主动刷新身份都保留该约束。
+
+例如扫描产生 `l30l` 后，在同一通道、同一 Node ID 换成右 L30，旧对象的 `open()` 会
+失败。L30 指纹包含序列号和带 `L/R` 的产品编码，因此无需改变 `NOT_APPLICABLE` 的
+构造侧别或 Node ID。同型号同侧别设备只要协议指纹不同，也会被拒绝。
+
+确认需要使用替换设备时，应重新调用 `discover_hands()`、核对新报告，再构造新对象。
+旧对象不会通过重试自动接受新身份。O30 现有指纹还包含固件及其他版本字段，相关字段
+改变也会触发不匹配；升级固件后应重新扫描和构造。直接手动构造 `HandDevice(...)`
+没有扫描身份约束，仍以首次成功打开的身份为基准。
+
+内置发现路径的 VERIFIED 候选带有指纹；仅缺侧别的 PARTIAL 候选也会绑定已有指纹，
+仍需通过单候选工厂显式指定 `side`。手工创建、未提供指纹的候选保持原有行为，不提供
+扫描身份绑定保证。此校验只能区分上报指纹不同的设备，不能区分上报身份完全相同的两只
+设备，也不会将 `l6l1` 等扫描别名变成永久身份。
+
 ## 候选里要用的四样信息
 
 一条候选虽然带了很多字段，但正常流程只需要读四样：
@@ -199,7 +320,7 @@ for channel in ("can0", "can1"):
 | --- | --- | --- |
 | 接在哪个 CAN 口 | `candidate.channel.name` | 例如 `can0`、`slcan:COM5`；`wire_protocol` 是已验证的实际线路协议 |
 | 什么型号 | `candidate.model` | 公开型号名，例如 `O30`、`L20`；线级工厂前缀已归一 |
-| 左手还是右手 | `candidate.side` | `LEFT` / `RIGHT`；L30 不分左右手，为 `NOT_APPLICABLE` |
+| 左手还是右手 | `candidate.side`；L30 看 `candidate.reported_side` | 物理侧别为 `LEFT` / `RIGHT`；L30 的构造 side 为 `NOT_APPLICABLE` |
 | 支持哪些方法 | `candidate.capabilities` | **`open()` 之前就能查**，见下 |
 
 `capabilities` 在 VERIFIED 候选上一定存在且 `identity.verified=True`，所以可以在决定要不要连、连了之后能干什么之前就查清楚：
@@ -221,7 +342,9 @@ USB 来源的 `candidate.transport.connection_key` 保存原生通道、速率�
 `channel.probe_protocols` 描述本轮顺序，`candidate.wire_protocol` 描述设备验证结果；
 不能仅凭 `channel.kind=CAN_FD` 判断接的是 FD 手。
 
-`candidate.reported_side` 是设备**单独上报的物理侧字段**，与 `candidate.side` 不是同一件事：判断「用哪个 side 建设备」一律看 `side`，`reported_side` 只作为设备自报证据。L30 是两者不一致的典型，说明见下文「已验证、部分识别与失败」。
+`candidate.reported_side` 是设备**单独上报的物理侧字段**，与 `candidate.side` 的构造语义不同。
+L30 设备会报告左右手，命名方法使用这份已验证证据；其控制能力仍使用 `NOT_APPLICABLE`，
+由候选工厂处理构造，不能把物理侧别传进 L30 构造器。见下文「已验证、部分识别与失败」。
 
 ## 探测顺序
 

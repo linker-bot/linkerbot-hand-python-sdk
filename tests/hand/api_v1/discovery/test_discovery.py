@@ -528,13 +528,20 @@ def test_l30_non_default_node_and_reported_physical_side_are_preserved() -> None
         l30_node_ids=(1, 3, 7),
     )
 
-    candidate = discover_hands(config, source=source).require_one()
+    report = discover_hands(config, source=source)
+    candidate = report.require_one()
 
     assert candidate.model == "L30"
     assert candidate.side is HandSide.NOT_APPLICABLE
     assert candidate.reported_side is HandSide.RIGHT
     assert candidate.address.node_id == 3
     assert candidate.create_hand_device().get_capabilities().model == "L30"
+    assert report.named_candidates() == {"l30r": candidate}
+    hand = report.create_hand_devices()["l30r"]
+    assert hand.get_capabilities().side is HandSide.NOT_APPLICABLE
+    assert hand._protocol_backend.endpoint_id == ("l30", 3, 0)
+    assert not hand.get_health().connected
+    hand.close()
 
 
 def test_l30_default_profile_is_verified_from_existing_protocol_script() -> None:

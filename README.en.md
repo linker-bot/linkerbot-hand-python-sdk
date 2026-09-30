@@ -203,7 +203,8 @@ repeats the last motion target on its own.
 small target near the current pose after verifying the model, side, joint
 order, and percentage endpoints.
 
-L30 has no left/right variant, so its constructor must omit `side`:
+L30 reports its physical left/right side, but its control profile does not branch
+by side, so its constructor must omit `side`:
 
 ```python
 from linkerbot_hand import HandDevice
@@ -233,6 +234,29 @@ report = discover_hands()
 candidate = report.require_one()
 hand = candidate.create_hand_device()
 ```
+
+The example above is for one hand. For multiple hands on separate interfaces,
+use named dictionaries directly, without calling `require_one()`:
+
+```python
+from linkerbot_hand import discover_hands
+
+report = discover_hands()
+named = report.named_candidates()  # e.g. l6l, l6r, o6l, o6r
+hands = report.create_hand_devices()  # VERIFIED candidates only; no device I/O
+```
+
+Multiple hands of the same model and side become `l6l1`, `l6l2`, etc. L30 uses
+its verified reported side for `l30l` / `l30r`. These are scan-local aliases,
+not persistent identities; adding or removing devices may change them. No verified
+candidates returns an empty dictionary. Check partial identities, failures and
+probe cleanup in the report before opening devices; see the discovery reference.
+
+Candidate factories retain any recorded identity fingerprint. The first `open()`
+and retries must match the discovery identity: replacing a discovered left L30
+with a right L30 on the same channel is rejected. Rediscover and construct a new
+device after replacement or changes to fingerprinted version fields, including
+O30 firmware. See the discovery reference for identity-binding limits.
 
 The default source combines SocketCAN and MiniCANFD on Linux, or PCAN, SLCAN,
 and MiniCANFD on Windows. SocketCAN links must already be up; discovery never

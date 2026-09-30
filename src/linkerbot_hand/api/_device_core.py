@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import math
 import threading
-from collections.abc import Iterable
+from collections.abc import Hashable, Iterable
 from importlib import import_module
-from typing import NoReturn, TypeVar, cast
+from typing import TYPE_CHECKING, NoReturn, TypeVar, cast
 
 from ..capabilities.polling import resolve_poll_rates
 from ..capabilities.types import (
@@ -31,6 +31,9 @@ from .health import HealthStatus
 from .readings import RawNumber
 from .snapshot import HandSnapshot
 
+if TYPE_CHECKING:
+    from ..runtime.device_runtime import DeviceRuntime
+
 _SampleT = TypeVar("_SampleT")
 
 
@@ -43,12 +46,14 @@ def _default_runtime_factory(
     initial_health: HealthStatus,
     clock: object | None,
     protocol_backend: object | None,
+    expected_fingerprint: Hashable | None = None,
+    identity_context: str | None = None,
 ) -> DeviceRuntimeContract:
     """Import the concrete runtime only when the user explicitly opens."""
 
     try:
         module = import_module("linkerbot_hand.runtime.device_runtime")
-        factory = cast(RuntimeFactory, module.DeviceRuntime)
+        factory = cast("type[DeviceRuntime]", module.DeviceRuntime)
     except (ImportError, AttributeError) as error:
         raise LifecycleError(
             "the Hand SDK 1.0 device runtime is unavailable",
@@ -64,6 +69,8 @@ def _default_runtime_factory(
         initial_health=initial_health,
         clock=clock,
         protocol_backend=protocol_backend,
+        expected_fingerprint=expected_fingerprint,
+        identity_context=identity_context,
     )
 
 

@@ -36,6 +36,11 @@ hand = HandDevice(
 构造只做参数校验并创建不可变初始状态，不打开 socket、不读取身份、不启动线程、不发
 查询帧，也不产生运动。`runtime_factory` 是内部测试接缝，不是应用扩展协议的入口。
 
+通过发现候选工厂构造时，设备还会保存已有的扫描身份指纹。首次 `open()` 在读取基线、
+允许控制之前核验该指纹，身份变化抛 `IdentityMismatchError`；失败重试不会遗忘此约束。
+直接手动构造的设备仍以首次成功打开的身份为基准。
+详情见[扫描身份与首次打开](hand-discovery.md#扫描身份与首次打开)。
+
 ### 身份响应超时
 
 `DeviceConfig.identity_timeout_s` 默认 `0.2` 秒，作用于 `open()`、`recover()`、
