@@ -112,8 +112,8 @@ class TransportBinding:
             if lease is None:
                 return
             self._accepting = False
-            transport = lease.transport
             if self._arbiter_acquired:
+                transport = lease.transport
                 ARBITERS.cancel_endpoint(
                     self._key,
                     transport,
