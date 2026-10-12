@@ -1,5 +1,8 @@
 """Cross-platform enumeration and actual transport recipes with simulated peers."""
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import can
 import pytest
 
@@ -223,3 +226,74 @@ def test_mini_layout_is_snapshotted():
     channels.append(1)
     layouts[1] = [0]
     assert dict(options.linux_channels) == {0: (0,)}
+
+
+@pytest.fixture
+def minicanfd_library(monkeypatch, tmp_path):
+    from linkerbot_transport.canfd import ctypes_backend
+
+    lib = SimpleNamespace(
+        _name=str(tmp_path / "libcanbus.so"),
+        CAN_ScanDevice=Mock(return_value=3),
+        CAN_GetCHType=Mock(return_value=1),
+        LibCANbus_Init=Mock(return_value=0),
+        LibCANbus_Exit=Mock(return_value=0),
+    )
+    for name in (
+        "CAN_OpenDevice",
+        "CAN_CloseDevice",
+        "CAN_ReadDevInfo",
+        "CANFD_Init",
+        "CANFD_Transmit",
+        "CANFD_Receive",
+    ):
+        setattr(lib, name, Mock(side_effect=AssertionError("unexpected channel I/O")))
+    monkeypatch.setattr(ctypes_backend.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(ctypes_backend, "_load_library", lambda path: lib)
+    monkeypatch.setattr(ctypes_backend, "_lifecycle_refcount", {})
+    monkeypatch.setattr(ctypes_backend, "_lifecycle_lib", {})
+    monkeypatch.setattr(ctypes_backend, "_open_channel_counts", {})
+    monkeypatch.setattr(ctypes_backend, "_scanned_device_counts", {})
+    return lib
+
+
+@pytest.mark.parametrize(
+    "layouts,channel_filter,expected_devices",
+    [
+        (None, None, (0, 1, 2)),
+        (None, ("minicanfd:1:0",), (1,)),
+        ({0: (), 1: (0,), 2: ()}, None, (1,)),
+    ],
+)
+def test_linux_mini_native_enumeration_preserves_defaults_and_explicit_selection(
+    minicanfd_library, layouts, channel_filter, expected_devices
+):
+    from linkerbot_transport.canfd import ctypes_backend
+
+    lib = minicanfd_library
+
+    result = MiniCANFDDiscoverySource().enumerate_channels(
+        DiscoveryConfig(
+            channels=channel_filter,
+            minicanfd=MiniCANFDDiscoveryConfig(linux_channels=layouts),
+        )
+    )
+
+    assert not result.failures
+    assert [channel.name for channel in result.channels] == [
+        f"minicanfd:{device}:0" for device in expected_devices
+    ]
+    lib.CAN_ScanDevice.assert_called_once_with()
+    lib.LibCANbus_Init.assert_called_once_with()
+    lib.LibCANbus_Exit.assert_called_once_with()
+    assert ctypes_backend._lifecycle_snapshot() == {}
+    expected_queries = (0, 1, 2) if layouts is None else (1,)
+    assert [call.args for call in lib.CAN_GetCHType.call_args_list] == [
+        (device, 0) for device in expected_queries
+    ]
+    for channel, device in zip(result.channels, expected_devices, strict=True):
+        transport = channel.transport_specs[0].create_transport()
+        assert transport.get_health().state is TransportState.CLOSED
+        assert transport.pool_key.device_index == device
+        assert transport.pool_key.channel_index == 0
+        assert transport.pool_key.library_path == lib._name

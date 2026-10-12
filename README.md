@@ -172,7 +172,7 @@ hands = report.create_hand_devices()  # 仅 VERIFIED 候选，全部为关闭状
 左手后在同一通道换成右手，会拒绝打开。更换设备或改变指纹中的版本信息后需重新扫描、
 构造；具体边界见[身份绑定说明](./docs/zh/src/reference/hand-discovery.md#扫描身份与首次打开)。
 
-`discover_hands()` 按平台组合发现源：Linux 使用 SocketCAN 和 MiniCANFD，Windows 使用 PCAN、SLCAN 和 MiniCANFD。SocketCAN 只读取已启用接口，不改变系统配置；USB 后端需要安装驱动，Linux MiniCANFD 还需提供已确认的通道布局。PCAN 默认探测经典 CAN，SLCAN 与 MiniCANFD 默认探测 CAN FD。配置、依赖要求和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
+`discover_hands()` 按平台组合发现源：Linux 使用 SocketCAN 和 MiniCANFD，Windows 使用 PCAN、SLCAN 和 MiniCANFD。SocketCAN 只读取已启用接口，不改变系统配置；USB 后端需要安装驱动。Linux MiniCANFD 自动识别适配器数量，默认先检查每块适配器的通道 0，没有手身份候选且连接已成功关闭时再检查通道 1；若通道 0 未通过 FD 类型检查，底层直接检查通道 1。两路都未找到身份候选时在报告中返回 `no_hand_found`，枚举或驱动错误保留原始诊断。无需填写数量或布局，显式通道配置仍可覆盖默认选择。PCAN 默认探测经典 CAN，SLCAN 与 MiniCANFD 默认探测 CAN FD。配置、依赖要求和错误处理见 [自动发现与身份识别](./docs/zh/src/reference/hand-discovery.md)。
 
 探测只读身份，不启动轮询或发送运动、清错、标定命令。当前维护范围为一通道一只手，多只手使用不同接口。多个候选、同地址冲突或身份不完整时不会静默选择。O30 的左右手由身份字段给出，候选的 `side` 已确定，不要写死 `side`。
 

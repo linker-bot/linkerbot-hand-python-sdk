@@ -91,8 +91,8 @@ from .contracts import (
     DiscoveryStatus,
     TransportSpec,
 )
-from .errors import DiscoveryError
-from .sources import PlatformDiscoverySource, enumerate_source
+from .errors import DiscoveryError, NoHandFoundError
+from .sources import PlatformDiscoverySource, _minicanfd_fallback, enumerate_source
 
 _CLASSIC_RESPONSE_GUARD_S = 0.02
 
@@ -177,26 +177,62 @@ def _discover(
         )
     candidates: list[DiscoveryCandidate] = []
     failures = list(enumeration.failures)
+    report_channels = list(channels)
     for channel in channels:
         if _budget.expired():
             break
-        for wire in channel.probe_protocols or ():
+        first_failure = len(failures)
+        _probe_channel(resolved_source, channel, resolved_config, candidates, failures)
+        if (
+            _budget.expired()
+            or any(candidate.channel == channel for candidate in candidates)
+            or any(f.cleanup is not None for f in failures[first_failure:])
+        ):
+            continue
+        try:
+            fallback = _minicanfd_fallback(channel, resolved_config)
+        except Exception as error:  # noqa: BLE001 - independent adapter boundary
+            _record_failure(
+                failures,
+                operation="enumerate_minicanfd_fallback",
+                error=error,
+                channel=channel,
+                wire_protocol=TransportKind.CAN_FD,
+            )
+            continue
+        if fallback is None:
+            continue
+        failures.extend(fallback.failures)
+        if any(
+            failure.code in {"library", "busy", "lifecycle", "scan", "cleanup"}
+            for failure in fallback.failures
+        ):
+            # The fallback could not run; retain its driver/lifecycle diagnosis
+            # instead of claiming a completed search found no hand.
+            continue
+        report_channels.extend(fallback.channels)
+        for next_channel in fallback.channels:
             if _budget.expired():
                 break
-            failed = False
-            if wire is TransportKind.CAN and _channel_matches_classic(channel):
-                failed = _probe_classic(
-                    resolved_source, channel, resolved_config, candidates, failures
+            _probe_channel(
+                resolved_source, next_channel, resolved_config, candidates, failures
+            )
+        if not _budget.expired() and not any(
+            candidate.channel in (channel, *fallback.channels)
+            for candidate in candidates
+        ):
+            adapter = channel.name.rsplit(":", 1)[0]
+            failures.append(
+                DiscoveryFailure(
+                    operation="probe_minicanfd_channels",
+                    code=NoHandFoundError.code.value,
+                    message=f"no hand found on {adapter} channels 0 or 1",
+                    error_type=NoHandFoundError.__name__,
+                    channel=channel,
+                    wire_protocol=TransportKind.CAN_FD,
+                    backend="minicanfd",
                 )
-            elif wire is TransportKind.CAN_FD:
-                failed = _probe_can_fd(
-                    resolved_source, channel, resolved_config, candidates, failures
-                )
-            if failed or any(
-                c.channel == channel and c.status is DiscoveryStatus.VERIFIED
-                for c in candidates
-            ):
-                break
+            )
     if _budget.expired() and not any(f.code == "scan_timeout" for f in failures):
         failures.append(
             DiscoveryFailure(
@@ -207,11 +243,33 @@ def _discover(
             )
         )
     return DiscoveryReport(
-        channels=channels,
+        channels=tuple(report_channels),
         candidates=tuple(candidates),
         failures=tuple(failures),
         elapsed_s=max(0.0, time.monotonic() - started),
     )
+
+
+def _probe_channel(
+    source: DiscoverySource,
+    channel: DiscoveryChannel,
+    config: DiscoveryConfig,
+    candidates: list[DiscoveryCandidate],
+    failures: list[DiscoveryFailure],
+) -> None:
+    for wire in channel.probe_protocols or ():
+        if _budget.expired():
+            break
+        failed = False
+        if wire is TransportKind.CAN and _channel_matches_classic(channel):
+            failed = _probe_classic(source, channel, config, candidates, failures)
+        elif wire is TransportKind.CAN_FD:
+            failed = _probe_can_fd(source, channel, config, candidates, failures)
+        if failed or any(
+            c.channel == channel and c.status is DiscoveryStatus.VERIFIED
+            for c in candidates
+        ):
+            break
 
 
 def _probe_classic(

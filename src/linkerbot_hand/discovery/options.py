@@ -102,7 +102,14 @@ class PythonCANDiscoveryConfig:
 
 @dataclass(frozen=True, slots=True)
 class MiniCANFDDiscoveryConfig:
-    """Vendor library and confirmed Linux layouts; no implicit channel guesses."""
+    """Vendor settings with optional explicit Linux channel layouts.
+
+    ``linux_channels=None`` starts at channel 0 on every scanned Linux adapter;
+    Channel 1 is checked if channel 0 cannot be enumerated as FD, or after
+    a clean, unanswered channel 0 identity probe.
+    Callers need not know the adapter count. Explicit channel selections
+    override this default. Windows uses native enumeration and rejects layouts.
+    """
 
     library_path: str | os.PathLike[str] | None = None
     linux_channels: Mapping[int, Sequence[int]] | None = None

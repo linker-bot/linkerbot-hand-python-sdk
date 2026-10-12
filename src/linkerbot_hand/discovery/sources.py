@@ -13,6 +13,8 @@ import can
 from linkerbot_transport.can import CANTransport, CANTransportKey
 from linkerbot_transport.canfd import (
     CANFDTransport,
+    CANFDTransportKey,
+    MiniCANFDEnumerationResult,
     PythonCANFDTransport,
     PythonCANFDTransportKey,
 )
@@ -31,7 +33,7 @@ from .contracts import (
     TransportSpec,
 )
 from .errors import DiscoveryError
-from .options import PythonCANDiscoveryConfig
+from .options import MiniCANFDDiscoveryConfig, PythonCANDiscoveryConfig
 from .socketcan import SocketCANDiscoverySource
 
 
@@ -284,53 +286,110 @@ class MiniCANFDDiscoverySource(_AdapterSource):
             None if options.library_path is None else str(options.library_path),
             linux_channels=options.linux_channels,
         )
-        channels = []
-        for item in result.channels:
-            name = f"minicanfd:{item.device_index}:{item.channel_index}"
-            factory = partial(
-                CANFDTransport,
-                device_index=item.device_index,
-                channel_index=item.channel_index,
-                library_path=item.library_path,
-                config=options.config,
-            )
-            spec = TransportSpec(
+        return _select_channels(_minicanfd_result(result, options), config)
+
+
+def _minicanfd_result(
+    result: MiniCANFDEnumerationResult, options: MiniCANFDDiscoveryConfig
+) -> DiscoveryEnumeration:
+    channels = []
+    for item in result.channels:
+        name = f"minicanfd:{item.device_index}:{item.channel_index}"
+        factory = partial(
+            CANFDTransport,
+            device_index=item.device_index,
+            channel_index=item.channel_index,
+            library_path=item.library_path,
+            config=options.config,
+        )
+        spec = TransportSpec(
+            provider="minicanfd",
+            channel=name,
+            kind=TransportKind.CAN_FD,
+            nominal_bitrate=options.config.nom_baud,
+            data_bitrate=options.config.dat_baud,
+            factory=factory,
+            connection_key=factory().pool_key,
+        )
+        channels.append(
+            DiscoveryChannel(
                 provider="minicanfd",
-                channel=name,
+                name=name,
                 kind=TransportKind.CAN_FD,
                 nominal_bitrate=options.config.nom_baud,
                 data_bitrate=options.config.dat_baud,
-                factory=factory,
-                connection_key=factory().pool_key,
+                supports_classic=False,
+                supports_fd=True,
+                probe_protocols=(TransportKind.CAN_FD,),
+                transport_specs=(spec,),
             )
-            channels.append(
-                DiscoveryChannel(
-                    provider="minicanfd",
-                    name=name,
-                    kind=TransportKind.CAN_FD,
-                    nominal_bitrate=options.config.nom_baud,
-                    data_bitrate=options.config.dat_baud,
-                    supports_classic=False,
-                    supports_fd=True,
-                    probe_protocols=(TransportKind.CAN_FD,),
-                    transport_specs=(spec,),
-                )
-            )
-        failures = tuple(
-            _failure(
-                "minicanfd",
-                f.stage,
-                f.error,
-                None
-                if f.device_index is None
-                else f"{f.device_index}:{f.channel_index}",
-            )
-            for f in result.failures
         )
-        # A cleanup failure means the library is not ready to open safely.
-        if any(f.stage == "cleanup" for f in result.failures):
-            channels.clear()
-        return _select_channels(DiscoveryEnumeration(tuple(channels), failures), config)
+    failures = tuple(
+        _failure(
+            "minicanfd",
+            f.stage,
+            f.error,
+            None if f.device_index is None else f"{f.device_index}:{f.channel_index}",
+        )
+        for f in result.failures
+    )
+    # A cleanup failure means the library is not ready to open safely.
+    if any(f.stage == "cleanup" for f in result.failures):
+        channels.clear()
+    return DiscoveryEnumeration(tuple(channels), failures)
+
+
+def _minicanfd_fallback(
+    channel: DiscoveryChannel, config: DiscoveryConfig
+) -> DiscoveryEnumeration | None:
+    """Inspect channel 1 only after the default Linux channel has been closed."""
+    if (
+        platform.system() != "Linux"
+        or channel.provider != "minicanfd"
+        or config.minicanfd.linux_channels is not None
+        or config.channels is not None
+    ):
+        return None
+    key = next(
+        (
+            spec.connection_key
+            for spec in channel.transport_specs
+            if spec.kind is TransportKind.CAN_FD
+        ),
+        None,
+    )
+    if not isinstance(key, CANFDTransportKey):
+        return None
+    if key.channel_index == 1:
+        # Native enumeration may already have excluded channel 0 and returned 1.
+        # This empty result ends the fallback sequence without checking 2.
+        return DiscoveryEnumeration()
+    if key.channel_index != 0:
+        return None
+    from linkerbot_transport.canfd import enumerate_minicanfd_channels
+
+    _budget.remaining(config.total_timeout_s)
+    result = enumerate_minicanfd_channels(
+        key.library_path, linux_channels={key.device_index: (1,)}
+    )
+    # This targeted fallback intentionally leaves other adapters unconfigured.
+    # Preserve the selected adapter's layout errors and all driver/cleanup errors.
+    result = replace(
+        result,
+        channels=tuple(
+            item
+            for item in result.channels
+            if item.device_index == key.device_index and item.channel_index == 1
+        ),
+        failures=tuple(
+            failure
+            for failure in result.failures
+            if failure.stage != "layout"
+            or failure.device_index in (None, key.device_index)
+        ),
+    )
+    options = MiniCANFDDiscoveryConfig(config=key.config)
+    return _minicanfd_result(result, options)
 
 
 class CompositeDiscoverySource:

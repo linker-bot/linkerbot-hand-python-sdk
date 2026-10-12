@@ -51,7 +51,10 @@ FD 能力时才启用 FD；FD-only 策略遇到经典 CAN 适配器时报告 `un
 使用 80 MHz 时钟生成匹配速率的 timing。`bus_options` 仅接受不可变标量值，
 `channel`、`bitrate`、`timing` 等专门配置项不能重复放入该映射。
 
-Linux MiniCANFD 需要明确有效通道，不能从设备数量推断每台设备有几路：
+Linux MiniCANFD 默认先检查每块适配器的通道 0，适用于每块适配器连接一只手。
+厂商库自动扫描适配器数量，无需预先知道数量或逐个填写适配器编号：
+
+该默认策略需要配套包含本次枚举更新的 `linkerbot-transport` 源码。
 
 ```python
 from linkerbot_hand import DiscoveryConfig, MiniCANFDDiscoveryConfig, discover_hands
@@ -62,16 +65,37 @@ report = discover_hands(
         backends=("minicanfd",),
         minicanfd=MiniCANFDDiscoveryConfig(
             library_path="/opt/minicanfd/libcanbus.so",
-            linux_channels={0: (0,), 1: (0,)},  # 两只已确认单通道的适配器
             config=CANFDConfigOptions(config=0x06),  # 不启用适配器内置终端电阻
         ),
     )
 )
 ```
 
-`library_path=None` 沿用 transport 的库查找规则。Linux 未给布局的设备报告 `layout`，
-不猜通道。Windows 使用 `HCanbus.dll`，省略 `linux_channels`；DLL 的 `devNum`
-直接作为 `device_index`，`channel_index=0`，不按 Linux 的二维索引换算。枚举时需关闭
+`linux_channels=None` 时，底层先检查每块适配器通道 0 的类型；若不是 FD 或类型查询
+失败，则检查通道 1，只对通过 FD 类型检查的通道探测手身份。
+未指定全局 `channels` 时，若通道 0 没有身份候选、探测连接已成功关闭且扫描预算
+仍有剩余，则枚举并探测同一适配器的通道 1。
+通道 0 找到候选（包括部分身份）后不检查通道 1；关闭失败时保留 cleanup，不继续回退。
+因此扫描到三块适配器时，分别先检查 `(0, 0)`、`(1, 0)`、`(2, 0)`，各自按需回退。
+回退复用通道类型检查与实际连接参数，只接受 FD 通道，不尝试通道 2 或更大的编号。
+两路都未找到身份候选时，该适配器在 `report.failures` 中报告 `no_hand_found`，不会
+丢弃其他适配器的成功结果；报告没有任何候选时，`report.require_one()` 抛
+`NoHandFoundError`。预算耗尽时报告 `scan_timeout`，不把未完成的扫描当成两路无手。
+回退枚举遇到库加载、占用、生命周期、扫描或清理错误时保留原始诊断，不追加
+`no_hand_found`；两路都不能枚举为 FD 时保留类型诊断。
+旧版 Linux 设备级库仅支持通道 0，回退会附带通道 1 不受支持的 `layout` 诊断。
+
+需要改变通道选择时可显式传 `linux_channels`，例如 `{0: (0,), 1: ()}` 表示只检查
+适配器 0 的通道 0，并跳过适配器 1。显式布局保持原有严格行为：缺少已扫描设备的
+配置或指定未扫描到的设备时报告 `layout`，不会为缺失项补默认通道。
+显式布局不补默认通道；全局 `channels` 筛选限制身份探测，并禁用身份探测后的回退。
+适配器编号由扫描分配，插拔后可能
+变化；发现期间应保持适配器连接稳定。通道 0/1 的含义按厂商 SDK 编号，可能与外壳
+上的 CAN1/CAN2 标注不同，单通道设备不因此获得第二个通道。
+
+`library_path=None` 沿用 transport 的库查找规则。Windows 使用 `HCanbus.dll`，
+省略 `linux_channels`；DLL 的 `devNum` 直接作为 `device_index`，`channel_index=0`，
+不按 Linux 的二维索引换算。枚举时需关闭
 本进程中使用同一厂商库的连接，否则返回 `busy`。库和原始协议材料不随 SDK 分发。
 
 `total_timeout_s` 默认 30 秒，包含枚举、打开、请求、回复等待；预算耗尽时停止后续

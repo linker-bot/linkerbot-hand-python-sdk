@@ -260,9 +260,15 @@ O30 firmware. See the discovery reference for identity-binding limits.
 
 The default source combines SocketCAN and MiniCANFD on Linux, or PCAN, SLCAN,
 and MiniCANFD on Windows. SocketCAN links must already be up; discovery never
-changes their state or bitrates. USB backends require their drivers, and Linux
-MiniCANFD requires an explicitly confirmed channel layout. PCAN defaults to
-classic CAN; SLCAN and MiniCANFD default to CAN FD. See the
+changes their state or bitrates. USB backends require their drivers. Linux
+MiniCANFD automatically scans the adapter count and starts at channel 0 on
+every adapter. After an unanswered, successfully closed probe, discovery checks
+channel 1; if neither channel yields a hand candidate, it records `no_hand_found`
+without discarding other adapters' results. If channel 0 cannot be enumerated
+as FD, the transport checks channel 1 directly. Enumeration and driver failures
+retain their original diagnostics. Explicit channel selections override this
+policy.
+PCAN defaults to classic CAN; SLCAN and MiniCANFD default to CAN FD. See the
 [discovery reference](./docs/zh/src/reference/hand-discovery.md) for configuration
 and the required transport source version.
 
