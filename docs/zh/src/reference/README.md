@@ -4,6 +4,9 @@
 `linkerbot_hand.HandDevice` 使用；型号类、manager、`HandSession`、
 `create_hand_device()` 和 `linkerbot.hand` 已删除。
 
+本文档对应当前源码。请按
+[源码安装说明](../../../../README.md#快速启动)同时安装 hand 和 transport。
+
 ## 阅读顺序
 
 1. [统一 HandDevice API](./hand-device.md)：构造、生命周期、命令、主动读取、轮询、

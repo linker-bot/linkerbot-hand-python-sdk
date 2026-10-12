@@ -56,7 +56,7 @@ def _default_runtime_factory(
         factory = cast("type[DeviceRuntime]", module.DeviceRuntime)
     except (ImportError, AttributeError) as error:
         raise LifecycleError(
-            "the Hand SDK 1.0 device runtime is unavailable",
+            "the Hand SDK device runtime is unavailable",
             operation="open",
             model=capabilities.model,
             cause=error,

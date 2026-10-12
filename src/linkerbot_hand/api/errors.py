@@ -1,4 +1,4 @@
-"""Stable, structured errors exposed by the Hand SDK 1.0 API."""
+"""Stable, structured errors exposed by the Hand SDK API."""
 
 from __future__ import annotations
 

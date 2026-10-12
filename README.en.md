@@ -1,11 +1,10 @@
 # linkerbot-hand
 
-## Unified tactile fields (development branch)
+## Unified tactile fields (current source)
 
 `hand.get_force(timeout=1.0)` reads available `fn + fns` by default.
 Use `hand.get_force("fn", timeout=1.0)` to select a quantity, then inspect
 `sample.fn.raw`, `.units`, `.encodings`, `.valid_values` and `.meta` without I/O.
-This API is not included in the published 2.0.0 installation examples below.
 
 | Model | `fn` points/matrix | `fns` normal summary | `ft/fts/fd/fds/px` |
 | --- | --- | --- | --- |
@@ -62,29 +61,31 @@ The Hand SDK's only direct runtime dependency is `linkerbot-transport`; the
 transport `[all]` extra installs `python-can` for the CAN and CAN FD backends.
 Hand does not depend on ROS, an Arm SDK, kinematics, or an aggregate SDK. On
 Ubuntu, the following commands create an isolated environment, install both
-Linkerbot layers explicitly, and perform a hardware-free verification:
+Linkerbot layers from source, and perform a hardware-free verification.
+Configure Gitea SSH access before cloning the private repositories:
 
 ```bash
 sudo apt update
 sudo apt install -y python3-venv can-utils
 
-python3 -m venv ~/venvs/linkerbot-hand-2.0.0
-source ~/venvs/linkerbot-hand-2.0.0/bin/activate
+python3 -m venv ~/venvs/linkerbot-hand-source
+source ~/venvs/linkerbot-hand-source/bin/activate
 python -m pip install --upgrade pip
-python -m pip install \
-  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
-  --extra-index-url https://pypi.org/simple \
-  'linkerbot-transport[all]==1.0.0' \
-  'linkerbot-hand==2.0.0'
+
+mkdir -p ~/src/linkerbot
+cd ~/src/linkerbot
+git clone --branch main ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-transport.git
+git clone --branch main ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-hand.git
+python -m pip install -e './linkerbot-transport[all]' -e ./linkerbot-hand
 
 python - <<'PY'
-from importlib.metadata import version
-
+import linkerbot_hand
+import linkerbot_transport
 from linkerbot_hand import HandDevice, SUPPORTED_MODELS
 from linkerbot_transport.can import CANTransport
 
-print("linkerbot-transport", version("linkerbot-transport"))
-print("linkerbot-hand", version("linkerbot-hand"))
+print("transport source", linkerbot_transport.__file__)
+print("hand source", linkerbot_hand.__file__)
 print("models", ", ".join(SUPPORTED_MODELS))
 
 transport = CANTransport("can0")
@@ -94,48 +95,25 @@ hand.close()
 PY
 ```
 
-The final four lines should show transport `1.0.0`, hand `2.0.0`, all seven supported
-models, and `lifecycle closed`. Constructing the transport and `HandDevice`
+Both import paths should point to the corresponding repository's `src` directory.
+The output also lists all seven supported models and `lifecycle closed`.
+Constructing the transport and `HandDevice`
 does not open `can0`, start a thread, or perform device I/O, so no hardware is
 required. In each new terminal, reactivate the environment first:
 
 ```bash
-source ~/venvs/linkerbot-hand-2.0.0/bin/activate
+source ~/venvs/linkerbot-hand-source/bin/activate
 ```
 
-Use an editable install only when developing unreleased source. Note that
-`linkerbot-transport` is not on public PyPI, so **installing hand alone does not
-work**: a bare `pip install -e .` fails because transport cannot be resolved.
-Two workable forms.
-
-Install both layers from source (use this when developing transport too):
-
-```bash
-git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-transport.git
-git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-hand.git
-python -m pip install -e './linkerbot-transport[all]' -e ./linkerbot-hand
-```
-
-Work on hand only and take a released transport (the common case):
-
-```bash
-python -m pip install \
-  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
-  --extra-index-url https://pypi.org/simple \
-  -e .
-```
-
-Either form is verified the same way:
-
-```bash
-python -c 'import linkerbot_hand; print(linkerbot_hand.__file__)'
-```
-
-The path printed must be the local checkout, not `site-packages`.
+If both repositories are already cloned, run the editable install command from
+their shared parent directory. `linkerbot-transport` is not on public PyPI, so
+installing hand alone does not guarantee that its dependency can be resolved.
+Current discovery and MiniCANFD fallback also require the updated transport;
+install the current source of both layers together.
 
 Python 3.10 or newer is required. `linkerbot-hand` already declares its
 transport dependency; listing both packages explicitly keeps the installed
-versions and troubleshooting boundary visible to first-time users.
+source locations and troubleshooting boundary visible to first-time users.
 
 ## First Device
 
@@ -270,7 +248,7 @@ retain their original diagnostics. Explicit channel selections override this
 policy.
 PCAN defaults to classic CAN; SLCAN and MiniCANFD default to CAN FD. See the
 [discovery reference](./docs/zh/src/reference/hand-discovery.md) for configuration
-and the required transport source version.
+and the required transport source.
 
 Discovery reads identity only; it never starts polling or sends motion,
 fault-clear, calibration, or hand configuration commands. SocketCAN FD links
@@ -368,7 +346,3 @@ python -m build
 The repository contains only the Hand SDK. Arm control, kinematics, and
 Pinocchio belong to the separate Arm SDK. ROS 2 messages, Lifecycle, QoS, and
 topic mapping belong to `linkerbot-hand-ros`.
-
-Release history is maintained in [CHANGELOG.md](CHANGELOG.md). Every pull
-request that changes user-facing behavior, APIs, dependencies, or
-documentation must update its `Unreleased` section.

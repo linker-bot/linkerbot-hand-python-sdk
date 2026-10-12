@@ -1,1 +1,1 @@
-"""Contract tests for the Hand SDK 1.0 public API."""
+"""Contract tests for the Hand SDK public API."""

@@ -61,7 +61,7 @@ def create_protocol_backend(
         factory = _BACKEND_FACTORIES[capabilities.model]
     except KeyError as error:
         raise UnsupportedOperationError(
-            f"{capabilities.model} protocol profile is not available in this release",
+            f"{capabilities.model} protocol profile is not available",
             operation="open",
             model=capabilities.model,
         ) from error

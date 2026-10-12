@@ -1,6 +1,6 @@
-# Hand SDK 1.0 迁移说明
+# Hand SDK 迁移说明
 
-Hand SDK 1.0 是有意的破坏性版本。新仓库没有保留旧型号实现外壳，因为同时维护型号类、
+当前 Hand SDK 的接口迁移包含破坏性改动。新仓库没有保留旧型号实现外壳，因为同时维护型号类、
 manager、`HandSession` 和新 actor runtime 会形成两套生命周期、两套状态源和两套测试矩阵。
 
 升级前应在独立分支完成调用迁移和实机回归，不要把新 wheel 当作旧 API 的原位兼容补丁。
@@ -40,7 +40,7 @@ hand = HandDevice(
 - `linkerbot.hand` namespace。
 
 安装其他旧发行物后，Python 环境里仍可能存在一个外部 `linkerbot` namespace，但它不由
-新 `linkerbot-hand` 提供，也不属于 1.0 兼容契约。
+当前 `linkerbot-hand` 提供，也不属于其兼容契约。
 
 ## 型号配置
 
@@ -54,7 +54,7 @@ hand = HandDevice(
 
 ## 方法映射
 
-| 旧调用 | 1.0 调用 | 变化 |
+| 旧调用 | 当前调用 | 变化 |
 | --- | --- | --- |
 | `create_hand_device(...)` / 型号构造 | `HandDevice(model=..., side=..., transport=...)` | transport 与设备协议显式分离 |
 | `hand.angle.set_angles(values)` | `hand.set_angles(values)` | 协议原值，非阻塞，返回 handle |
@@ -127,13 +127,13 @@ ROS 不再创建传感器查询 timer，也不维护 `MODEL_SPECS`。
 ## 角度数据迁移
 
 旧实现中的“百分比”“标准 raw”“用户 LUT raw”和“hardware raw”可能不是同一坐标。
-1.0 只保留：
+当前接口只保留：
 
 - `set_angles()` / `AngleSample.raw`：设备协议原值。
 - `set_percent_angles()` / `AngleSample.percent`：固定 capability 映射。
 
 屈伸轴的 percent 产品定义为 `0=弯曲，100=伸直`。不要直接把旧百分比数据按相同字段名
-回放；先记录旧入口、映射版本、型号、side 和关节顺序，再转换为 1.0 raw 或 percent。
+回放；先记录旧入口、映射信息、型号、side 和关节顺序，再转换为当前接口的 raw 或 percent。
 
 旧 LUT 文件不会读取、迁移或保存。需要业务级标定时，应在应用或标定服务中形成显式版本化
 数据，不改变 SDK 的设备协议事实。

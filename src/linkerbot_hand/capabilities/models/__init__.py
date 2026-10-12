@@ -1,4 +1,4 @@
-"""Built-in Hand SDK 1.0 declared profile factories."""
+"""Built-in Hand SDK declared profile factories."""
 
 from .l6 import declared_capabilities as l6_capabilities
 from .l20 import declared_capabilities as l20_capabilities

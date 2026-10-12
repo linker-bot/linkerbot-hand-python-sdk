@@ -1,4 +1,4 @@
-"""Stable public contracts for the Hand SDK 1.0 architecture."""
+"""Stable public contracts for the Hand SDK architecture."""
 
 from .commands import (
     AckSupport,

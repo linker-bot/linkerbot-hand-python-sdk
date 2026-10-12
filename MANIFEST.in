@@ -1,4 +1,3 @@
-include CHANGELOG.md
 include README.en.md
 graft docs
 prune tests

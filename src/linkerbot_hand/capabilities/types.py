@@ -1,4 +1,4 @@
-"""Immutable source-of-truth capability types for Hand SDK 1.0."""
+"""Immutable source-of-truth capability types for Hand SDK."""
 
 from __future__ import annotations
 

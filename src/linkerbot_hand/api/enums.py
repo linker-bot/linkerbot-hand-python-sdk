@@ -1,4 +1,4 @@
-"""Small enums shared by the Hand SDK 1.0 public contracts."""
+"""Small enums shared by the Hand SDK public contracts."""
 
 from enum import Enum
 

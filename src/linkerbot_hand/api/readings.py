@@ -1,4 +1,4 @@
-"""Immutable motion and sensor samples returned by Hand SDK 1.0."""
+"""Immutable motion and sensor samples returned by Hand SDK."""
 
 from __future__ import annotations
 

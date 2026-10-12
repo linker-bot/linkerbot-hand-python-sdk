@@ -5,7 +5,6 @@ from typing import Any
 
 import tomli
 from packaging.requirements import Requirement
-from packaging.version import Version
 
 
 def _project_metadata() -> dict[str, Any]:
@@ -28,11 +27,7 @@ def test_transport_dependency_requests_only_can_backends() -> None:
 
     assert requirement.extras == {"can", "canfd"}
     assert requirement.marker is None
-    assert Version("1.0.0") in requirement.specifier
-    assert Version("1.0.0rc2") not in requirement.specifier
-    assert Version("1.0.0rc1") not in requirement.specifier
-    assert Version("0.1.3") not in requirement.specifier
-    assert Version("0.2.0") not in requirement.specifier
+    assert not requirement.specifier
 
 
 def test_distribution_discovers_only_the_linkerbot_hand_namespace() -> None:

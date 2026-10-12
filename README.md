@@ -26,10 +26,9 @@ L20Lite、L20、O20、L30 和 O30 共用唯一的 `HandDevice` 接口；型号�
 
 ## 快速启动
 
-开发分支新增[统一触觉字段接口](./docs/zh/src/reference/force.md)：
+当前源码提供[统一触觉字段接口](./docs/zh/src/reference/force.md)：
 `hand.get_force(timeout=1.0)` 默认读取可用 `fn + fns`，
 `hand.get_force("fn", timeout=1.0)` 按类别选择，返回 `sample.fn.raw` 等原始值和单位。
-此接口尚未包含在下方安装示例的已发布 2.0.0 中。
 
 | 型号 | `fn` 点阵 | `fns` 合力/汇总 | `ft/fts/fd/fds/px` |
 | --- | --- | --- | --- |
@@ -43,29 +42,31 @@ O30 单独选 fn 或 fns 都读取完整原生流，两者设置不同频率时�
 
 Hand SDK 的唯一直接运行依赖是 `linkerbot-transport`；transport 的 `[all]` extra 会安装
 CAN/CAN FD 所需的 `python-can`。Hand 不依赖 ROS、机械臂、运动学或聚合 SDK。以下命令
-适用于 Ubuntu，创建独立环境、显式安装两层 Linkerbot 包并完成无硬件验证：
+适用于 Ubuntu，创建独立环境、从源码安装两层 Linkerbot 包并完成无硬件验证。
+克隆私有仓库前需配置 Gitea SSH 访问权限：
 
 ```bash
 sudo apt update
 sudo apt install -y python3-venv can-utils
 
-python3 -m venv ~/venvs/linkerbot-hand-2.0.0
-source ~/venvs/linkerbot-hand-2.0.0/bin/activate
+python3 -m venv ~/venvs/linkerbot-hand-source
+source ~/venvs/linkerbot-hand-source/bin/activate
 python -m pip install --upgrade pip
-python -m pip install \
-  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
-  --extra-index-url https://pypi.org/simple \
-  'linkerbot-transport[all]==1.0.0' \
-  'linkerbot-hand==2.0.0'
+
+mkdir -p ~/src/linkerbot
+cd ~/src/linkerbot
+git clone --branch main ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-transport.git
+git clone --branch main ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-hand.git
+python -m pip install -e './linkerbot-transport[all]' -e ./linkerbot-hand
 
 python - <<'PY'
-from importlib.metadata import version
-
+import linkerbot_hand
+import linkerbot_transport
 from linkerbot_hand import HandDevice, SUPPORTED_MODELS
 from linkerbot_transport.can import CANTransport
 
-print("linkerbot-transport", version("linkerbot-transport"))
-print("linkerbot-hand", version("linkerbot-hand"))
+print("transport source", linkerbot_transport.__file__)
+print("hand source", linkerbot_hand.__file__)
 print("models", ", ".join(SUPPORTED_MODELS))
 
 transport = CANTransport("can0")
@@ -75,43 +76,21 @@ hand.close()
 PY
 ```
 
-预期最后四行包含 transport `1.0.0`、hand `2.0.0`、七个支持型号和 `lifecycle closed`。构造 transport
-和 `HandDevice` 不会打开 `can0`、创建线程或产生设备 I/O，因此该验证不要求连接实物。
+两层包的导入路径应指向各自仓库的 `src` 目录，同时显示七个支持型号和
+`lifecycle closed`。构造
+transport 和 `HandDevice` 不会打开 `can0`、创建线程或产生设备 I/O，因此该验证不要求连接实物。
 新终端继续使用时先执行：
 
 ```bash
-source ~/venvs/linkerbot-hand-2.0.0/bin/activate
+source ~/venvs/linkerbot-hand-source/bin/activate
 ```
 
-只有开发尚未发布的源码时才使用 editable 安装。注意 `linkerbot-transport` 不在公共 PyPI 上，因此**不能只安装 hand** —— 单独执行 `pip install -e .` 会因解析不到 transport 而失败。两种可行写法：
-
-同时从源码安装两层（开发 transport 时用这个）：
-
-```bash
-git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-transport.git
-git clone ssh://git@git.linkerhub.work:12222/zhuzhixiang/linkerbot-hand.git
-python -m pip install -e './linkerbot-transport[all]' -e ./linkerbot-hand
-```
-
-只改 hand、transport 用已发布版本（更常见）：
-
-```bash
-python -m pip install \
-  --index-url https://gitea.linkerhub.work/api/packages/zhuzhixiang/pypi/simple \
-  --extra-index-url https://pypi.org/simple \
-  -e .
-```
-
-两种写法都可用同一条命令验证装到的是源码而非已发布包：
-
-```bash
-python -c 'import linkerbot_hand; print(linkerbot_hand.__file__)'
-```
-
-输出应指向本地工作区路径，而不是 `site-packages`。
+已有两个仓库时，在它们的共同父目录执行上述 editable 安装命令即可。
+`linkerbot-transport` 不在公共 PyPI 上，单独安装 hand 不能保证依赖可解析；
+当前自动发现和 MiniCANFD 回退还依赖更新后的 transport，需同时安装两层当前源码。
 
 Python 要求 `>=3.10`。`linkerbot-hand` 已声明对 transport 的运行依赖；快速启动仍显式
-列出两者，是为了让首次安装的依赖版本和排障边界清晰可见。
+列出两者，是为了让首次安装的源码来源和排障边界清晰可见。
 
 ## SocketCAN 准备
 
@@ -317,10 +296,6 @@ python -m build
 - [协议原值、percent 与角度方向](./docs/zh/src/reference/angle-coordinates.md)
 - [破坏性迁移说明](./docs/zh/src/reference/hand-migration.md)
 - [逐型号接口、单位与协议说明](./docs/zh/src/reference/models/README.md)
-- [版本变更记录](./CHANGELOG.md)
-
-所有面向用户的功能、行为、接口、依赖或文档变更，都必须在同一个 PR 中更新
-`CHANGELOG.md` 的“未发布”章节。
 
 本仓库只包含 Hand SDK。机械臂、运动学和 Pinocchio 属于独立 Arm SDK；ROS 2 消息、
 Lifecycle、QoS 和 topic 映射属于 `linkerbot-hand-ros`。

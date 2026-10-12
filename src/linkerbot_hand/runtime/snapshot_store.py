@@ -1,4 +1,4 @@
-"""Copy-on-write canonical state store for Hand SDK 1.0."""
+"""Copy-on-write canonical state store for Hand SDK."""
 
 from __future__ import annotations
 

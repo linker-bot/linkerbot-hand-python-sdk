@@ -8,10 +8,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Linkerbot" }]
 dependencies = [
-  "linkerbot-transport[can,canfd]>=1.0.0,<2.0.0",
+  "linkerbot-transport[can,canfd]",
 ]
 classifiers = [
-  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -24,7 +23,6 @@ classifiers = [
 
 [project.urls]
 Documentation = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand/src/branch/main/docs/zh/src/reference"
-Changelog = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand/src/branch/main/CHANGELOG.md"
 Repository = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand"
 
 [build-system]
@@ -40,7 +38,6 @@ dev = [
   "pytest-timeout>=2.4.0",
   "ruff>=0.16.3",
   "tomli>=2.4.1",
-  "twine>=6.0.0",
   "ty>=0.0.60",
 ]
 

@@ -55,7 +55,7 @@ raw = raw_at_zero + percent / 100 * (raw_at_hundred - raw_at_zero)
 整数协议按 capability 的 `Quantization` 规则量化；默认 nearest 使用 ties away from
 zero，不依赖 Python `round()` 的 banker's rounding。
 
-百分比映射是随 SDK profile 版本管理的协议事实，用户不能运行时修改。
+百分比映射是 SDK profile 定义的协议事实，用户不能运行时修改。
 
 ## 一次读取返回所有可信表示
 
@@ -110,5 +110,5 @@ print(angles.meta)
 - `SampleMeta.sequence`、`collected_at`、`valid`、`stale` 和 `origin`；
 - 值的表示类型是 raw 还是 percent。
 
-不要在同一字段混放 raw、percent 和物理值。跨 SDK 版本回放 percent 时，应保留当时的
+不要在同一字段混放 raw、percent 和物理值。回放 percent 时，应保留采集时的
 capability/profile 信息。
