@@ -1,32 +1,36 @@
-# linkerbot-hand API Reference
+# linkerbot-hand 使用手册
 
-本目录描述当前 `linkerbot-hand` 的唯一公开 API。所有型号都通过
-`linkerbot_hand.HandDevice` 使用；型号类、manager、`HandSession`、
-`create_hand_device()` 和 `linkerbot.hand` 已删除。
+`linkerbot-hand` 是用于连接和控制 LinkerHand 系列灵巧手的 Python SDK。支持型号有：L6、O6、L20Lite、L20、O20、L30 和 O30。
 
-本文档对应当前源码。请按
-[源码安装说明](../../../../README.md#快速启动)同时安装 hand 和 transport。
+> [!TIP]
+> 首次使用时，请完整阅读使用手册
 
-## 阅读顺序
+## 快速开始
 
-1. [统一 HandDevice API](./hand-device.md)：构造、生命周期、命令、主动读取、轮询、
-   快照、健康状态和错误。
-2. [自动发现与身份识别](./hand-discovery.md)：显式扫描、命名候选、批量构造、歧义和安全边界。
-3. [型号能力](./hand-capabilities.md)：七型号的 transport、关节、命令、状态与可选操作。
-4. [角度与值语义](./angle-coordinates.md)：协议原值、`percent`、方向和物理角度边界。
-5. [经典 CAN](./can.md) / [CAN FD](./canfd.md)：Linux 总线配置和 transport 构造。
-6. [迁移说明](./hand-migration.md)：从已删除的旧型号类和双接口迁移。
-7. [型号协议能力](./models/README.md)：逐型号维护接口、opcode、单位、解释、固件证据和限制。
-8. [全型号触觉字段](./force.md)：统一字段、默认读取、独立频率、共享查询与原始单位。
+[快速开始](./quick-start.md)：获取源码、安装 SDK，并快速读取设备角度。
 
-程序必须以 `hand.get_capabilities()` 返回的当前 profile 为准。文档矩阵用于阅读和评审，
-不能复制到 ROS 或应用中形成另一份 `MODEL_SPECS`。
+## 连接设备
 
-## 唯一导入
+请根据适配器型号[准备通信接口](./connection/prepare.md)，再选择手动或自动连接：
 
-```python
-from linkerbot_hand import AngleFeedbackPolicy, HandDevice, PollingPlan
-```
+- [手动连接](./connection/manual.md)：根据适配器选择示例，填写连接参数。
+- [自动连接](./connection/automatic.md)：由 SDK 识别设备，连接单台或多台设备。
 
-内部模块 `linkerbot_hand.protocols` 和 `linkerbot_hand.runtime` 不属于稳定用户入口。
-测试注入可以使用公开构造参数，但应用不应直接操作 protocol transaction 或 runtime actor。
+<a id="models"></a>
+
+## 设备功能
+
+| 型号 | 功能 |
+| --- | --- |
+| [L6](./tutorials/l6.md) | 身份识别、能力查询、角度控制、速度控制、力矩控制、传感器数据读取 |
+| [O6](./tutorials/o6.md) | 身份识别、能力查询、角度控制、速度控制、加速度设置、传感器数据读取 |
+| [L20Lite](./tutorials/l20lite.md) | 身份识别、能力查询、角度控制、速度控制、加速度设置、传感器数据读取 |
+| [L20](./tutorials/l20.md) | 身份识别、能力查询、角度控制、速度控制、传感器数据读取 |
+| [O20](./tutorials/o20.md) | 身份识别、能力查询、角度控制、速度控制、传感器数据读取 |
+| [L30](./tutorials/l30.md) | 身份识别、能力查询、角度控制、速度控制、传感器数据读取、使能与失能、设备标定 |
+| [O30](./tutorials/o30.md) | 身份识别、能力查询、角度控制、速度控制、加速度设置、传感器数据读取、力矩限幅、运动时间设置 |
+
+## 补充说明
+
+- [故障排查](./troubleshooting/README.md)：排查安装、连接、读取和控制问题。
+- [更新 SDK](./sdk-update.md)：更新已安装的 SDK。

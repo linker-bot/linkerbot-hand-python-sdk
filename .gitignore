@@ -123,3 +123,7 @@ Thumbs.db
 
 # Local protocol source material
 /superpowerdocs/
+
+# Local firmware evidence is kept outside the public documentation tree
+**/*-firmware-support.md
+**/*-firmware-evidence.md
