@@ -22,8 +22,8 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand/src/branch/main/docs/zh/src/reference"
-Repository = "https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand"
+Documentation = "https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python/src/branch/main/docs/zh/src/reference"
+Repository = "https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python"
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

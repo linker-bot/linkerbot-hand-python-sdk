@@ -6,16 +6,19 @@ Python SDK for Linkerbot hands: L6, O6, L20Lite, L20, O20, L30, and O30 share
 ## Install from source
 
 Install the current source of both hand and transport.
-Place them in the same parent directory and create a `py-linkerbot` environment:
+Place them in the same parent directory and run the following commands there to create a `py-linkerbot` environment.
+The commands use the default clone directory names, `linkerbot-transport` and `linkerbot-hand-python`;
+substitute your actual paths if your existing clones have different names.
 
 ```bash
 uv venv py-linkerbot --python 3.12  # Create the virtual environment
 source py-linkerbot/bin/activate  # Activate it in this terminal
 uv pip install -e "./linkerbot-transport[all]"  # Install transport from source
-uv pip install -e ./linkerbot-hand  # Install hand from source
+uv pip install -e ./linkerbot-hand-python  # Install hand from source
 ```
 
 See [pip, Windows, cloning, and installation checks](./docs/en/src/reference/quick-start.md).
+For existing clones that still use the old repository URLs, see [Updating the SDK](./docs/en/src/reference/sdk-update.md).
 
 ## Discover and connect
 

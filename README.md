@@ -11,8 +11,8 @@
 mkdir -p linkerbot_sdk
 cd linkerbot_sdk
 # 获取两个源码仓库
-git clone https://gitea.linkerhub.work/zhuzhixiang/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand.git
+git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
+git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 ```
 
 ### Windows PowerShell
@@ -22,11 +22,13 @@ git clone https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand.git
 New-Item -ItemType Directory -Path linkerbot_sdk -Force
 cd linkerbot_sdk
 # 获取两个源码仓库
-git clone https://gitea.linkerhub.work/zhuzhixiang/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/zhuzhixiang/linkerbot-hand.git
+git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
+git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 ```
 
 ## 2.安装
+
+在两个仓库共同的父目录（示例为 `linkerbot_sdk`）执行以下命令。命令使用新克隆的默认目录名；已有仓库的目录名若不同，请替换为实际路径。旧克隆的远程地址更新见[更新 SDK](./docs/zh/src/reference/sdk-update.md)。
 
 ### Linux
 
@@ -41,7 +43,7 @@ uv venv py-linkerbot --python 3.12
 source py-linkerbot/bin/activate
 # 安装两个源码包
 uv pip install -e "./linkerbot-transport[all]"
-uv pip install -e ./linkerbot-hand
+uv pip install -e ./linkerbot-hand-python
 ```
 
 pip：
@@ -55,7 +57,7 @@ source py-linkerbot/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 # 安装两个源码包
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand
+python -m pip install -e ./linkerbot-hand-python
 ```
 
 ### Windows
@@ -69,7 +71,7 @@ py -3.12 -m venv py-linkerbot
 python -m pip install --upgrade pip setuptools wheel
 # 安装两个源码包
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand
+python -m pip install -e ./linkerbot-hand-python
 ```
 
 ## 3.配置通信接口
