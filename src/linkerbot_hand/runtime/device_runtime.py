@@ -127,11 +127,15 @@ class DeviceRuntime:
                     model=self._state.declared.model,
                 )
             self._metrics.opening()
+            # Even acquiring the physical lease can leave cleanup pending.
+            # Keep close retryable until initialization or rollback completes.
+            self._close_incomplete = True
             try:
                 self._binding.open()
                 self._opened = True
                 ticket = self._actor.start()
                 self._wait_ticket(ticket, self._config.shutdown_timeout_s, "open")
+                self._close_incomplete = False
             except Exception as error:
                 self._cleanup_failed_open()
                 classified = as_hand_error(
@@ -459,11 +463,7 @@ class DeviceRuntime:
             raise ticket.error
 
     def _cleanup_failed_open(self) -> None:
-        try:
-            self._actor.stop(timeout_s=self._config.shutdown_timeout_s)
-        finally:
-            self._binding.close()
-            self._opened = False
+        self.close()
 
 
 def _resolve_backend(

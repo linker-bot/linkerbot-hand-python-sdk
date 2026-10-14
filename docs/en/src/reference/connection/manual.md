@@ -157,4 +157,9 @@ For three Linux adapters with hands on channel `0`, use `(device_index, channel_
 
 After connecting, call the [features for your model](../README.md#models) between `hand.open()` and `hand.close()`. Call `hand.close()` when finished to release the connection.
 
+Keep `hand.open()` inside `try` so `finally` also calls `hand.close()` after a failed
+open. If cleanup fails, keep the same `HandDevice` and retry `hand.close()` after
+resolving the driver or connection error, before reopening it. Cleanup retries do
+not reopen the channel or close a connection still leased by another device.
+
 [Back to overview](../README.md)

@@ -53,6 +53,7 @@ class TransportBinding:
         self._clock = clock
         self._interval_event = threading.Event()
         self._lease: TransportLease[MessageTransport] | None = None
+        self._cleanup_pending = False
         self._arbiter_acquired = False
         self._accepting = False
         self._transport_generation: int | None = None
@@ -64,7 +65,16 @@ class TransportBinding:
         with self._lock:
             if self._lease is not None:
                 return
+            try:
+                hash(self._key)
+            except TypeError as error:
+                raise ValidationError("transport pool key must be hashable") from error
+            # Acquire may retain an idle transport without returning a lease.
+            # Keep its cleanup reachable even when open/recover raises.
+            self._cleanup_pending = True
             lease = TRANSPORT_POOL.acquire(self._key, lambda: self._descriptor)
+            self._lease = lease
+            self._cleanup_pending = False
             transport = lease.transport
             try:
                 generation = ARBITERS.acquire(
@@ -77,9 +87,8 @@ class TransportBinding:
                     wait_interval=self._wait_interval,
                 )
             except Exception:
-                lease.close()
+                self.close()
                 raise
-            self._lease = lease
             self._arbiter_acquired = True
             self._accepting = True
             self._transport_generation = generation
@@ -110,6 +119,9 @@ class TransportBinding:
         with self._lock:
             lease = self._lease
             if lease is None:
+                if self._cleanup_pending:
+                    TRANSPORT_POOL.close_idle(self._key)
+                    self._cleanup_pending = False
                 return
             self._accepting = False
             if self._arbiter_acquired:

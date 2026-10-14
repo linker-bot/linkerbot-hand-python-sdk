@@ -147,4 +147,8 @@ Linux 连接三个适配器且手都在通道 `0` 时，分别使用 `(device_in
 
 连接成功后，请在 `hand.open()` 与 `hand.close()` 之间调用[对应型号的功能](../README.md#models)。使用结束后，调用 `hand.close()` 释放连接。
 
+将 `hand.open()` 放在 `try` 内，确保打开失败时也会在 `finally` 中调用 `hand.close()`。
+清理失败时保留同一个 `HandDevice`，排除驱动或连接故障后重试 `hand.close()`，关闭成功后
+再重新打开。清理重试不会重新打开通道，也不会关闭其他设备仍持有租约的共享连接。
+
 [返回总览](../README.md)

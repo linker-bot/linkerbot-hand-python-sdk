@@ -9,6 +9,7 @@ from linkerbot_hand.api.enums import DataOrigin, HandSide
 from linkerbot_hand.api.errors import ValidationError
 from linkerbot_hand.api.readings import (
     AngleSample,
+    ForceFieldSample,
     ForceSample,
     SampleMeta,
     TactileMatrix,
@@ -93,10 +94,58 @@ def test_all_builtin_samples_match_replace_and_share_only_immutable_data(
     assert aged is not sample and type(aged) is type(sample)
     for field in fields(sample):
         if field.name != "meta":
+            if (
+                isinstance(sample, ForceSample)
+                and field.name == "fields"
+                and not meta.valid
+            ):
+                # Invalidation rebuilds child metadata; empty tuple identity is
+                # an implementation detail that differs between Python versions.
+                assert aged.fields == sample.fields
+                continue
             assert getattr(aged, field.name) is getattr(sample, field.name)
     assert sample.meta.age_s == 0 and sample.meta.valid
     with pytest.raises(FrozenInstanceError):
         aged.meta = sample.meta
+
+
+def test_force_sample_invalidation_rebuilds_child_meta_and_shares_raw_data():
+    original_meta = valid_meta()
+    original_field = ForceFieldSample(
+        name="fn",
+        sensor_names=("finger",),
+        raw=((1, 2),),
+        units=(None,),
+        encodings=(None,),
+        valid_values=((True, True),),
+        meta=original_meta,
+    )
+    sample = ForceSample(
+        raw=(1, 2), tactile=(), meta=original_meta, fields=(original_field,)
+    )
+    aged = age_sample(
+        TelemetrySemantic.FORCE,
+        sample,
+        monotonic_now=20,
+        collected_monotonic=None,
+        capabilities=get_declared_capabilities("l6", side="left"),
+        generation=3,
+    )
+    unavailable = SampleMeta.unavailable(connection_generation=3)
+    assert aged.meta == unavailable
+    assert len(aged.fields) == 1
+    assert aged.fields[0] == replace(original_field, meta=unavailable)
+    assert aged.fields[0] is not original_field
+    assert aged.raw is sample.raw and aged.tactile is sample.tactile
+    for field in fields(original_field):
+        if field.name != "meta":
+            assert getattr(aged.fields[0], field.name) is getattr(
+                original_field, field.name
+            )
+    assert sample.meta is original_meta and original_field.meta is original_meta
+    assert sample.meta.valid and original_field.meta.valid
+    assert sample.status("fn") == "available"
+    assert aged.status("fn") == "invalidated"
 
 
 def test_device_info_preserves_all_optional_identity_fields():
