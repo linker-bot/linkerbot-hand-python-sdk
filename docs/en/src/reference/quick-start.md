@@ -4,7 +4,7 @@ Follow these steps to get started with LinkerHand.
 
 ## 1. Get the Source
 
-Obtain the current source of both repositories using the commands below. Access to the private repositories requires Gitea credentials. Skip this step if you already have local source repositories.
+Obtain the current source of both repositories from GitHub using the commands below. Skip this step if you already have local source repositories.
 
 ### Linux
 
@@ -13,8 +13,8 @@ Obtain the current source of both repositories using the commands below. Access 
 mkdir -p linkerbot_sdk
 cd linkerbot_sdk
 # 获取两个源码仓库
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
+git clone https://github.com/linker-bot/linkerbot-transport.git
+git clone https://github.com/linker-bot/linkerbot-hand-python-sdk.git
 ```
 
 ### Windows PowerShell
@@ -24,8 +24,8 @@ git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 New-Item -ItemType Directory -Path linkerbot_sdk -Force
 cd linkerbot_sdk
 # 获取两个源码仓库
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
+git clone https://github.com/linker-bot/linkerbot-transport.git
+git clone https://github.com/linker-bot/linkerbot-hand-python-sdk.git
 ```
 
 ## 2. Install
@@ -45,7 +45,7 @@ uv venv py-linkerbot --python 3.12
 source py-linkerbot/bin/activate
 # 安装两个源码包
 uv pip install -e "./linkerbot-transport[all]"
-uv pip install -e ./linkerbot-hand-python
+uv pip install -e ./linkerbot-hand-python-sdk
 ```
 
 pip：
@@ -59,7 +59,7 @@ source py-linkerbot/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 # 安装两个源码包
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 ### Windows
@@ -73,7 +73,7 @@ py -3.12 -m venv py-linkerbot
 python -m pip install --upgrade pip setuptools wheel
 # 安装两个源码包
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 ## 3. Configure the Communication Interface
