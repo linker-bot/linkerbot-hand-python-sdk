@@ -1,16 +1,19 @@
-# 快速开始
+# Quick Start
 
-## 1.获取源码
+English | [简体中文](README_zh.md)
 
-执行以下命令，获取两个仓库的当前源码。克隆私有仓库需要 Gitea 访问权限。如果本地已经有源码仓库，可以跳过此步骤。
+## 1. Get the source
+
+Get the current source of both repositories. Cloning the private repositories requires
+Gitea access. Skip this step if you already have local source repositories.
 
 ### Linux
 
 ```bash
-# 创建并进入源码存放目录
+# Create and enter the source directory
 mkdir -p linkerbot_sdk
 cd linkerbot_sdk
-# 获取两个源码仓库
+# Clone both repositories
 git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
 git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 ```
@@ -18,44 +21,47 @@ git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 ### Windows PowerShell
 
 ```powershell
-# 创建并进入源码存放目录
+# Create and enter the source directory
 New-Item -ItemType Directory -Path linkerbot_sdk -Force
 cd linkerbot_sdk
-# 获取两个源码仓库
+# Clone both repositories
 git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
 git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 ```
 
-## 2.安装
+## 2. Install
 
-在两个仓库共同的父目录（示例为 `linkerbot_sdk`）执行以下命令。命令使用新克隆的默认目录名；已有仓库的目录名若不同，请替换为实际路径。旧克隆的远程地址更新见[更新 SDK](./docs/zh/src/reference/sdk-update.md)。
+Run the following commands from the shared parent directory of both repositories
+(`linkerbot_sdk` in this example). The commands use the default clone directory names;
+substitute your actual paths if they differ. For existing clones that use the old URLs,
+see [Updating the SDK](./docs/en/src/reference/sdk-update.md).
 
 ### Linux
 
-请选择 `uv` 或 `pip` 中的一种方案安装 SDK。
+Choose either `uv` or `pip` to install the SDK.
 
-uv：
+uv:
 
 ```bash
-# 创建虚拟环境（SDK 支持 Python 3.10+）
+# Create a virtual environment (the SDK supports Python 3.10+)
 uv venv py-linkerbot --python 3.12
-# 激活虚拟环境
+# Activate the environment
 source py-linkerbot/bin/activate
-# 安装两个源码包
+# Install both packages from source
 uv pip install -e "./linkerbot-transport[all]"
 uv pip install -e ./linkerbot-hand-python
 ```
 
-pip：
+pip:
 
 ```bash
-# 创建虚拟环境（SDK 支持 Python 3.10+）
+# Create a virtual environment (the SDK supports Python 3.10+)
 python3.12 -m venv py-linkerbot
-# 激活虚拟环境
+# Activate the environment
 source py-linkerbot/bin/activate
-# 更新安装工具
+# Update the installation tools
 python -m pip install --upgrade pip setuptools wheel
-# 安装两个源码包
+# Install both packages from source
 python -m pip install -e "./linkerbot-transport[all]"
 python -m pip install -e ./linkerbot-hand-python
 ```
@@ -63,20 +69,22 @@ python -m pip install -e ./linkerbot-hand-python
 ### Windows
 
 ```powershell
-# 创建虚拟环境（SDK 支持 Python 3.10+）
+# Create a virtual environment (the SDK supports Python 3.10+)
 py -3.12 -m venv py-linkerbot
-# 激活虚拟环境
+# Activate the environment
 .\py-linkerbot\Scripts\Activate.ps1
-# 更新安装工具
+# Update the installation tools
 python -m pip install --upgrade pip setuptools wheel
-# 安装两个源码包
+# Install both packages from source
 python -m pip install -e "./linkerbot-transport[all]"
 python -m pip install -e ./linkerbot-hand-python
 ```
 
-## 3.配置通信接口
+## 3. Configure the communication interface
 
-以下以经典 CAN 为例，使用 Linux SocketCAN 配置并启用通信接口。CAN FD 使用对应的 CAN FD 配置；Windows 的 PCAN、SLCAN，以及两平台的 MiniCANFD 无需执行这些命令。
+For Classical CAN on Linux, configure and enable the SocketCAN interface as follows.
+Use the CAN FD configuration for CAN FD hands. Windows PCAN and SLCAN, and MiniCANFD
+on both platforms, do not require these commands.
 
 ```bash
 sudo ip link set can0 down
@@ -84,27 +92,28 @@ sudo ip link set can0 type can bitrate 1000000
 sudo ip link set can0 up
 ```
 
+See [Interface preparation](./docs/en/src/reference/connection/prepare.md) for details.
+For automatic discovery, supported adapters and MiniCANFD channel fallback, see
+[Automatic connection](./docs/en/src/reference/connection/automatic.md).
+
 <a id="first-read"></a>
 
-详细配置见[准备通信接口](./docs/zh/src/reference/connection/prepare.md)。自动发现的适配器范围及 MiniCANFD 通道回退见[自动连接](./docs/zh/src/reference/connection/automatic.md)。
+## 4. Read the first angles
 
-## 4.读取首组角度值
-
-确认当前仅连接一只灵巧手后，运行以下命令读取首组角度值：
+Connect exactly one hand, then run the following Python code to read its first angle sample:
 
 ```python
 from linkerbot_hand import discover_hands
-# 自动识别设备参数；require_one() 要求只接入一台设备
+# Identify the device; require_one() requires exactly one candidate
 hand = discover_hands().require_one().create_hand_device()
 try:
-    # 打开通道，验证身份并读取基线
+    # Open the channel, verify identity and read the baseline
     hand.open()
-    #读取原始角度
+    # Read raw protocol angles
     print(hand.get_angles(timeout=1.0).raw)
 finally:
-    # 释放连接和后台资源
+    # Release the connection and background resources
     hand.close()
 ```
 
-
-[完整使用手册](./docs/zh/src/reference/README.md)：连接配置和逐型号功能示例。
+[Full user manual](./docs/en/src/reference/README.md): connection settings and examples for each model.

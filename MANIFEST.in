@@ -1,4 +1,0 @@
-include README.en.md
-graft docs
-prune tests
-global-exclude __pycache__ *.py[cod]

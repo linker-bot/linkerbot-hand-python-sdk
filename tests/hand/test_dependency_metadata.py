@@ -1,4 +1,4 @@
-"""Distribution boundary regression tests."""
+"""Source installation dependency and namespace boundary regression tests."""
 
 from pathlib import Path
 from typing import Any
@@ -36,12 +36,6 @@ def test_distribution_discovers_only_the_linkerbot_hand_namespace() -> None:
 
     assert package_find["include"] == ["linkerbot_hand*"]
     assert package_find["namespaces"] is False
-
-
-def test_source_distribution_excludes_internal_tests() -> None:
-    manifest = Path("MANIFEST.in").read_text(encoding="utf-8").splitlines()
-
-    assert "prune tests" in manifest
 
 
 def test_removed_implementation_namespaces_have_no_python_sources() -> None:
