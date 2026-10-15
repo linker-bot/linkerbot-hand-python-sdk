@@ -1,12 +1,12 @@
 # 更新 SDK
 
-如果你已经安装或使用过 SDK，需要更新本地源码，请在两个仓库共同的父目录（例如 `linkerbot_sdk`）执行以下命令。命令使用新克隆的默认目录名；如果已有 hand 仓库目录仍叫 `linkerbot-hand`，请将命令中的 `linkerbot-hand-python` 替换为实际目录名，本地目录无需重命名。
+如果你已经安装或使用过 SDK，需要更新本地源码，请在两个仓库共同的父目录（例如 `linkerbot_sdk`）执行以下命令。命令使用 GitHub 新克隆的默认目录名；如果已有 hand 仓库目录叫 `linkerbot-hand` 或 `linkerbot-hand-python`，请将命令中的 `linkerbot-hand-python-sdk` 替换为实际目录名，本地目录无需重命名。
 
 如果现有克隆仍使用旧仓库地址，先更新 `origin`：
 
 ```bash
-git -C linkerbot-transport remote set-url origin https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
-git -C linkerbot-hand-python remote set-url origin https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
+git -C linkerbot-transport remote set-url origin https://github.com/linker-bot/linkerbot-transport.git
+git -C linkerbot-hand-python-sdk remote set-url origin https://github.com/linker-bot/linkerbot-hand-python-sdk.git
 ```
 
 更新两个仓库的当前分支：
@@ -15,7 +15,7 @@ git -C linkerbot-hand-python remote set-url origin https://gitea.linkerhub.work/
 # 更新传输层源码
 git -C linkerbot-transport pull --ff-only
 # 更新设备 SDK 源码
-git -C linkerbot-hand-python pull --ff-only
+git -C linkerbot-hand-python-sdk pull --ff-only
 ```
 
 如果 Git 提示本地修改或分支分歧，请先处理相关问题，再继续更新。
@@ -31,7 +31,7 @@ git -C linkerbot-hand-python pull --ff-only
 source py-linkerbot/bin/activate
 # 安装两个源码包及适配器依赖
 uv pip install -e "./linkerbot-transport[all]"
-uv pip install -e ./linkerbot-hand-python
+uv pip install -e ./linkerbot-hand-python-sdk
 ```
 
 原先使用 pip 安装：
@@ -41,7 +41,7 @@ uv pip install -e ./linkerbot-hand-python
 source py-linkerbot/bin/activate
 # 安装两个源码包及适配器依赖
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 ## Windows PowerShell
@@ -51,7 +51,7 @@ python -m pip install -e ./linkerbot-hand-python
 .\py-linkerbot\Scripts\Activate.ps1
 # 安装两个源码包及适配器依赖
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 更新 SDK 后，请重新运行使用 SDK 的 Python 程序。

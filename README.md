@@ -4,8 +4,8 @@ English | [简体中文](README_zh.md)
 
 ## 1. Get the source
 
-Get the current source of both repositories. Cloning the private repositories requires
-Gitea access. Skip this step if you already have local source repositories.
+Get the current source of both repositories from GitHub.
+Skip this step if you already have local source repositories.
 
 ### Linux
 
@@ -14,8 +14,8 @@ Gitea access. Skip this step if you already have local source repositories.
 mkdir -p linkerbot_sdk
 cd linkerbot_sdk
 # Clone both repositories
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
+git clone https://github.com/linker-bot/linkerbot-transport.git
+git clone https://github.com/linker-bot/linkerbot-hand-python-sdk.git
 ```
 
 ### Windows PowerShell
@@ -25,8 +25,8 @@ git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
 New-Item -ItemType Directory -Path linkerbot_sdk -Force
 cd linkerbot_sdk
 # Clone both repositories
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-transport.git
-git clone https://gitea.linkerhub.work/linker-bot/linkerbot-hand-python.git
+git clone https://github.com/linker-bot/linkerbot-transport.git
+git clone https://github.com/linker-bot/linkerbot-hand-python-sdk.git
 ```
 
 ## 2. Install
@@ -49,7 +49,7 @@ uv venv py-linkerbot --python 3.12
 source py-linkerbot/bin/activate
 # Install both packages from source
 uv pip install -e "./linkerbot-transport[all]"
-uv pip install -e ./linkerbot-hand-python
+uv pip install -e ./linkerbot-hand-python-sdk
 ```
 
 pip:
@@ -63,7 +63,7 @@ source py-linkerbot/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 # Install both packages from source
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 ### Windows
@@ -77,7 +77,7 @@ py -3.12 -m venv py-linkerbot
 python -m pip install --upgrade pip setuptools wheel
 # Install both packages from source
 python -m pip install -e "./linkerbot-transport[all]"
-python -m pip install -e ./linkerbot-hand-python
+python -m pip install -e ./linkerbot-hand-python-sdk
 ```
 
 ## 3. Configure the communication interface
