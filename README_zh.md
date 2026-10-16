@@ -110,3 +110,10 @@ finally:
 
 
 [完整使用手册](./docs/zh/src/reference/README.md)：连接配置和逐型号功能示例。
+
+## 贡献与许可证
+
+欢迎用中文或英文参与贡献，请遵循[Linkerbot 贡献指南](https://github.com/linker-bot/.github/blob/main/CONTRIBUTING.md)。
+安全问题请按[组织安全策略](https://github.com/linker-bot/.github/blob/main/SECURITY.md)私下报告。
+
+本项目采用 [MIT 许可证](LICENSE)。
