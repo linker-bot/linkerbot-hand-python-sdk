@@ -117,3 +117,12 @@ finally:
 ```
 
 [Full user manual](./docs/en/src/reference/README.md): connection settings and examples for each model.
+
+## Contributing and license
+
+English and Chinese contributions are welcome. Follow the
+[Linkerbot contribution guide](https://github.com/linker-bot/.github/blob/main/CONTRIBUTING.md).
+Report vulnerabilities privately using the
+[organization security policy](https://github.com/linker-bot/.github/blob/main/SECURITY.md).
+
+Licensed under the [MIT License](LICENSE).
