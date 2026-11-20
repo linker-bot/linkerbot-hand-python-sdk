@@ -10,6 +10,7 @@ from ...api.errors import UnsupportedOperationError
 from ...api.readings import JointFaultStatus
 from ...capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..base import ProtocolTransaction, ResponseProgress, SamplePayload
+from ..hop.response import serialize_classic_read
 from .codec import (
     MI_ACCELERATION,
     MI_CURRENT,
@@ -152,9 +153,9 @@ def read_transaction(
             ),
         )
 
-    return ProtocolTransaction(
+    transaction = ProtocolTransaction(
         key=("read", semantic),
-        correlation_key=("o30_hop", addressing.response_id),
+        correlation_key=("hop", addressing.response_id),
         request_messages=(
             build_read_message(
                 profile.main_index,
@@ -162,6 +163,8 @@ def read_transaction(
                 length=WIRE_SLOT_COUNT,
                 rts=profile.rts,
                 request_id=addressing.request_id,
+                brs=addressing.brs,
+                can_fd=addressing.can_fd,
             ),
         ),
         response_timeout_s=0.1,
@@ -169,6 +172,7 @@ def read_transaction(
         response_consumer=consume,
         late_response_guard_s=0.01,
     )
+    return serialize_classic_read(transaction, addressing)
 
 
 def _within_declared_range(

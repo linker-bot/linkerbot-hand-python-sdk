@@ -286,7 +286,7 @@ def test_no_response_is_bounded_and_require_one_reports_no_hand() -> None:
 
 def test_known_incompatible_nominal_bitrate_is_not_probed() -> None:
     source = _Source(
-        _classic_channel(nominal_bitrate=500_000),
+        _classic_channel(nominal_bitrate=333_333),
         {},
     )
 

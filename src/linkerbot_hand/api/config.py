@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields
 
-from .enums import AngleFeedbackPolicy
+from .enums import AngleFeedbackPolicy, TransportKind
 from .errors import ValidationError
 
 
@@ -76,7 +76,13 @@ class PollingPlan:
 
 @dataclass(frozen=True, slots=True)
 class DeviceConfig:
-    """Runtime limits, optional O30 endpoint and recovery policy for one hand.
+    """Runtime limits, HOP endpoint parameters and recovery policy for one hand.
+
+    ``hop_request_id`` selects a host-side standard HOP endpoint. ``hop_brs``
+    defaults off and sets outgoing FD frame BRS; neither field writes device
+    registers. ``hop_transport`` selects O6/O30 HOP over classic CAN or CAN FD
+    (default); it does not switch device or adapter mode. ``o30_request_id`` is
+    retained as a compatible O30-only alias.
 
     ``identity_timeout_s`` bounds each identity response stage after its request
     batch has been sent, including every stage of L30/O30 identity chains.
@@ -104,8 +110,31 @@ class DeviceConfig:
     recovery_timeout_s: float = 5.0
     recovery_max_attempts: int = 3
     recovery_retry_delay_s: float = 0.2
+    hop_request_id: int | None = None
+    hop_brs: bool = False
+    hop_transport: TransportKind = TransportKind.CAN_FD
 
     def __post_init__(self) -> None:
+        if self.hop_transport not in (
+            TransportKind.CAN,
+            TransportKind.CAN_FD,
+        ) or not isinstance(self.hop_transport, TransportKind):
+            raise ValidationError("hop_transport must be TransportKind.CAN or CAN_FD")
+        if self.hop_transport is TransportKind.CAN and self.hop_brs:
+            raise ValidationError("classic HOP CAN cannot enable BRS")
+        if self.hop_request_id is not None and (
+            type(self.hop_request_id) is not int
+            or not 0 <= self.hop_request_id <= 0x3FE
+        ):
+            raise ValidationError("hop_request_id must be within 0x000..0x3FE or None")
+        if type(self.hop_brs) is not bool:
+            raise ValidationError("hop_brs must be bool")
+        if (
+            self.hop_request_id is not None
+            and self.o30_request_id is not None
+            and self.hop_request_id != self.o30_request_id
+        ):
+            raise ValidationError("hop_request_id disagrees with o30_request_id")
         if self.o30_request_id is not None and (
             type(self.o30_request_id) is not int
             or not 0 <= self.o30_request_id <= 0x3FE

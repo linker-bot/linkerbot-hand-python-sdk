@@ -20,6 +20,7 @@ from ._runtime_contract import DeviceRuntimeContract, RuntimeFactory
 from .commands import CommandHandle
 from .config import DeviceConfig, PollingPlan
 from .device_info import DeviceInfo
+from .enums import ProtocolKind, TransportKind
 from .errors import (
     ClosedError,
     LifecycleError,
@@ -83,6 +84,7 @@ class _DeviceCore:
         model: str,
         transport: object,
         side: str | None = None,
+        protocol: ProtocolKind | str | None = None,
         config: DeviceConfig | None = None,
         clock: object | None = None,
         protocol_backend: object | None = None,
@@ -99,15 +101,33 @@ class _DeviceCore:
         if runtime_factory is not None and not callable(runtime_factory):
             raise ValidationError("runtime_factory must be callable or None")
 
-        capabilities = get_declared_capabilities(model, side=side)
         self._transport = transport
         self._config = DeviceConfig() if config is None else config
+        capabilities = get_declared_capabilities(model, side=side, protocol=protocol)
+        if self._config.hop_transport is TransportKind.CAN:
+            if (
+                capabilities.model not in {"O6", "O30"}
+                or capabilities.protocol is not ProtocolKind.HOP
+            ):
+                raise ValidationError(
+                    "classic HOP CAN requires O6 or O30 with protocol='hop'"
+                )
+            capabilities = get_declared_capabilities(
+                model, side=side, protocol=protocol, transport_kind=TransportKind.CAN
+            )
         if self._config.o30_request_id is not None:
             if capabilities.model != "O30":
                 raise ValidationError("o30_request_id is only valid for O30")
             if protocol_backend is not None:
                 raise ValidationError(
                     "use o30_request_id or protocol_backend, not both"
+                )
+        if self._config.hop_request_id is not None or self._config.hop_brs:
+            if capabilities.protocol is not ProtocolKind.HOP:
+                raise ValidationError("HOP configuration requires protocol='hop'")
+            if protocol_backend is not None:
+                raise ValidationError(
+                    "use HOP configuration or protocol_backend, not both"
                 )
         self._clock = clock
         self._protocol_backend = protocol_backend

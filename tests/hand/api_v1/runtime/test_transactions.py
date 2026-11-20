@@ -239,3 +239,85 @@ def test_pending_waiter_cancel_removes_unused_transaction() -> None:
 
     assert coordinator.pending_count == 0
     coordinator.reject_new(ClosedError("closed"))
+
+
+def test_exclusive_request_replaces_full_queue_and_ignores_old_completion() -> None:
+    coordinator, _clock, wake = make_coordinator(capacity=2)
+    coordinator.activate()
+    inflight = coordinator.request(
+        TelemetrySemantic.ANGLES, start_sequence=0, deadline_s=1
+    )
+    assert coordinator.take_next() is not None
+    queued = coordinator.request(
+        TelemetrySemantic.CURRENTS, start_sequence=0, deadline_s=1
+    )
+    assert coordinator.request_poll(TelemetrySemantic.TEMPERATURES)
+    wake.clear()
+    error = DeviceNotReadyError("exclusive configuration")
+
+    exclusive = coordinator.request_exclusive(
+        "configuration", start_sequence=0, deadline_s=1, error=error
+    )
+
+    assert wake.is_set()
+    assert coordinator.pending_count == coordinator.waiter_count == 1
+    for old in (inflight, queued):
+        with pytest.raises(DeviceNotReadyError) as raised:
+            old.wait()
+        assert raised.value is error
+    with pytest.raises(DeviceNotReadyError) as raised:
+        coordinator.request(TelemetrySemantic.ANGLES, start_sequence=0, deadline_s=1)
+    assert raised.value is error
+    assert not coordinator.request_poll(TelemetrySemantic.ANGLES)
+    with pytest.raises(DeviceNotReadyError):
+        coordinator.request_exclusive(
+            "another_configuration", start_sequence=0, deadline_s=1, error=error
+        )
+    coordinator.cancel(inflight)
+    coordinator.complete(TelemetrySemantic.ANGLES, "old sample", sequence=1)
+    assert coordinator.pending_count == coordinator.waiter_count == 1
+    claim = coordinator.take_next()
+    assert claim is not None and claim.key == "configuration"
+    assert coordinator.take_next() is None
+    coordinator.complete("configuration", True, sequence=1)
+    assert exclusive.wait() is True
+    assert coordinator.pending_count == coordinator.waiter_count == 0
+    # A successful write does not reopen admission. Only initialization does.
+    with pytest.raises(DeviceNotReadyError):
+        coordinator.request(TelemetrySemantic.ANGLES, start_sequence=0, deadline_s=1)
+    coordinator.activate()
+    assert coordinator.request_poll(TelemetrySemantic.ANGLES)
+
+
+def test_expired_exclusive_request_preserves_old_work_and_admission() -> None:
+    coordinator, clock, _wake = make_coordinator()
+    coordinator.activate()
+    old = coordinator.request(TelemetrySemantic.ANGLES, start_sequence=0, deadline_s=2)
+    clock.advance(1)
+    with pytest.raises(TimeoutError, match="deadline has already expired"):
+        coordinator.request_exclusive(
+            "configuration",
+            start_sequence=0,
+            deadline_s=1,
+            error=DeviceNotReadyError("exclusive configuration"),
+        )
+    assert coordinator.pending_count == coordinator.waiter_count == 1
+    assert coordinator.request_poll(TelemetrySemantic.CURRENTS)
+    coordinator.complete(TelemetrySemantic.ANGLES, "old sample", sequence=1)
+    assert old.wait() == "old sample"
+
+
+def test_exclusive_request_does_not_reopen_closed_admission() -> None:
+    coordinator, _clock, _wake = make_coordinator()
+    coordinator.activate()
+    closed = ClosedError("session closed")
+    coordinator.reject_new(closed)
+    with pytest.raises(ClosedError) as raised:
+        coordinator.request_exclusive(
+            "configuration",
+            start_sequence=0,
+            deadline_s=1,
+            error=DeviceNotReadyError("exclusive configuration"),
+        )
+    assert raised.value is closed
+    assert coordinator.pending_count == coordinator.waiter_count == 0

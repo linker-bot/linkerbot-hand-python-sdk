@@ -102,6 +102,13 @@ class RuntimeState:
                 model=self._declared.model,
                 generation=self.generation(),
             )
+        if capabilities.protocol is not self._declared.protocol:
+            raise IdentityMismatchError(
+                "connected device protocol does not match configuration",
+                operation="open" if not recovery else "recover",
+                model=self._declared.model,
+                generation=self.generation(),
+            )
         if capabilities.side is not self._declared.side:
             raise IdentityMismatchError(
                 "connected device side does not match configuration",

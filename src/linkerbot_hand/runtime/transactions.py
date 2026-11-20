@@ -172,6 +172,51 @@ class TransactionCoordinator:
         self._wake()
         return waiter
 
+    def request_exclusive(
+        self,
+        key: Hashable,
+        *,
+        start_sequence: int,
+        deadline_s: float,
+        error: HandError,
+    ) -> TransactionWaiter:
+        """Atomically replace read demand and close ordinary admission.
+
+        An actor-owned transaction may still finish, but unclaimed work is
+        discarded. Notify old callers after releasing the coordinator lock.
+        """
+
+        _validate_key(key)
+        if type(start_sequence) is not int or start_sequence < 0:
+            raise ValidationError("start_sequence must be a non-negative int")
+        if not isinstance(error, HandError):
+            raise ValidationError("error must be HandError")
+        with self._lock:
+            if not self._accepting:
+                raise self._admission_error
+            if deadline_s <= self._clock.monotonic():
+                raise TimeoutError("exclusive request deadline has already expired")
+            # Prepare the replacement before changing admission or old work.
+            waiter = TransactionWaiter(
+                key=key,
+                start_sequence=start_sequence,
+                deadline_s=deadline_s,
+                clock=self._clock,
+                cancel=self.cancel,
+            )
+            old_waiters = tuple(
+                old for entry in self._entries.values() for old in entry.waiters
+            )
+            self._accepting = False
+            self._admission_error = error
+            self._entries.clear()
+            self._entry_locked(key).waiters.append(waiter)
+            self._waiter_count = 1
+        for old in old_waiters:
+            old.fail(error)
+        self._wake()
+        return waiter
+
     def request_poll(self, key: Hashable) -> bool:
         """Create or join one periodic transaction without adding a waiter."""
 

@@ -61,7 +61,7 @@ def command_transaction(
     capabilities: DeviceCapabilities,
     addressing: HOPAddressing,
 ) -> ProtocolTransaction:
-    """Build one compact write whose correlated HOP response is the ACK."""
+    """Build one FD write or five response-gated classic CAN range writes."""
 
     try:
         command = _COMMAND_OBJECTS[semantic]
@@ -72,57 +72,68 @@ def command_transaction(
     main_index = command.main_index
     raw = _validated_values(values, semantic, capabilities)
     payload = encode_v25(raw)
-    assembler = HOPRangeAssembler(
-        main_index,
-        sub_index=0,
-        length=WIRE_SLOT_COUNT,
-        rts=command.rts,
-        response_id=addressing.response_id,
-    )
+    fragment_size = WIRE_SLOT_COUNT if addressing.can_fd else 5
+    feedback_bytes = bytearray(WIRE_SLOT_COUNT)
 
-    def consume(message: object) -> ResponseProgress:
-        matched, complete = assembler.consume(message)
-        if complete is None:
-            return ResponseProgress(matched=matched)
-        feedback = None
-        if semantic is CommandSemantic.ANGLES:
-            # RTS=0 selects actual state, which can differ from the target
-            # while the hand is moving. ACK is not a mechanical arrival test.
-            raw = decode_v25(complete)
-            feedback = SamplePayload(
-                semantic=TelemetrySemantic.ANGLES,
-                raw=raw,
-                origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
-                within_declared_range=all(
-                    joint.raw_angle_range.contains(value)
-                    for joint, value in zip(capabilities.joints, raw, strict=True)
-                ),
-            )
-        return ResponseProgress(
-            matched=True,
-            complete=True,
-            acknowledged=True,
-            result=feedback,
+    def stage(start: int) -> ProtocolTransaction:
+        end = min(start + fragment_size, WIRE_SLOT_COUNT)
+        final = end == WIRE_SLOT_COUNT
+        assembler = HOPRangeAssembler(
+            main_index,
+            sub_index=start,
+            length=end - start,
+            rts=command.rts,
+            response_id=addressing.response_id,
         )
 
-    return ProtocolTransaction(
-        key=("command", semantic),
-        correlation_key=("o30_hop", addressing.response_id),
-        request_messages=(
-            build_write_message(
-                main_index,
-                sub_index=0,
-                payload=payload,
-                rts=command.rts,
-                request_id=addressing.request_id,
+        def consume(message: object) -> ResponseProgress:
+            matched, complete = assembler.consume(message)
+            if complete is None:
+                return ResponseProgress(matched=matched)
+            feedback_bytes[start:end] = complete
+            feedback = None
+            if final and semantic is CommandSemantic.ANGLES:
+                # Publish a complete vector only after all ranges acknowledge.
+                # Segmented writes and the returned states are not simultaneous.
+                returned = decode_v25(bytes(feedback_bytes))
+                feedback = SamplePayload(
+                    semantic=TelemetrySemantic.ANGLES,
+                    raw=returned,
+                    origin=DataOrigin.DEVICE_COMMAND_FEEDBACK,
+                    within_declared_range=all(
+                        joint.raw_angle_range.contains(value)
+                        for joint, value in zip(
+                            capabilities.joints, returned, strict=True
+                        )
+                    ),
+                )
+            return ResponseProgress(
+                matched=True, complete=True, acknowledged=True, result=feedback
+            )
+
+        return ProtocolTransaction(
+            key=("command", semantic),
+            correlation_key=("hop", addressing.response_id),
+            request_messages=(
+                build_write_message(
+                    main_index,
+                    sub_index=start,
+                    payload=payload[start:end],
+                    rts=command.rts,
+                    request_id=addressing.request_id,
+                    brs=addressing.brs,
+                    can_fd=addressing.can_fd,
+                ),
             ),
-        ),
-        response_timeout_s=0.1,
-        estimated_duration_s=0.003,
-        response_consumer=consume,
-        response_acknowledges_command=True,
-        late_response_guard_s=0.01,
-    )
+            response_timeout_s=0.1,
+            estimated_duration_s=0.003,
+            response_consumer=consume,
+            response_acknowledges_command=True,
+            late_response_guard_s=0.01,
+            next_transaction_factory=None if final else lambda: stage(end),
+        )
+
+    return stage(0)
 
 
 def _validated_values(
