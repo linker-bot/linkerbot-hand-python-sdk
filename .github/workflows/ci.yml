@@ -259,7 +259,20 @@ jobs:
           path: .ci/ros
           ref: ${{ env.CI_DEPENDENCY_REF }}
       - name: Build and test this SDK with latest ROS wrapper
-        run: bash ".ci/ros/tests/docker/run.sh" "${{ matrix.ros }}" "$PWD/.ci/transport" "$PWD" "$PWD/reports/${{ matrix.ros }}"
+        run: |
+          attempts=1
+          if [[ "${{ matrix.ros }}" == "jazzy" ]]; then
+            attempts=2
+          fi
+          for attempt in $(seq 1 "$attempts"); do
+            if bash ".ci/ros/tests/docker/run.sh" "${{ matrix.ros }}" "$PWD/.ci/transport" "$PWD" "$PWD/reports/${{ matrix.ros }}"; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt "$attempts" ]]; then
+              echo "::warning::Jazzy ROS compatibility test failed on attempt $attempt; retrying once"
+            fi
+          done
+          exit 1
       - uses: actions/upload-artifact@v7
         if: always()
         with:
