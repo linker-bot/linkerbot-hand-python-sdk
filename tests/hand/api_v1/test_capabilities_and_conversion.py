@@ -76,6 +76,13 @@ def test_supported_model_names_are_canonical_and_stable() -> None:
     )
 
 
+def test_capability_lookup_accepts_equivalent_string_semantics() -> None:
+    capabilities = get_declared_capabilities("l6", side="left")
+
+    assert capabilities.command("angles") is not None  # ty: ignore[invalid-argument-type]
+    assert capabilities.telemetry_channel("angles") is not None  # ty: ignore[invalid-argument-type]
+
+
 @pytest.mark.parametrize(
     ("model", "canonical"),
     (
