@@ -15,7 +15,12 @@ class O30ProtocolBackend(HOPBackend):
     """Preserve deployed O30 defaults: right ID=1, left ID=2, BRS off."""
 
     def __init__(
-        self, side: HandSide, *, request_id: int | None = None, brs: bool = False
+        self,
+        side: HandSide,
+        *,
+        request_id: int | None = None,
+        brs: bool = False,
+        can_fd: bool = True,
     ) -> None:
         super().__init__(
             side,
@@ -23,6 +28,7 @@ class O30ProtocolBackend(HOPBackend):
             if request_id is None
             else request_id,
             brs=brs,
+            can_fd=can_fd,
         )
 
     def command_transaction(

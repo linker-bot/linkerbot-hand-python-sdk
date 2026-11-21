@@ -28,13 +28,15 @@ _BASELINE = (
 class HOPBackend:
     """Model-independent HOP mechanics; subclasses define joint object layout."""
 
-    def __init__(self, side: HandSide, *, request_id: int, brs: bool = False) -> None:
+    def __init__(
+        self, side: HandSide, *, request_id: int, brs: bool = False, can_fd: bool = True
+    ) -> None:
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
             raise ProtocolError("HOP protocol requires a left or right side")
         self._side = side
         if type(request_id) is not int:
             raise ValidationError("HOP request_id must be int")
-        self._addressing = HOPAddressing(request_id, request_id | 0x400, brs)
+        self._addressing = HOPAddressing(request_id, request_id | 0x400, brs, can_fd)
         # Retain the original O30 arbitration tag for compatibility; every
         # HOP model uses this same physical address key.
         self._endpoint_id = (

@@ -56,6 +56,7 @@ from ..protocols.hop.framing import (
 )
 from ..protocols.hop.identity import identity_transaction as hop_identity_transaction
 from ..protocols.hop.objects import MI_PRODUCT_INFO
+from ..protocols.hop.response import HOPRangeAssembler
 from ..protocols.l30.codec import PARENT_CONFIG, SUB_DEVICE_INFO, SUB_PRODUCT_CODE
 from ..protocols.l30.framing import build_request as build_l30_request
 from ..protocols.l30.framing import parse_can_id as parse_l30_can_id
@@ -262,7 +263,10 @@ def _probe_channel(
         if _budget.expired():
             break
         failed = False
-        if wire is TransportKind.CAN and _channel_matches_classic(channel):
+        if wire is TransportKind.CAN and (
+            channel.nominal_bitrate is None
+            or channel.nominal_bitrate in NOMINAL_BITRATES
+        ):
             failed = _probe_classic(source, channel, config, candidates, failures)
         elif wire is TransportKind.CAN_FD:
             failed = _probe_can_fd(source, channel, config, candidates, failures)
@@ -291,6 +295,8 @@ def _probe_classic(
         mode_initialization = False
         for attempt, request_route in enumerate(
             (CLASSIC_BROADCAST_ROUTE, *CLASSIC_DEFAULT_ROUTES)
+            if _channel_matches_classic(channel)
+            else ()
         ):
             routes = CLASSIC_DISCOVERY_ROUTES if attempt == 0 else (request_route,)
             messages = _collect(
@@ -323,6 +329,13 @@ def _probe_classic(
         for product in products.values():
             candidates.append(
                 _verify_classic_candidate(transport, product, config, failures)
+            )
+        if not any(
+            c.channel == channel and c.status is DiscoveryStatus.VERIFIED
+            for c in candidates
+        ):
+            _probe_hop(
+                source, channel, transport, config, candidates, failures, can_fd=False
             )
     except Exception as error:  # noqa: BLE001 - discovery source boundary
         # A mode-specific construction/open failure is isolated from the next
@@ -943,6 +956,8 @@ def _probe_hop(
     config: DiscoveryConfig,
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
+    *,
+    can_fd: bool = True,
 ) -> None:
     # Defaults cover both sides; custom configured IDs do not encode a side.
     for request_id in (
@@ -952,7 +967,12 @@ def _probe_hop(
     ):
         start = len(candidates)
         _probe_hop_endpoint(
-            HOPAddressing(request_id, request_id | 0x400, config.hop_brs),
+            HOPAddressing(
+                request_id,
+                request_id | 0x400,
+                config.hop_brs if can_fd else False,
+                can_fd,
+            ),
             source,
             channel,
             transport,
@@ -962,7 +982,9 @@ def _probe_hop(
         )
 
         for index in range(start, len(candidates)):
-            candidates[index] = replace(candidates[index], hop_brs=config.hop_brs)
+            candidates[index] = replace(
+                candidates[index], hop_brs=config.hop_brs if can_fd else False
+            )
 
 
 def _probe_hop_endpoint(
@@ -974,22 +996,28 @@ def _probe_hop_endpoint(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
+    wire = TransportKind.CAN_FD if addressing.can_fd else TransportKind.CAN
     route = hop_response_route(addressing.response_id)
-    messages = _collect(
-        transport,
-        (route,),
-        (
-            build_hop_read(
-                MI_PRODUCT_INFO,
-                sub_index=0,
-                length=0x10,
-                request_id=addressing.request_id,
-                brs=addressing.brs,
+    messages: tuple[object, ...] = ()
+    # Avoid burst replies overflowing deployed firmware on a busy classic bus.
+    for start in (0,) if addressing.can_fd else (0, 5, 10, 15):
+        messages += _collect(
+            transport,
+            (route,),
+            (
+                build_hop_read(
+                    MI_PRODUCT_INFO,
+                    sub_index=start,
+                    length=0x10 if addressing.can_fd else min(5, 0x10 - start),
+                    request_id=addressing.request_id,
+                    brs=addressing.brs,
+                    can_fd=addressing.can_fd,
+                ),
             ),
-        ),
-        config,
-    )
+            config,
+        )
     matching: list[object] = []
+    fragments: list[object] = []
     malformed: Exception | None = None
     for message in messages:
         try:
@@ -997,27 +1025,40 @@ def _probe_hop_endpoint(
         except HandError as error:
             malformed = error
             continue
-        if (
-            frame is not None
-            and frame.main_index == MI_PRODUCT_INFO
-            and frame.sub_index == 0
-            and not frame.rts
-        ):
-            matching.append(message)
-    if not matching and malformed is None:
+        if frame is not None and frame.main_index == MI_PRODUCT_INFO and not frame.rts:
+            fragments.append(message)
+            if frame.sub_index == 0:
+                matching.append(message)
+    if not fragments and malformed is None:
         return
-    spec = _transport_spec(source, channel, TransportKind.CAN_FD)
+    spec = _transport_spec(source, channel, wire)
     address = DiscoveryAddress(
         scheme="o30_hop_endpoint",
         request_id=addressing.request_id,
         response_id=route.arbitration_id,
         is_extended_id=False,
     )
+    if fragments and not matching:
+        candidates.append(
+            _partial_candidate(
+                channel=channel,
+                wire_protocol=wire,
+                address=address,
+                transport=spec,
+                model=None,
+                side=None,
+                problem=DiscoveryProblem(
+                    "product_code_incomplete",
+                    "HOP product response is missing its first fragment",
+                ),
+            )
+        )
+        return
     if malformed is not None and not matching:
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=None,
@@ -1030,7 +1071,7 @@ def _probe_hop_endpoint(
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=None,
@@ -1045,15 +1086,21 @@ def _probe_hop_endpoint(
     # The product object selects the profile; addresses never encode L6/O6 side.
     model = None
     try:
-        product_frame = matching_response_frame(matching[0], addressing.response_id)
-        if product_frame is None:
-            raise ProtocolError("missing HOP product response")
-        product = (
-            product_frame.payload.split(b"\x00", 1)[0]
-            .decode("utf-8")
-            .strip()
-            .casefold()
+        assembler = HOPRangeAssembler(
+            MI_PRODUCT_INFO,
+            sub_index=0,
+            length=0x10,
+            rts=False,
+            response_id=addressing.response_id,
         )
+        product_bytes = None
+        for message in fragments:
+            _, complete = assembler.consume(message)
+            if complete is not None:
+                product_bytes = complete
+        if product_bytes is None:
+            raise ProtocolError("incomplete HOP product response")
+        product = product_bytes.split(b"\x00", 1)[0].decode("utf-8").strip().casefold()
         prefix = product.split("-")[0]
         model = {
             "l6": "L6",
@@ -1063,13 +1110,13 @@ def _probe_hop_endpoint(
             "o30": "O30",
             "o30i": "O30",
         }.get(prefix)
-    except UnicodeDecodeError:
+    except (UnicodeDecodeError, ProtocolError):
         pass  # The identity parser supplies the detailed malformed-product error.
     if model is None:
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=replace(address, scheme="hop_endpoint"),
                 transport=spec,
                 model=None,
@@ -1080,24 +1127,33 @@ def _probe_hop_endpoint(
             )
         )
         return
+    if not addressing.can_fd and model != "O30":
+        return
     if model != "O30":
         address = replace(address, scheme="hop_endpoint")
     provisional = get_declared_capabilities(
-        model, side=HandSide.LEFT, protocol=ProtocolKind.HOP
+        model, side=HandSide.LEFT, protocol=ProtocolKind.HOP, transport_kind=wire
     )
     transaction = hop_identity_transaction(provisional, addressing)
     try:
-        progress = transaction.consume(matching[0])
-        if not progress.matched or not progress.complete:
+        product_key = transaction.key
+        for message in fragments:
+            progress = transaction.consume(message)
+            if progress.complete:
+                next_transaction = transaction.build_next_transaction()
+                if next_transaction is None:
+                    raise ProtocolError("HOP identity omitted required fields")
+                transaction = next_transaction
+                if transaction.key != product_key:
+                    break
+        if transaction.key == product_key:
             raise ProtocolError("HOP product-model probe response was incomplete")
-        next_transaction = transaction.build_next_transaction()
-        if next_transaction is None:
-            raise ProtocolError("HOP identity omitted required fields")
         result = _execute_identity(
             transport,
             (route,),
-            next_transaction,
+            transaction,
             config,
+            **({"discard_s": 0} if not addressing.can_fd else {}),
         )
     except _NoResponse:
         problem = DiscoveryProblem(
@@ -1107,7 +1163,7 @@ def _probe_hop_endpoint(
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=model,
@@ -1119,7 +1175,7 @@ def _probe_hop_endpoint(
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=model,
@@ -1135,12 +1191,12 @@ def _probe_hop_endpoint(
             operation=f"verify_{model.lower()}_identity",
             error=wrapped.error,
             channel=channel,
-            wire_protocol=TransportKind.CAN_FD,
+            wire_protocol=wire,
         )
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=model,
@@ -1155,7 +1211,7 @@ def _probe_hop_endpoint(
         candidates.append(
             _partial_candidate(
                 channel=channel,
-                wire_protocol=TransportKind.CAN_FD,
+                wire_protocol=wire,
                 address=address,
                 transport=spec,
                 model=model,
@@ -1169,7 +1225,7 @@ def _probe_hop_endpoint(
             candidates.append(
                 _verified_candidate(
                     channel,
-                    TransportKind.CAN_FD,
+                    wire,
                     address,
                     spec,
                     result,
@@ -1180,7 +1236,7 @@ def _probe_hop_endpoint(
             candidates.append(
                 DiscoveryCandidate(
                     channel=channel,
-                    wire_protocol=TransportKind.CAN_FD,
+                    wire_protocol=wire,
                     address=address,
                     status=DiscoveryStatus.PARTIAL,
                     identity=_identity_from_result(result, side=None),
@@ -1395,7 +1451,9 @@ def _claim_results(
         route = _response_route_for_request(request, route_keys)
         discriminator = (
             request.data[0]
-            if isinstance(request, can.Message) and request.data
+            if isinstance(request, can.Message)
+            and request.data
+            and route.arbitration_id == request.arbitration_id
             else None
         )
         claims.setdefault((route, discriminator), result)
@@ -1410,6 +1468,8 @@ def _response_route_for_request(
     candidates: list[CANRouteKey] = []
     if isinstance(request, can.Message):
         candidates.append(CANRouteKey(request.arbitration_id, request.is_extended_id))
+        if not request.is_extended_id:
+            candidates.append(CANRouteKey(request.arbitration_id | 0x400, False))
     elif isinstance(request, CANFDMessage):
         if request.is_extended_id:
             # O20 responses use the same extended ID. L30 responses swap the
@@ -1450,6 +1510,10 @@ def _response_after_claim(
         message.data[0] if isinstance(message, can.Message) and message.data else None
     )
     claim = claims.get((route, discriminator))
+    if claim is None:
+        # HOP classic uses request_id | 0x400 and may return an error MI instead
+        # of the requested MI. Its claim is endpoint-wide, as with HOP FD.
+        claim = claims.get((route, None))
     # The broadcast C0 request is sent to 0xFF while a transport routes a
     # device's reply on its real 0x27/0x28 address. Permit that explicit
     # discovery claim for either default reply route only.

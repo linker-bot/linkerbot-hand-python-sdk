@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import can
+
 from ...api.errors import ProtocolError, UnsupportedFirmwareError
-from .framing import ERROR_MAIN_INDEX, matching_response_frame
+from ..base import ProtocolTransaction, ResponseProgress
+from .framing import (
+    ERROR_MAIN_INDEX,
+    HOPAddressing,
+    build_read_message,
+    matching_response_frame,
+)
 
 _DEVICE_ERROR_MESSAGES = {
     0x01: "main index does not exist",
@@ -96,4 +106,81 @@ class HOPRangeAssembler:
         return True, bytes(self._buffer)
 
 
-__all__ = ["HOPRangeAssembler"]
+def serialize_classic_read(
+    transaction: ProtocolTransaction, addressing: HOPAddressing
+) -> ProtocolTransaction:
+    """Gate each five-byte classic read on its reply, reusing the full decoder.
+
+    Busy shared buses can expose firmware that drops burst response fragments.
+    Keep the original consumer across stages so only a complete object produces
+    a result. FD requests retain their existing framing and transaction shape.
+    """
+    if addressing.can_fd:
+        return transaction
+    message = transaction.request_messages[0]
+    if not isinstance(message, can.Message) or len(message.data) != 3:
+        raise ProtocolError("serialized classic read requires one HOP read request")
+    control, start, length = bytes(message.data)
+    if length <= 5:
+        return transaction
+    count = (length + 4) // 5
+
+    def stage(offset: int) -> ProtocolTransaction:
+        size = min(5, length - offset)
+        final = offset + size == length
+        assembler = HOPRangeAssembler(
+            control & 0x7F,
+            sub_index=start + offset,
+            length=size,
+            rts=bool(control & 0x80),
+            response_id=addressing.response_id,
+        )
+
+        def consume(response: object) -> ResponseProgress:
+            # Preserve the original object's unsupported/error classification.
+            frame = matching_response_frame(response, addressing.response_id)
+            if frame is not None and frame.main_index == ERROR_MAIN_INDEX:
+                return transaction.consume(response)
+            matched, complete = assembler.consume(response)
+            if not matched:
+                return ResponseProgress(matched=False)
+            progress = transaction.consume(response)
+            if complete is None:
+                return ResponseProgress(matched=matched)
+            if final:
+                if not progress.complete:
+                    raise ProtocolError("serialized HOP read omitted object bytes")
+                return progress
+            return ResponseProgress(matched=True, complete=True)
+
+        next_factory = None
+        if not final:
+            next_factory = lambda: stage(offset + size)
+        elif (
+            transaction.next_transaction is not None
+            or transaction.next_transaction_factory is not None
+        ):
+            next_factory = transaction.build_next_transaction
+        return replace(
+            transaction,
+            request_messages=(
+                build_read_message(
+                    control & 0x7F,
+                    sub_index=start + offset,
+                    length=size,
+                    request_id=addressing.request_id,
+                    rts=bool(control & 0x80),
+                    can_fd=False,
+                ),
+            ),
+            estimated_duration_s=transaction.estimated_duration_s / count,
+            response_consumer=consume,
+            next_transaction=None,
+            next_transaction_factory=next_factory,
+            yield_after_response=transaction.yield_after_response if final else False,
+        )
+
+    return stage(0)
+
+
+__all__ = ["HOPRangeAssembler", "serialize_classic_read"]

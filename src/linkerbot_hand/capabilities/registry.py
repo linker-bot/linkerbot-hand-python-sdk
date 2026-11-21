@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
-from ..api.enums import HandSide, ProtocolKind
+from ..api.enums import HandSide, ProtocolKind, TransportKind
 from ..api.errors import ValidationError
 from .models import (
     l6_capabilities,
@@ -48,6 +49,7 @@ def get_declared_capabilities(
     *,
     side: HandSide | str | None = None,
     protocol: ProtocolKind | str | None = None,
+    transport_kind: TransportKind | str | None = None,
 ) -> DeviceCapabilities:
     """Return zero-I/O capability metadata for a configured model.
 
@@ -56,6 +58,7 @@ def get_declared_capabilities(
             Historical product-code prefixes are not configuration aliases.
         side: ``left`` or ``right`` for sided models. L30 requires omission.
         protocol: ``legacy`` or ``hop``. L6/O6 default to legacy; O30 to HOP.
+        transport_kind: Optional wire mode; O30 supports ``can`` and ``can_fd``.
 
     Returns:
         An immutable, unverified declared profile.
@@ -91,11 +94,41 @@ def get_declared_capabilities(
     if selected is ProtocolKind.HOP and canonical in {"L6", "O6"}:
         from .models.hop_six import declared_capabilities
 
-        return declared_capabilities(canonical, resolved_side)
+        capabilities = declared_capabilities(canonical, resolved_side)
+        return _with_transport(capabilities, transport_kind)
     expected = ProtocolKind.HOP if canonical == "O30" else ProtocolKind.LEGACY
     if selected is not expected:
         raise ValidationError(f"{canonical} does not support {selected.value}")
-    return _PROFILE_FACTORIES[canonical](resolved_side)
+    capabilities = _PROFILE_FACTORIES[canonical](resolved_side)
+    return _with_transport(capabilities, transport_kind)
+
+
+def _with_transport(
+    capabilities: DeviceCapabilities, transport_kind: TransportKind | str | None
+) -> DeviceCapabilities:
+    if transport_kind is None:
+        return capabilities
+    try:
+        kind = TransportKind(transport_kind)
+    except (ValueError, TypeError) as error:
+        raise ValidationError("transport_kind must be can or can_fd") from error
+    if capabilities.model == "O30" and kind is TransportKind.CAN:
+        return replace(
+            capabilities,
+            transport=replace(
+                capabilities.transport,
+                kind=kind,
+                data_bitrate=None,
+                addressing_note=(
+                    "HOP default request/response IDs: right 0x001/0x401, "
+                    "left 0x002/0x402; configurable. Classic CAN, default 1 Mbit/s; "
+                    "at most five payload bytes per frame; BRS unavailable."
+                ),
+            ),
+        )
+    if kind is not capabilities.transport.kind:
+        raise ValidationError(f"{capabilities.model} does not support {kind.value}")
+    return capabilities
 
 
 def _canonical_model(model: object) -> str:

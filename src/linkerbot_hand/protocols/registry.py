@@ -83,7 +83,10 @@ def create_protocol_backend(
             brs=hop_brs,
         )
     expected_transport = _TRANSPORT_KINDS[capabilities.model]
-    if capabilities.transport.kind is not expected_transport:
+    classic_o30 = (
+        capabilities.model == "O30" and capabilities.transport.kind is TransportKind.CAN
+    )
+    if capabilities.transport.kind is not expected_transport and not classic_o30:
         raise ValidationError(
             f"{capabilities.model} protocol backend requires "
             f"{expected_transport.value} capabilities"
@@ -107,6 +110,7 @@ def create_protocol_backend(
             capabilities.side,
             request_id=hop_request_id if hop_request_id is not None else o30_request_id,
             brs=hop_brs,
+            can_fd=not classic_o30,
         )
     if o30_request_id is not None:
         raise ValidationError("o30_request_id is only valid for O30")

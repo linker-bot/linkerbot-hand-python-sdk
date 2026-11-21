@@ -1,8 +1,10 @@
-"""Shared HOP framing for standard-ID CAN FD endpoints."""
+"""Shared HOP framing for standard-ID classic CAN and CAN FD endpoints."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+import can
 
 from linkerbot_transport import CANRouteKey
 from linkerbot_transport.canfd import CANFDMessage
@@ -35,8 +37,13 @@ class HOPAddressing:
     request_id: int
     response_id: int
     brs: bool = False
+    can_fd: bool = True
 
     def __post_init__(self) -> None:
+        if type(self.can_fd) is not bool:
+            raise ValidationError("HOP can_fd must be bool")
+        if not self.can_fd and self.brs:
+            raise ValidationError("classic HOP CAN cannot enable BRS")
         if not isinstance(self.brs, bool):
             raise ValidationError("HOP brs must be bool")
         for value, name in (
@@ -89,7 +96,8 @@ def build_read_message(
     request_id: int,
     rts: bool = False,
     brs: bool = False,
-) -> CANFDMessage:
+    can_fd: bool = True,
+) -> CANFDMessage | can.Message:
     """Build one three-byte HOP object-range read."""
 
     _validate_object_range(main_index, sub_index, length)
@@ -98,6 +106,15 @@ def build_read_message(
     if not isinstance(rts, bool):
         raise ValidationError("rts must be bool")
     control = main_index | (RTS_MASK if rts else 0)
+    if type(can_fd) is not bool or (not can_fd and brs):
+        raise ValidationError("classic HOP CAN requires can_fd=False and BRS off")
+    if not can_fd:
+        return can.Message(
+            arbitration_id=request_id,
+            data=bytes((control, sub_index, length)),
+            is_extended_id=False,
+            check=True,
+        )
     return CANFDMessage(
         arbitration_id=request_id,
         data=bytes((control, sub_index, length)),
@@ -114,7 +131,8 @@ def build_write_message(
     request_id: int,
     rts: bool = False,
     brs: bool = False,
-) -> CANFDMessage:
+    can_fd: bool = True,
+) -> CANFDMessage | can.Message:
     """Build one single-frame HOP object-range write."""
 
     if not isinstance(payload, bytes) or not payload:
@@ -129,6 +147,17 @@ def build_write_message(
         raise ValidationError("rts must be bool")
     _validate_object_range(main_index, sub_index, len(payload))
     control = main_index | (RTS_MASK if rts else 0)
+    if type(can_fd) is not bool or (not can_fd and brs):
+        raise ValidationError("classic HOP CAN requires can_fd=False and BRS off")
+    if not can_fd:
+        if len(payload) > 5:
+            raise ValidationError("classic HOP CAN write payload cannot exceed 5 bytes")
+        return can.Message(
+            arbitration_id=request_id,
+            data=bytes((control, sub_index, len(payload))) + payload,
+            is_extended_id=False,
+            check=True,
+        )
     return CANFDMessage(
         arbitration_id=request_id,
         data=bytes((control, sub_index, len(payload))) + payload,
@@ -141,12 +170,17 @@ def matching_response_frame(message: object, response_id: int) -> HOPFrame | Non
     """Decode one exact endpoint response or ignore unrelated CAN traffic."""
 
     if (
-        not isinstance(message, CANFDMessage)
+        not isinstance(message, (CANFDMessage, can.Message))
         or message.is_extended_id
         or message.arbitration_id != response_id
     ):
         return None
-    return decode_frame(message.data)
+    if isinstance(message, can.Message):
+        if message.is_error_frame or message.is_remote_frame:
+            return None
+        if message.is_fd or message.bitrate_switch or len(message.data) > 8:
+            return None
+    return decode_frame(bytes(message.data))
 
 
 def decode_frame(data: bytes) -> HOPFrame:

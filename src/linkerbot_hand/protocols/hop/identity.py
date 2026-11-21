@@ -18,7 +18,7 @@ from ...capabilities.types import DeviceCapabilities
 from ..base import IdentityResult, ProtocolTransaction, ResponseProgress
 from .framing import HOPAddressing, build_read_message
 from .objects import MI_PRODUCT_INFO
-from .response import HOPRangeAssembler
+from .response import HOPRangeAssembler, serialize_classic_read
 
 _EXPECTED_PROTOCOL_NAME = "HOP"
 _VERSION_PATTERN = re.compile(r"^[VM]?\d+(?:\.\d+){1,2}$", re.IGNORECASE)
@@ -175,7 +175,7 @@ def _field_transaction(
         return ResponseProgress(matched=True, complete=True, result=result)
 
     has_next = not final_field or next_factory is not None
-    return ProtocolTransaction(
+    transaction = ProtocolTransaction(
         key=("identity", capabilities.model, field.name),
         correlation_key=("hop", addressing.response_id),
         request_messages=(
@@ -185,6 +185,7 @@ def _field_transaction(
                 length=request_length,
                 request_id=addressing.request_id,
                 brs=addressing.brs,
+                can_fd=addressing.can_fd,
             ),
         ),
         response_timeout_s=0.1,
@@ -193,6 +194,7 @@ def _field_transaction(
         late_response_guard_s=0.01,
         next_transaction_factory=build_next if has_next else None,
     )
+    return serialize_classic_read(transaction, addressing)
 
 
 def _select_layout(values: dict[str, bytes]) -> str:

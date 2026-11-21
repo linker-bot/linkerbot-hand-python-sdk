@@ -20,7 +20,7 @@ from ._runtime_contract import DeviceRuntimeContract, RuntimeFactory
 from .commands import CommandHandle
 from .config import DeviceConfig, PollingPlan
 from .device_info import DeviceInfo
-from .enums import ProtocolKind
+from .enums import ProtocolKind, TransportKind
 from .errors import (
     ClosedError,
     LifecycleError,
@@ -101,9 +101,17 @@ class _DeviceCore:
         if runtime_factory is not None and not callable(runtime_factory):
             raise ValidationError("runtime_factory must be callable or None")
 
-        capabilities = get_declared_capabilities(model, side=side, protocol=protocol)
         self._transport = transport
         self._config = DeviceConfig() if config is None else config
+        capabilities = get_declared_capabilities(model, side=side, protocol=protocol)
+        if self._config.hop_transport is TransportKind.CAN:
+            if capabilities.model != "O30":
+                raise ValidationError(
+                    "classic HOP CAN is currently supported only for O30"
+                )
+            capabilities = get_declared_capabilities(
+                model, side=side, protocol=protocol, transport_kind=TransportKind.CAN
+            )
         if self._config.o30_request_id is not None:
             if capabilities.model != "O30":
                 raise ValidationError("o30_request_id is only valid for O30")

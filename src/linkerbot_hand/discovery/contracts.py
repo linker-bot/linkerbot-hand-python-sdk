@@ -525,6 +525,10 @@ class DiscoveryCandidate:
                     raise ValidationError("o30_request_id is only valid for O30")
             # Preserve the probe's BRS choice in the construction recipe.
             brs = self.hop_brs
+            if config is not None and config.hop_transport is not self.wire_protocol:
+                raise ValidationError(
+                    "hop_transport disagrees with discovered endpoint"
+                )
             if config is not None and config.hop_brs != brs:
                 raise ValidationError("hop_brs disagrees with discovered endpoint")
             return HandDevice(
@@ -536,6 +540,7 @@ class DiscoveryCandidate:
                     config or DeviceConfig(),
                     hop_request_id=addressing.request_id,
                     hop_brs=brs,
+                    hop_transport=self.wire_protocol,
                     o30_request_id=addressing.request_id if model == "O30" else None,
                 ),
                 runtime_factory=runtime_factory,

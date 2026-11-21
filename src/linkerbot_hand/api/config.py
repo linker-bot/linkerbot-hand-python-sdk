@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields
 
-from .enums import AngleFeedbackPolicy
+from .enums import AngleFeedbackPolicy, TransportKind
 from .errors import ValidationError
 
 
@@ -80,7 +80,9 @@ class DeviceConfig:
 
     ``hop_request_id`` selects a host-side standard HOP endpoint. ``hop_brs``
     defaults off and sets outgoing FD frame BRS; neither field writes device
-    registers. ``o30_request_id`` is retained as a compatible O30-only alias.
+    registers. ``hop_transport`` selects O30 HOP over classic CAN or CAN FD
+    (default); it does not switch device or adapter mode. ``o30_request_id`` is
+    retained as a compatible O30-only alias.
 
     ``identity_timeout_s`` bounds each identity response stage after its request
     batch has been sent, including every stage of L30/O30 identity chains.
@@ -110,8 +112,16 @@ class DeviceConfig:
     recovery_retry_delay_s: float = 0.2
     hop_request_id: int | None = None
     hop_brs: bool = False
+    hop_transport: TransportKind = TransportKind.CAN_FD
 
     def __post_init__(self) -> None:
+        if self.hop_transport not in (
+            TransportKind.CAN,
+            TransportKind.CAN_FD,
+        ) or not isinstance(self.hop_transport, TransportKind):
+            raise ValidationError("hop_transport must be TransportKind.CAN or CAN_FD")
+        if self.hop_transport is TransportKind.CAN and self.hop_brs:
+            raise ValidationError("classic HOP CAN cannot enable BRS")
         if self.hop_request_id is not None and (
             type(self.hop_request_id) is not int
             or not 0 <= self.hop_request_id <= 0x3FE

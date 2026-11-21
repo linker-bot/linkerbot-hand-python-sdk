@@ -26,6 +26,7 @@ from .framing import (
     HOPAddressing,
     build_read_message,
     build_write_message,
+    matching_response_frame,
 )
 from .objects import (
     MI_SENSOR_DATA_1,
@@ -33,7 +34,7 @@ from .objects import (
     MI_SENSOR_DATA_3,
     MI_SENSOR_INFO,
 )
-from .response import HOPRangeAssembler
+from .response import HOPRangeAssembler, serialize_classic_read
 
 SENSOR_NAMES = ("thumb", "index", "middle", "ring", "pinky")
 
@@ -234,6 +235,61 @@ def tactile_transaction(
     if set(metadata_cache) == set(range(1, len(SENSOR_NAMES) + 1)):
         return replace(
             _data_transaction(metadata_cache, addressing=addressing),
+            firmware_optional=True,
+        )
+
+    if not addressing.can_fd:
+        # Some deployed O30 firmware reports NO_SENSOR but does not implement
+        # the selector ACK. A single absent finger must not suppress the others.
+        no_sensor = False
+
+        def check_sensor_type(data: bytes) -> None:
+            nonlocal no_sensor
+            no_sensor = data.split(b"\x00", 1)[0].strip() == b"NO_SENSOR"
+
+        def select_metadata() -> ProtocolTransaction:
+            transaction = _metadata_select_transaction(
+                1, {}, addressing=addressing, metadata_cache=metadata_cache
+            )
+            if not no_sensor or capabilities.identity.firmware != "1.0.0":
+                return transaction
+            type_reply = HOPRangeAssembler(
+                MI_SENSOR_INFO,
+                sub_index=_SI_SENSOR_TYPE,
+                length=32,
+                rts=False,
+                response_id=addressing.response_id,
+            )
+
+            def consume(message: object) -> ResponseProgress:
+                frame = matching_response_frame(message, addressing.response_id)
+                if frame is not None and frame.main_index == MI_SENSOR_INFO:
+                    # Captured O30 1.0.0 repeats the complete NO_SENSOR type
+                    # instead of selector ACK. Faults and other object replies
+                    # cannot establish absence and go through normal matching.
+                    matched, complete = type_reply.consume(message)
+                    if complete is not None:
+                        if complete.split(b"\x00", 1)[0].strip() == b"NO_SENSOR":
+                            raise UnsupportedFirmwareError(
+                                "O30 repeats NO_SENSOR instead of tactile selector ACK"
+                            )
+                        raise ProtocolError("unexpected sensor type during selection")
+                    if matched:
+                        return ResponseProgress(matched=True)
+                return transaction.consume(message)
+
+            return replace(transaction, response_consumer=consume)
+
+        return replace(
+            _read_stage(
+                key=("read", TelemetrySemantic.FORCE, "sensor_presence"),
+                main_index=MI_SENSOR_INFO,
+                sub_index=_SI_SENSOR_TYPE,
+                length=32,
+                on_data=check_sensor_type,
+                addressing=addressing,
+                next_factory=select_metadata,
+            ),
             firmware_optional=True,
         )
 
@@ -653,7 +709,7 @@ def _read_stage(
             result=result,
         )
 
-    return ProtocolTransaction(
+    transaction = ProtocolTransaction(
         key=key,
         correlation_key=("hop", addressing.response_id),
         request_messages=(
@@ -663,6 +719,7 @@ def _read_stage(
                 length=length,
                 request_id=addressing.request_id,
                 brs=addressing.brs,
+                can_fd=addressing.can_fd,
             ),
         ),
         response_timeout_s=_RESPONSE_TIMEOUT_S,
@@ -672,6 +729,7 @@ def _read_stage(
         next_transaction_factory=next_factory,
         yield_after_response=next_factory is not None,
     )
+    return serialize_classic_read(transaction, addressing)
 
 
 def _write_stage(
@@ -709,6 +767,7 @@ def _write_stage(
                 payload=payload,
                 request_id=addressing.request_id,
                 brs=addressing.brs,
+                can_fd=addressing.can_fd,
             ),
         ),
         response_timeout_s=_RESPONSE_TIMEOUT_S,

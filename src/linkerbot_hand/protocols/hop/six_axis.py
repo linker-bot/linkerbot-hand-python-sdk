@@ -85,6 +85,7 @@ def vector_transaction(
                 rts=rts,
                 request_id=addressing.request_id,
                 brs=addressing.brs,
+                can_fd=addressing.can_fd,
             )
         else:
             payload = b"".join(
@@ -98,6 +99,7 @@ def vector_transaction(
                 rts=rts,
                 request_id=addressing.request_id,
                 brs=addressing.brs,
+                can_fd=addressing.can_fd,
             )
 
         def consume(message: object) -> ResponseProgress:
