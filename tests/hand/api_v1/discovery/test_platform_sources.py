@@ -250,7 +250,9 @@ def minicanfd_library(monkeypatch, tmp_path):
         setattr(lib, name, Mock(side_effect=AssertionError("unexpected channel I/O")))
     monkeypatch.setattr(ctypes_backend.platform, "system", lambda: "Linux")
     monkeypatch.setattr(ctypes_backend, "_load_library", lambda path: lib)
-    monkeypatch.setattr(ctypes_backend, "_lifecycle_refcount", {})
+    for name in ("_lifecycle_refcount", "_lifecycle_references"):
+        if hasattr(ctypes_backend, name):
+            monkeypatch.setattr(ctypes_backend, name, {})
     monkeypatch.setattr(ctypes_backend, "_lifecycle_lib", {})
     monkeypatch.setattr(ctypes_backend, "_open_channel_counts", {})
     monkeypatch.setattr(ctypes_backend, "_scanned_device_counts", {})

@@ -155,19 +155,9 @@ def decode_fault_statuses(raw: tuple[int, ...]) -> tuple[JointFaultStatus, ...]:
         raise ProtocolError(
             f"O30 faults must contain {PUBLIC_JOINT_COUNT} unsigned bytes"
         )
-    return tuple(
-        JointFaultStatus(
-            raw=value,
-            hand_layer_stall=bool(value & FAULT_HAND_LAYER_STALL),
-            actuator_layer_stall=bool(value & FAULT_ACTUATOR_LAYER_STALL),
-            over_current=bool(value & FAULT_OVER_CURRENT),
-            over_temperature=bool(value & FAULT_OVER_TEMPERATURE),
-            actuator_abnormal=bool(value & FAULT_ACTUATOR_ABNORMAL),
-            actuator_offline=bool(value & FAULT_ACTUATOR_OFFLINE),
-            reserved_bits=value & FAULT_RESERVED,
-        )
-        for value in raw
-    )
+    from ..hop.objects import decode_fault_statuses as decode_hop_faults
+
+    return decode_hop_faults(raw)
 
 
 __all__ = [

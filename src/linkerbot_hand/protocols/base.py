@@ -7,6 +7,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from ..api.can_configuration import CANConfiguration
 from ..api.device_info import DeviceInfo
 from ..api.enums import DataOrigin
 from ..api.errors import ValidationError
@@ -137,7 +138,7 @@ class ResponseProgress:
 
     matched: bool
     complete: bool = False
-    result: IdentityResult | SamplePayload | None = None
+    result: IdentityResult | SamplePayload | CANConfiguration | None = None
     publications: tuple[SamplePayload, ...] = ()
     acknowledged: bool = False
 

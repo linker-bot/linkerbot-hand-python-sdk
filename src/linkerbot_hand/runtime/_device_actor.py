@@ -6,7 +6,9 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
+from ..api.can_configuration import CANConfiguration
 from ..api.commands import AckSupport, CommandFamily, CommandStage
 from ..api.config import DeviceConfig, PollingPlan
 from ..api.enums import DataOrigin
@@ -24,6 +26,11 @@ from ..api.readings import ForceSample
 from ..capabilities.force import FORCE_QUERIES
 from ..capabilities.types import DeviceCapabilities, TelemetrySemantic
 from ..protocols.base import ProtocolBackend, ProtocolTransaction
+from ._can_configuration import (
+    CAN_CONFIGURATION_KEY,
+    CANConfigurationBackend,
+    CANConfigurationWrite,
+)
 from ._clock import RuntimeClock
 from ._connection_initializer import ConnectionInitializer
 from ._errors import ResponseTimeoutError, as_hand_error
@@ -107,6 +114,7 @@ class DeviceActor:
             clock=clock,
             identity_timeout_s=config.identity_timeout_s,
         )
+        self._can_reconfiguring = threading.Event()
         self._control_lock = threading.Lock()
         self._initial_ticket: OperationTicket | None = None
         self._recovery = _RecoveryState(delay_s=config.reconnect_initial_delay_s)
@@ -128,6 +136,7 @@ class DeviceActor:
                     raise ProtocolError("actor has no initialization ticket")
                 return self._initial_ticket
             self._stop = threading.Event()
+            self._can_reconfiguring.clear()
             self._mailbox.reset()
             self._initial_ticket = OperationTicket(
                 deadline_at_s=self._clock.monotonic() + self._config.shutdown_timeout_s
@@ -149,6 +158,10 @@ class DeviceActor:
             )
             self._thread.start()
             return self._initial_ticket
+
+    def begin_can_reconfiguration(self) -> None:
+        """Suppress automatic recovery with old connection parameters."""
+        self._can_reconfiguring.set()
 
     def request_recovery(self, *, preparation_deadline_s: float) -> OperationTicket:
         """Coalesce explicit recovery callers onto the next safe generation."""
@@ -308,7 +321,7 @@ class DeviceActor:
             if receiver_error is not None and self._state.ready():
                 self._disconnect(self._classify(receiver_error, "receive"))
                 continue
-            if self._auto_recovery_due():
+            if not self._can_reconfiguring.is_set() and self._auto_recovery_due():
                 runner = self._perform_recovery(runner)
                 continue
             if not self._state.ready():
@@ -556,6 +569,38 @@ class DeviceActor:
         poll_in_flight = False
         transaction: ProtocolTransaction | None = None
         try:
+            if claim.key == CAN_CONFIGURATION_KEY or isinstance(
+                claim.key, CANConfigurationWrite
+            ):
+                backend = cast(CANConfigurationBackend, self._backend)
+                changing = isinstance(claim.key, CANConfigurationWrite)
+                transaction = (
+                    backend.can_configuration_write(
+                        claim.key.sub_index, claim.key.payload
+                    )
+                    if isinstance(claim.key, CANConfigurationWrite)
+                    else backend.can_configuration_transaction()
+                )
+                configuration_runner = (
+                    self._make_runner(execution_deadline_at_s=claim.key.deadline_s)
+                    if isinstance(claim.key, CANConfigurationWrite)
+                    else runner
+                )
+                outcome = configuration_runner.execute(
+                    transaction,
+                    capabilities=self._state.capabilities(),
+                    publish_generation=self._state.generation(),
+                    latest_family=None,
+                    priority=80,
+                )
+                if changing:
+                    self._state.mark_not_ready()
+                    self._transactions.complete(claim.key, True, sequence=1)
+                else:
+                    if not isinstance(outcome.result, CANConfiguration):
+                        raise ProtocolError("invalid CAN configuration response")
+                    self._transactions.complete(claim.key, outcome.result, sequence=1)
+                return
             if claim.key == DEVICE_INFO_KEY:
                 published, sequence = self._initializer.refresh_identity(runner)
                 self._transactions.complete(
@@ -1048,7 +1093,7 @@ class DeviceActor:
         )
 
     def _recovery_deadline(self) -> float | None:
-        if not self._config.auto_reconnect:
+        if not self._config.auto_reconnect or self._can_reconfiguring.is_set():
             return None
         with self._control_lock:
             return None if self._performing_recovery else self._recovery.due_at_s

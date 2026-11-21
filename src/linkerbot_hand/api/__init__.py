@@ -1,5 +1,6 @@
 """Stable public contracts for the Hand SDK architecture."""
 
+from .can_configuration import CANConfiguration
 from .commands import (
     AckSupport,
     CommandFamily,
@@ -16,6 +17,7 @@ from .enums import (
     DataOrigin,
     HandSide,
     JointMotionType,
+    ProtocolKind,
     Quantization,
     ReadMode,
     SampleProjection,
@@ -95,6 +97,7 @@ __all__ = [
     "AckSupport",
     "AngleFeedbackPolicy",
     "AngleSample",
+    "CANConfiguration",
     "ChannelMetrics",
     "ClosedError",
     "CommandFamily",
@@ -145,6 +148,7 @@ __all__ = [
     "PositionKdSample",
     "PositionKpSample",
     "ProtocolError",
+    "ProtocolKind",
     "Quantization",
     "QueueFullError",
     "RawNumber",

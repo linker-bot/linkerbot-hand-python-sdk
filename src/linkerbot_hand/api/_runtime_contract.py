@@ -9,6 +9,7 @@ from ..capabilities.types import (
     DeviceCapabilities,
     TelemetrySemantic,
 )
+from .can_configuration import CANConfiguration
 from .commands import CommandHandle
 from .config import DeviceConfig, PollingPlan
 from .device_info import DeviceInfo
@@ -36,6 +37,12 @@ class DeviceRuntimeContract(Protocol):
     def read(self, semantic: TelemetrySemantic, timeout: float) -> object: ...
 
     def read_device_info(self, timeout: float) -> DeviceInfo: ...
+
+    def read_can_configuration(self, timeout: float) -> CANConfiguration: ...
+
+    def write_can_configuration(
+        self, sub_index: int, payload: bytes, timeout: float
+    ) -> None: ...
 
     def operate(self, operation: str) -> CommandHandle: ...
 

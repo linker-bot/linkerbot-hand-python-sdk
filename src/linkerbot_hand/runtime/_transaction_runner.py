@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from linkerbot_transport import SendOutcome, SendReceipt
 
+from ..api.can_configuration import CANConfiguration
 from ..api.errors import (
     ClosedError,
     DeviceNotReadyError,
@@ -46,7 +47,7 @@ class DispatchGuard:
 class TransactionOutcome:
     """Decoded result and publications from one complete transaction."""
 
-    result: IdentityResult | SamplePayload | None
+    result: IdentityResult | SamplePayload | CANConfiguration | None
     acknowledged: bool
     publications: tuple[tuple[SamplePayload, object], ...]
     sent_frames: int
@@ -56,7 +57,7 @@ class TransactionOutcome:
 class _StageOutcome:
     """Internal result of one dispatched stage in a transaction chain."""
 
-    result: IdentityResult | SamplePayload | None
+    result: IdentityResult | SamplePayload | CANConfiguration | None
     acknowledged: bool
     publications: tuple[tuple[SamplePayload, object], ...]
     sent_frames: int
@@ -279,7 +280,7 @@ class TransactionRunner:
         started_at_s = pending.started_at_s
         sent_frames = 0
         publications: tuple[tuple[SamplePayload, object], ...] = ()
-        result: IdentityResult | SamplePayload | None = None
+        result: IdentityResult | SamplePayload | CANConfiguration | None = None
         acknowledged = False
         current = pending
 

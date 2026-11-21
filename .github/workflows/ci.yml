@@ -18,6 +18,18 @@ on:
         description: Include all supported Python versions
         type: boolean
         default: false
+      transport_ref:
+        description: linkerbot-transport branch, tag or commit (empty uses dependency_ref/main)
+        type: string
+        default: ""
+      arm_ref:
+        description: linkerbot-arm-python-sdk branch, tag or commit (empty uses dependency_ref/main)
+        type: string
+        default: ""
+      ros_ref:
+        description: linkerbot-hand-ros-sdk branch, tag or commit (empty uses dependency_ref/main)
+        type: string
+        default: ""
   schedule:
     - cron: "17 3 * * 1"
 
@@ -90,7 +102,7 @@ jobs:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-transport
           path: .ci/transport
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.transport_ref || env.CI_DEPENDENCY_REF }}
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
@@ -138,7 +150,7 @@ jobs:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-transport
           path: .ci/transport
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.transport_ref || env.CI_DEPENDENCY_REF }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.10"
@@ -183,13 +195,13 @@ jobs:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-transport
           path: .ci/transport
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.transport_ref || env.CI_DEPENDENCY_REF }}
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-arm-python-sdk
           path: .ci/arm
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.arm_ref || env.CI_DEPENDENCY_REF }}
       - name: Pin dependency revisions for all integration jobs
         id: revisions
         run: |
@@ -251,13 +263,13 @@ jobs:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-transport
           path: .ci/transport
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.transport_ref || env.CI_DEPENDENCY_REF }}
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           repository: ${{ env.CI_DEPENDENCY_OWNER }}/linkerbot-hand-ros-sdk
           path: .ci/ros
-          ref: ${{ env.CI_DEPENDENCY_REF }}
+          ref: ${{ inputs.ros_ref || env.CI_DEPENDENCY_REF }}
       - name: Build and test this SDK with latest ROS wrapper
         run: bash ".ci/ros/tests/docker/run.sh" "${{ matrix.ros }}" "$PWD/.ci/transport" "$PWD" "$PWD/reports/${{ matrix.ros }}"
       - uses: actions/upload-artifact@v7

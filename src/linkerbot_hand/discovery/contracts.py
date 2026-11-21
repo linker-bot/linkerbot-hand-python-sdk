@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ..api.config import DeviceConfig
 from ..api.device_info import DeviceInfo, VersionField
-from ..api.enums import HandSide, TransportKind
+from ..api.enums import HandSide, ProtocolKind, TransportKind
 from ..api.errors import ValidationError
 from ..capabilities.types import DeviceCapabilities
 from ._naming import name_candidates
@@ -52,6 +52,9 @@ class DiscoveryConfig:
     minicanfd: MiniCANFDDiscoveryConfig = field(
         default_factory=MiniCANFDDiscoveryConfig
     )
+
+    hop_request_ids: tuple[int, ...] | None = None
+    hop_brs: bool = False
 
     def __post_init__(self) -> None:
         if self.backends is not None and (
@@ -117,6 +120,19 @@ class DiscoveryConfig:
             raise ValidationError("l30_node_ids must contain node IDs within 1..31")
         if len(set(self.l30_node_ids)) != len(self.l30_node_ids):
             raise ValidationError("l30_node_ids must not contain duplicates")
+        if type(self.hop_brs) is not bool:
+            raise ValidationError("hop_brs must be bool")
+        if self.hop_request_ids is not None and (
+            not isinstance(self.hop_request_ids, tuple)
+            or not self.hop_request_ids
+            or any(
+                type(v) is not int or not 0 <= v <= 0x3FE for v in self.hop_request_ids
+            )
+            or len(set(self.hop_request_ids)) != len(self.hop_request_ids)
+        ):
+            raise ValidationError(
+                "hop_request_ids must contain unique IDs within 0x000..0x3FE"
+            )
         if (
             not isinstance(self.o30_request_ids, tuple)
             or not self.o30_request_ids
@@ -362,7 +378,11 @@ class DiscoveryCandidate:
     device_info: DeviceInfo | None = None
     problems: tuple[DiscoveryProblem, ...] = ()
 
+    hop_brs: bool = False
+
     def __post_init__(self) -> None:
+        if type(self.hop_brs) is not bool:
+            raise ValidationError("hop_brs must be bool")
         if not isinstance(self.channel, DiscoveryChannel):
             raise ValidationError("channel must be DiscoveryChannel")
         if self.wire_protocol not in {TransportKind.CAN, TransportKind.CAN_FD}:
@@ -478,29 +498,50 @@ class DiscoveryCandidate:
             identity_context=f"{self.channel.provider}:{self.channel.name} "
             f"({self.address})",
         )
-        if model == "O30":
-            from ..protocols.o30.framing import HOPAddressing
+        if model == "O30" or self.address.scheme in {
+            "o30_hop_endpoint",
+            "hop_endpoint",
+        }:
+            from ..protocols.hop.framing import HOPAddressing
 
-            if self.address.scheme != "o30_hop_endpoint" or self.address.is_extended_id:
-                raise IncompleteIdentityError(
-                    "O30 candidate has no standard HOP endpoint"
-                )
+            if (
+                self.address.scheme not in {"o30_hop_endpoint", "hop_endpoint"}
+                or self.address.is_extended_id
+            ):
+                raise IncompleteIdentityError("candidate has no standard HOP endpoint")
             addressing = HOPAddressing(
                 self.address.request_id, self.address.response_id
             )
-            if config is not None and config.o30_request_id not in (
-                None,
-                addressing.request_id,
-            ):
+            if config is not None:
+                if config.hop_request_id not in (None, addressing.request_id):
+                    raise ValidationError(
+                        "hop_request_id disagrees with discovered endpoint"
+                    )
+                if config.o30_request_id not in (None, addressing.request_id):
+                    raise ValidationError(
+                        "o30_request_id disagrees with discovered endpoint"
+                    )
+                if model != "O30" and config.o30_request_id is not None:
+                    raise ValidationError("o30_request_id is only valid for O30")
+            # Preserve the probe's BRS choice in the construction recipe.
+            brs = self.hop_brs
+            if config is not None and config.hop_transport is not self.wire_protocol:
                 raise ValidationError(
-                    "o30_request_id disagrees with discovered endpoint"
+                    "hop_transport disagrees with discovered endpoint"
                 )
+            if config is not None and config.hop_brs != brs:
+                raise ValidationError("hop_brs disagrees with discovered endpoint")
             return HandDevice(
                 model=model,
                 side=resolved_side.value,
+                protocol=ProtocolKind.HOP,
                 transport=self.transport.create_transport(),
                 config=replace(
-                    config or DeviceConfig(), o30_request_id=addressing.request_id
+                    config or DeviceConfig(),
+                    hop_request_id=addressing.request_id,
+                    hop_brs=brs,
+                    hop_transport=self.wire_protocol,
+                    o30_request_id=addressing.request_id if model == "O30" else None,
                 ),
                 runtime_factory=runtime_factory,
             )

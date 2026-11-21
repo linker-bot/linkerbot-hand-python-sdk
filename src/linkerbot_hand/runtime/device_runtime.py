@@ -6,6 +6,7 @@ import threading
 from collections.abc import Hashable
 from typing import cast
 
+from ..api.can_configuration import CANConfiguration
 from ..api.commands import AckSupport, CommandHandle
 from ..api.config import DeviceConfig, PollingPlan
 from ..api.device_info import DeviceInfo
@@ -28,6 +29,11 @@ from ..capabilities.types import (
 )
 from ..protocols.base import ProtocolBackend
 from ..protocols.registry import create_protocol_backend
+from ._can_configuration import (
+    CAN_CONFIGURATION_KEY,
+    CANConfigurationBackend,
+    CANConfigurationWrite,
+)
 from ._clock import resolve_clock
 from ._device_actor import DeviceActor
 from ._errors import as_hand_error
@@ -325,6 +331,61 @@ class DeviceRuntime:
             raise LifecycleError("identity transaction returned an invalid type")
         return result
 
+    def read_can_configuration(self, timeout: float) -> CANConfiguration:
+        self._require_ready("get_can_configuration")
+        if not self._state.capabilities().operations.read_can_configuration:
+            raise UnsupportedOperationError("CAN configuration is unsupported")
+        waiter = self._transactions.request(
+            CAN_CONFIGURATION_KEY,
+            start_sequence=0,
+            deadline_s=self._clock.monotonic() + timeout,
+        )
+        result = waiter.wait()
+        if not isinstance(result, CANConfiguration):
+            raise LifecycleError(
+                "CAN configuration transaction returned an invalid type"
+            )
+        return result
+
+    def write_can_configuration(
+        self, sub_index: int, payload: bytes, timeout: float
+    ) -> None:
+        # Same lock as start_polling/stop_polling/recover/close: the test and
+        # exclusive write admission form a single lifecycle transition.
+        with self._operation_lock:
+            self._require_ready("set_can_configuration")
+            if not self._state.capabilities().operations.write_can_configuration:
+                raise UnsupportedOperationError("CAN configuration is unsupported")
+            if self._polling.plan is not None:
+                raise LifecycleError(
+                    "stop_polling() before changing CAN ID, BRS or bitrates",
+                    operation="set_can_configuration",
+                )
+            backend = cast(CANConfigurationBackend, self._backend)
+            backend.can_configuration_write(
+                sub_index, payload
+            )  # Validate before admission changes.
+            key = CANConfigurationWrite(
+                sub_index, payload, self._clock.monotonic() + timeout
+            )
+            error = DeviceNotReadyError(
+                "CAN settings are changing; reconnect with the new configuration"
+            )
+            try:
+                self._state.stop_admission()
+                self._actor.begin_can_reconfiguration()
+                self._commands.reject_new(error)
+                self._commands.fail_pending(error)
+                waiter = self._transactions.request_exclusive(
+                    key,
+                    start_sequence=0,
+                    deadline_s=key.deadline_s,
+                    error=error,
+                )
+                waiter.wait()
+            finally:
+                self.close()
+
     def operate(self, operation: str) -> CommandHandle:
         """Accept one capability-checked discrete operation."""
 
@@ -473,7 +534,10 @@ def _resolve_backend(
 ) -> ProtocolBackend:
     if backend is None:
         backend = create_protocol_backend(
-            capabilities, o30_request_id=config.o30_request_id
+            capabilities,
+            o30_request_id=config.o30_request_id,
+            hop_request_id=config.hop_request_id,
+            hop_brs=config.hop_brs,
         )
     for name in (
         "identity_transaction",

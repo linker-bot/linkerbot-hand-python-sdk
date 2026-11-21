@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..api._force_names import validate_force_field
-from ..api.enums import HandSide, JointMotionType, TransportKind
+from ..api.enums import HandSide, JointMotionType, ProtocolKind, TransportKind
 from ..api.errors import ValidationError
 from ..api.readings import TactileSensorMetadata
 from .force import ForceFieldCapability, force_field_capabilities
@@ -178,9 +178,13 @@ class OperationCapabilities:
     read_stall_protection: bool = False
     write_stall_protection: bool = False
     acknowledged_operations: tuple[str, ...] = ()
+    read_can_configuration: bool = False
+    write_can_configuration: bool = False
 
     def __post_init__(self) -> None:
         for name in (
+            "read_can_configuration",
+            "write_can_configuration",
             "read_device_info",
             "clear_faults",
             "enable",
@@ -223,8 +227,11 @@ class DeviceCapabilities:
     operations: OperationCapabilities
     firmware_unsupported_telemetry: tuple[TelemetrySemantic, ...] = ()
     tactile_sensors: tuple[TactileSensorMetadata, ...] = ()
+    protocol: ProtocolKind = ProtocolKind.LEGACY
 
     def __post_init__(self) -> None:
+        if not isinstance(self.protocol, ProtocolKind):
+            raise ValidationError("protocol must be ProtocolKind")
         if not isinstance(self.identity, IdentityCapability):
             raise ValidationError("identity must be IdentityCapability")
         if (

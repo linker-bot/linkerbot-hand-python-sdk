@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..api.enums import HandSide, TransportKind
+from ..api.enums import HandSide, ProtocolKind, TransportKind
 from ..api.errors import UnsupportedOperationError, ValidationError
 from ..capabilities.types import DeviceCapabilities
 from .base import ProtocolBackend
@@ -40,7 +40,11 @@ _TRANSPORT_KINDS = {
 
 
 def create_protocol_backend(
-    capabilities: DeviceCapabilities, *, o30_request_id: int | None = None
+    capabilities: DeviceCapabilities,
+    *,
+    o30_request_id: int | None = None,
+    hop_request_id: int | None = None,
+    hop_brs: bool = False,
 ) -> ProtocolBackend:
     """Create the stateless backend declared by one capability profile.
 
@@ -65,8 +69,28 @@ def create_protocol_backend(
             operation="open",
             model=capabilities.model,
         ) from error
+    if capabilities.protocol is ProtocolKind.HOP and capabilities.model in {"L6", "O6"}:
+        from .hop.six_axis import HOPSixAxisBackend
+
+        if o30_request_id is not None:
+            raise ValidationError("o30_request_id is only valid for O30")
+        if capabilities.transport.kind is not TransportKind.CAN_FD and not (
+            capabilities.model == "O6"
+            and capabilities.transport.kind is TransportKind.CAN
+        ):
+            raise ValidationError("HOP requires a supported CAN or CAN FD profile")
+        return HOPSixAxisBackend(
+            capabilities.model,
+            capabilities.side,
+            request_id=hop_request_id,
+            brs=hop_brs,
+            can_fd=capabilities.transport.kind is TransportKind.CAN_FD,
+        )
     expected_transport = _TRANSPORT_KINDS[capabilities.model]
-    if capabilities.transport.kind is not expected_transport:
+    classic_o30 = (
+        capabilities.model == "O30" and capabilities.transport.kind is TransportKind.CAN
+    )
+    if capabilities.transport.kind is not expected_transport and not classic_o30:
         raise ValidationError(
             f"{capabilities.model} protocol backend requires "
             f"{expected_transport.value} capabilities"
@@ -80,10 +104,20 @@ def create_protocol_backend(
         raise ValidationError(
             f"{capabilities.model} protocol backend has an invalid side"
         )
-    if o30_request_id is not None:
+    if hop_request_id is not None or hop_brs:
         if capabilities.model != "O30":
-            raise ValidationError("o30_request_id is only valid for O30")
-        return O30ProtocolBackend(capabilities.side, request_id=o30_request_id)
+            raise ValidationError("HOP configuration requires a HOP backend")
+        if o30_request_id is not None and hop_request_id not in (None, o30_request_id):
+            raise ValidationError("conflicting HOP request IDs")
+    if capabilities.model == "O30":
+        return O30ProtocolBackend(
+            capabilities.side,
+            request_id=hop_request_id if hop_request_id is not None else o30_request_id,
+            brs=hop_brs,
+            can_fd=not classic_o30,
+        )
+    if o30_request_id is not None:
+        raise ValidationError("o30_request_id is only valid for O30")
     return factory(capabilities.side)
 
 
