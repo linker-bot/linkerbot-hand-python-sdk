@@ -328,7 +328,7 @@ class DeviceCapabilities:
         """Look up writable metadata without device I/O."""
 
         return next(
-            (value for value in self.commands if value.semantic is semantic),
+            (value for value in self.commands if value.semantic == semantic),
             None,
         )
 
@@ -339,7 +339,7 @@ class DeviceCapabilities:
         """Look up readable/cache metadata without device I/O."""
 
         return next(
-            (value for value in self.telemetry if value.semantic is semantic),
+            (value for value in self.telemetry if value.semantic == semantic),
             None,
         )
 
