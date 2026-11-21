@@ -154,7 +154,7 @@ def read_transaction(
 
     return ProtocolTransaction(
         key=("read", semantic),
-        correlation_key=("o30_hop", addressing.response_id),
+        correlation_key=("hop", addressing.response_id),
         request_messages=(
             build_read_message(
                 profile.main_index,
@@ -162,6 +162,7 @@ def read_transaction(
                 length=WIRE_SLOT_COUNT,
                 rts=profile.rts,
                 request_id=addressing.request_id,
+                brs=addressing.brs,
             ),
         ),
         response_timeout_s=0.1,

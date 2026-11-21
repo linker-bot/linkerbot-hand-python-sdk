@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ..api.enums import HandSide
+from ..api.enums import HandSide, ProtocolKind
 from ..api.errors import ValidationError
 from .models import (
     l6_capabilities,
@@ -47,6 +47,7 @@ def get_declared_capabilities(
     model: str,
     *,
     side: HandSide | str | None = None,
+    protocol: ProtocolKind | str | None = None,
 ) -> DeviceCapabilities:
     """Return zero-I/O capability metadata for a configured model.
 
@@ -54,6 +55,7 @@ def get_declared_capabilities(
         model: Case-insensitive public model name, or ``l20-lite`` for L20Lite.
             Historical product-code prefixes are not configuration aliases.
         side: ``left`` or ``right`` for sided models. L30 requires omission.
+        protocol: ``legacy`` or ``hop``. L6/O6 default to legacy; O30 to HOP.
 
     Returns:
         An immutable, unverified declared profile.
@@ -78,6 +80,21 @@ def get_declared_capabilities(
         if side not in {HandSide.LEFT, HandSide.RIGHT}:
             raise ValidationError("side must be left or right")
         resolved_side = side
+    try:
+        selected = (
+            ProtocolKind(protocol)
+            if protocol is not None
+            else (ProtocolKind.HOP if canonical == "O30" else ProtocolKind.LEGACY)
+        )
+    except (ValueError, TypeError) as error:
+        raise ValidationError("protocol must be legacy or hop") from error
+    if selected is ProtocolKind.HOP and canonical in {"L6", "O6"}:
+        from .models.hop_six import declared_capabilities
+
+        return declared_capabilities(canonical, resolved_side)
+    expected = ProtocolKind.HOP if canonical == "O30" else ProtocolKind.LEGACY
+    if selected is not expected:
+        raise ValidationError(f"{canonical} does not support {selected.value}")
     return _PROFILE_FACTORIES[canonical](resolved_side)
 
 

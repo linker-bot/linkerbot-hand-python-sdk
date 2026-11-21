@@ -11,6 +11,13 @@ class HandSide(str, Enum):
     NOT_APPLICABLE = "not_applicable"
 
 
+class ProtocolKind(str, Enum):
+    """Application protocol, independent of the physical CAN frame family."""
+
+    LEGACY = "legacy"
+    HOP = "hop"
+
+
 class DataOrigin(str, Enum):
     """How a cached sample entered the canonical snapshot."""
 
@@ -97,6 +104,7 @@ __all__ = [
     "DataOrigin",
     "HandSide",
     "JointMotionType",
+    "ProtocolKind",
     "Quantization",
     "ReadMode",
     "SampleProjection",

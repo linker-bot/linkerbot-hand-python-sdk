@@ -680,7 +680,7 @@ class TactileSensorMetadata:
 
 @dataclass(frozen=True, slots=True)
 class TactileSensorSample:
-    """One O30 sensor's exact bytes and descriptor-decoded values."""
+    """One HOP sensor's exact bytes and descriptor-decoded values."""
 
     metadata: TactileSensorMetadata
     raw_data: bytes

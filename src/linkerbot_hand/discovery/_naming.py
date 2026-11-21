@@ -90,7 +90,7 @@ def _endpoint_key(candidate: DiscoveryCandidate) -> _EndpointKey:
         candidate.channel.provider,
         candidate.channel.name,
         candidate.wire_protocol.value,
-        address.scheme,
+        "hop_endpoint" if address.scheme == "o30_hop_endpoint" else address.scheme,
         address.request_id,
         address.response_id,
         address.is_extended_id,

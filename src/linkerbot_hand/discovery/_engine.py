@@ -26,7 +26,8 @@ from linkerbot_transport import UnsupportedOperationError as TransportUnsupporte
 from linkerbot_transport import ValidationError as TransportValidationError
 from linkerbot_transport.canfd import CANFDMessage
 
-from ..api.enums import HandSide, TransportKind
+from ..api.can_configuration import NOMINAL_BITRATES
+from ..api.enums import HandSide, ProtocolKind, TransportKind
 from ..api.errors import (
     HandError,
     IdentityMismatchError,
@@ -43,6 +44,18 @@ from ..protocols.common.classic_can import (
     matching_data,
     parse_factory_identity,
 )
+from ..protocols.hop.framing import (
+    HOPAddressing,
+    matching_response_frame,
+)
+from ..protocols.hop.framing import (
+    build_read_message as build_hop_read,
+)
+from ..protocols.hop.framing import (
+    response_route as hop_response_route,
+)
+from ..protocols.hop.identity import identity_transaction as hop_identity_transaction
+from ..protocols.hop.objects import MI_PRODUCT_INFO
 from ..protocols.l30.codec import PARENT_CONFIG, SUB_DEVICE_INFO, SUB_PRODUCT_CODE
 from ..protocols.l30.framing import build_request as build_l30_request
 from ..protocols.l30.framing import parse_can_id as parse_l30_can_id
@@ -59,18 +72,6 @@ from ..protocols.o20.codec import (
     read_route as o20_read_route,
 )
 from ..protocols.o20.identity import o20_identity_transaction
-from ..protocols.o30.codec import MI_PRODUCT_INFO
-from ..protocols.o30.framing import (
-    HOPAddressing,
-    matching_response_frame,
-)
-from ..protocols.o30.framing import (
-    build_read_message as build_o30_read,
-)
-from ..protocols.o30.framing import (
-    response_route as o30_response_route,
-)
-from ..protocols.o30.identity import o30_identity_transaction
 from ..protocols.registry import create_protocol_backend
 from . import _budget
 from ._classic_routes import (
@@ -538,8 +539,12 @@ def _probe_can_fd(
 ) -> bool:
     compatible_o20 = _channel_matches_model(channel, "O20", HandSide.LEFT)
     compatible_l30 = _channel_matches_model(channel, "L30", None)
-    compatible_o30 = _channel_matches_model(channel, "O30", HandSide.LEFT)
-    if not any((compatible_o20, compatible_l30, compatible_o30)):
+    # HOP device bitrates are configurable; probe at the adapter's already
+    # selected timing without retuning it or assuming the factory default.
+    compatible_hop = (
+        channel.nominal_bitrate is None or channel.nominal_bitrate in NOMINAL_BITRATES
+    )
+    if not any((compatible_o20, compatible_l30, compatible_hop)):
         return False
     transport: object | None = None
     failed = False
@@ -556,9 +561,9 @@ def _probe_can_fd(
                 lambda: _probe_o20(source, channel, transport, config, candidates),
             ),
             (
-                "o30",
-                compatible_o30,
-                lambda: _probe_o30(
+                "o30",  # Preserve the existing pre-identity diagnostic operation tag.
+                compatible_hop,
+                lambda: _probe_hop(
                     source, channel, transport, config, candidates, failures
                 ),
             ),
@@ -931,7 +936,7 @@ def _probe_l30(
             )
 
 
-def _probe_o30(
+def _probe_hop(
     source: DiscoverySource,
     channel: DiscoveryChannel,
     transport: object,
@@ -940,9 +945,14 @@ def _probe_o30(
     failures: list[DiscoveryFailure],
 ) -> None:
     # Defaults cover both sides; custom configured IDs do not encode a side.
-    for request_id in config.o30_request_ids:
-        _probe_o30_endpoint(
-            HOPAddressing(request_id, request_id | 0x400),
+    for request_id in (
+        config.hop_request_ids
+        if config.hop_request_ids is not None
+        else config.o30_request_ids
+    ):
+        start = len(candidates)
+        _probe_hop_endpoint(
+            HOPAddressing(request_id, request_id | 0x400, config.hop_brs),
             source,
             channel,
             transport,
@@ -951,8 +961,11 @@ def _probe_o30(
             failures,
         )
 
+        for index in range(start, len(candidates)):
+            candidates[index] = replace(candidates[index], hop_brs=config.hop_brs)
 
-def _probe_o30_endpoint(
+
+def _probe_hop_endpoint(
     addressing: HOPAddressing,
     source: DiscoverySource,
     channel: DiscoveryChannel,
@@ -961,16 +974,17 @@ def _probe_o30_endpoint(
     candidates: list[DiscoveryCandidate],
     failures: list[DiscoveryFailure],
 ) -> None:
-    route = o30_response_route(addressing.response_id)
+    route = hop_response_route(addressing.response_id)
     messages = _collect(
         transport,
         (route,),
         (
-            build_o30_read(
+            build_hop_read(
                 MI_PRODUCT_INFO,
                 sub_index=0,
                 length=0x10,
                 request_id=addressing.request_id,
+                brs=addressing.brs,
             ),
         ),
         config,
@@ -1006,7 +1020,7 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=None,
                 side=None,
                 problem=_problem_from_error(malformed),
             )
@@ -1019,24 +1033,66 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=None,
                 side=None,
                 problem=DiscoveryProblem(
                     "address_collision",
-                    "multiple O30 product responses used the same HOP endpoint",
+                    "multiple product responses used the same HOP endpoint",
                 ),
             )
         )
         return
-    provisional = get_declared_capabilities("O30", side=HandSide.LEFT)
-    transaction = o30_identity_transaction(provisional, addressing)
+    # The product object selects the profile; addresses never encode L6/O6 side.
+    model = None
+    try:
+        product_frame = matching_response_frame(matching[0], addressing.response_id)
+        if product_frame is None:
+            raise ProtocolError("missing HOP product response")
+        product = (
+            product_frame.payload.split(b"\x00", 1)[0]
+            .decode("utf-8")
+            .strip()
+            .casefold()
+        )
+        prefix = product.split("-")[0]
+        model = {
+            "l6": "L6",
+            "lhl6": "L6",
+            "o6": "O6",
+            "lho6": "O6",
+            "o30": "O30",
+            "o30i": "O30",
+        }.get(prefix)
+    except UnicodeDecodeError:
+        pass  # The identity parser supplies the detailed malformed-product error.
+    if model is None:
+        candidates.append(
+            _partial_candidate(
+                channel=channel,
+                wire_protocol=TransportKind.CAN_FD,
+                address=replace(address, scheme="hop_endpoint"),
+                transport=spec,
+                model=None,
+                side=None,
+                problem=DiscoveryProblem(
+                    "unsupported_product", "HOP product response has no supported model"
+                ),
+            )
+        )
+        return
+    if model != "O30":
+        address = replace(address, scheme="hop_endpoint")
+    provisional = get_declared_capabilities(
+        model, side=HandSide.LEFT, protocol=ProtocolKind.HOP
+    )
+    transaction = hop_identity_transaction(provisional, addressing)
     try:
         progress = transaction.consume(matching[0])
         if not progress.matched or not progress.complete:
-            raise ProtocolError("O30 product-model probe response was incomplete")
+            raise ProtocolError("HOP product-model probe response was incomplete")
         next_transaction = transaction.build_next_transaction()
         if next_transaction is None:
-            raise ProtocolError("O30 identity omitted required fields")
+            raise ProtocolError("HOP identity omitted required fields")
         result = _execute_identity(
             transport,
             (route,),
@@ -1046,7 +1102,7 @@ def _probe_o30_endpoint(
     except _NoResponse:
         problem = DiscoveryProblem(
             "identity_timeout",
-            "O30 product model responded but complete identity timed out",
+            "HOP product model responded but complete identity timed out",
         )
         candidates.append(
             _partial_candidate(
@@ -1054,7 +1110,7 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=model,
                 side=None,
                 problem=problem,
             )
@@ -1066,7 +1122,7 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=model,
                 side=None,
                 problem=_problem_from_error(wrapped.error),
             )
@@ -1076,7 +1132,7 @@ def _probe_o30_endpoint(
             raise
         _record_failure(
             failures,
-            operation="verify_o30_identity",
+            operation=f"verify_{model.lower()}_identity",
             error=wrapped.error,
             channel=channel,
             wire_protocol=TransportKind.CAN_FD,
@@ -1087,11 +1143,11 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=model,
                 side=None,
                 problem=DiscoveryProblem(
                     "transport_error",
-                    "transport failed during complete O30 identity verification",
+                    "transport failed during complete HOP identity verification",
                 ),
             )
         )
@@ -1102,7 +1158,7 @@ def _probe_o30_endpoint(
                 wire_protocol=TransportKind.CAN_FD,
                 address=address,
                 transport=spec,
-                model="O30",
+                model=model,
                 side=None,
                 problem=_problem_from_error(error),
             )
@@ -1132,7 +1188,7 @@ def _probe_o30_endpoint(
                     problems=(
                         DiscoveryProblem(
                             "missing_side",
-                            "O30 HOP identity does not provide a verified hand side",
+                            "HOP identity does not provide a verified hand side",
                         ),
                     ),
                 )

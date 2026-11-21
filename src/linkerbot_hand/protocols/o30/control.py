@@ -107,7 +107,7 @@ def command_transaction(
 
     return ProtocolTransaction(
         key=("command", semantic),
-        correlation_key=("o30_hop", addressing.response_id),
+        correlation_key=("hop", addressing.response_id),
         request_messages=(
             build_write_message(
                 main_index,
@@ -115,6 +115,7 @@ def command_transaction(
                 payload=payload,
                 rts=command.rts,
                 request_id=addressing.request_id,
+                brs=addressing.brs,
             ),
         ),
         response_timeout_s=0.1,

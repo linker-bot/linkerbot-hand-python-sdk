@@ -10,6 +10,7 @@ from ..capabilities.types import CommandSemantic, TelemetrySemantic
 from ._device_core import _coerce_timeout, _DeviceCore
 from ._force import age_force_fields, merge_force_samples
 from ._force_names import DEFAULT_FORCE_FIELDS, FORCE_FIELDS, validate_force_field
+from .can_configuration import CANConfiguration, bitrate_code, validate_can_id
 from .commands import CommandHandle
 from .device_info import DeviceInfo
 from .enums import SampleProjection
@@ -192,7 +193,7 @@ class HandDevice(_DeviceCore):
         )
 
     def get_torques_limits(self, timeout: float) -> TorqueLimitSample:
-        """Read raw torque limit settings (O30 MI 0x06, RTS=1)."""
+        """Read raw torque limit settings (HOP MI 0x06, RTS=1)."""
 
         return self._read(
             TelemetrySemantic.TORQUES_LIMITS,
@@ -219,7 +220,8 @@ class HandDevice(_DeviceCore):
     def get_torques(self, timeout: float) -> TorqueSample:
         """Query raw torque values with model-specific measurement semantics.
 
-        L6 reads 0x03 torque output/mode; measured physical torque is unverified.
+        Legacy L6 reads 0x03 output/mode; its physical torque is unverified.
+        HOP L6/O6 read MI 0x06 actual values without selecting control mode.
         O30 reads MI 0x06 measured torque. Consult the telemetry capability's
         device_measured and unit metadata before interpreting the raw values.
         """
@@ -402,7 +404,7 @@ class HandDevice(_DeviceCore):
         self,
         timeout: float,
     ) -> NormalForceResultantSample:
-        """Read all five O30 fingertips and return their raw ``FnS`` values."""
+        """Read five descriptor-based HOP fingertips and return raw ``FnS`` values."""
 
         operation = "get_normal_force_resultant"
         # The resultant comes from the descriptor tactile projection. Ask the
@@ -557,6 +559,63 @@ class HandDevice(_DeviceCore):
             LimitCompensationSample,
             operation="get_limit_compensations",
         )
+
+    def get_can_configuration(self, timeout: float = 1.0) -> CANConfiguration:
+        """Query L6/O6 HOP device registers; does not change adapter settings."""
+        if not self.get_capabilities().operations.read_can_configuration:
+            self._raise_unsupported("get_can_configuration")
+        return self._require_runtime("get_can_configuration").read_can_configuration(
+            _coerce_timeout(timeout)
+        )
+
+    def set_can_id(self, request_id: int, timeout: float = 1.0) -> None:
+        """Send a new standard request ID, then close; stop polling first.
+
+        Success means dispatched, not verified applied or persisted. Construct a
+        new device with DeviceConfig(hop_request_id=...) to reconnect and verify.
+        """
+        validate_can_id(request_id)
+        self._write_can_configuration(0, request_id.to_bytes(2, "little"), timeout)
+
+    def set_can_brs(self, enabled: bool, timeout: float = 1.0) -> None:
+        """Send device-side BRS on/off, then close; stop polling first."""
+        if type(enabled) is not bool:
+            raise ValidationError("enabled must be bool")
+        self._write_can_configuration(7, bytes([int(enabled)]), timeout)
+
+    def set_can_bitrates(
+        self,
+        *,
+        nominal_bitrate: int | None = None,
+        data_bitrate: int | None = None,
+        timeout: float = 1.0,
+    ) -> None:
+        """Send supported device bitrate codes, then close; stop polling first.
+
+        Reconfigure the host adapter separately before reconnecting. If both
+        values are provided they are written in one HOP frame.
+        """
+        if nominal_bitrate is None and data_bitrate is None:
+            raise ValidationError("provide nominal_bitrate or data_bitrate")
+        payload = b""
+        if nominal_bitrate is not None:
+            payload += bytes([bitrate_code(nominal_bitrate, data=False)])
+        if data_bitrate is not None:
+            payload += bytes([bitrate_code(data_bitrate, data=True)])
+        self._write_can_configuration(
+            8 if nominal_bitrate is not None else 9, payload, timeout
+        )
+
+    def _write_can_configuration(
+        self, sub_index: int, payload: bytes, timeout: float
+    ) -> None:
+        timeout = _coerce_timeout(timeout)
+        if not self.get_capabilities().operations.write_can_configuration:
+            self._raise_unsupported("set_can_configuration")
+        with self._transition_lock:
+            self._require_runtime("set_can_configuration").write_can_configuration(
+                sub_index, payload, timeout
+            )
 
     def clear_faults(self) -> CommandHandle:
         """Submit one bounded discrete clear-fault operation."""
