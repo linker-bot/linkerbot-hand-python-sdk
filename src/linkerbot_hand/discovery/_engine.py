@@ -1127,7 +1127,7 @@ def _probe_hop_endpoint(
             )
         )
         return
-    if not addressing.can_fd and model != "O30":
+    if not addressing.can_fd and model not in {"O6", "O30"}:
         return
     if model != "O30":
         address = replace(address, scheme="hop_endpoint")

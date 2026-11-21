@@ -74,13 +74,17 @@ def create_protocol_backend(
 
         if o30_request_id is not None:
             raise ValidationError("o30_request_id is only valid for O30")
-        if capabilities.transport.kind is not TransportKind.CAN_FD:
-            raise ValidationError("HOP requires CAN FD capabilities")
+        if capabilities.transport.kind is not TransportKind.CAN_FD and not (
+            capabilities.model == "O6"
+            and capabilities.transport.kind is TransportKind.CAN
+        ):
+            raise ValidationError("HOP requires a supported CAN or CAN FD profile")
         return HOPSixAxisBackend(
             capabilities.model,
             capabilities.side,
             request_id=hop_request_id,
             brs=hop_brs,
+            can_fd=capabilities.transport.kind is TransportKind.CAN_FD,
         )
     expected_transport = _TRANSPORT_KINDS[capabilities.model]
     classic_o30 = (

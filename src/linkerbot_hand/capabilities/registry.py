@@ -58,7 +58,7 @@ def get_declared_capabilities(
             Historical product-code prefixes are not configuration aliases.
         side: ``left`` or ``right`` for sided models. L30 requires omission.
         protocol: ``legacy`` or ``hop``. L6/O6 default to legacy; O30 to HOP.
-        transport_kind: Optional wire mode; O30 supports ``can`` and ``can_fd``.
+        transport_kind: Optional wire mode; HOP O6/O30 support ``can`` and ``can_fd``.
 
     Returns:
         An immutable, unverified declared profile.
@@ -112,7 +112,11 @@ def _with_transport(
         kind = TransportKind(transport_kind)
     except (ValueError, TypeError) as error:
         raise ValidationError("transport_kind must be can or can_fd") from error
-    if capabilities.model == "O30" and kind is TransportKind.CAN:
+    if (
+        capabilities.model in {"O6", "O30"}
+        and capabilities.protocol is ProtocolKind.HOP
+        and kind is TransportKind.CAN
+    ):
         return replace(
             capabilities,
             transport=replace(
@@ -120,8 +124,9 @@ def _with_transport(
                 kind=kind,
                 data_bitrate=None,
                 addressing_note=(
-                    "HOP default request/response IDs: right 0x001/0x401, "
-                    "left 0x002/0x402; configurable. Classic CAN, default 1 Mbit/s; "
+                    "HOP configurable standard request ID; response=request|0x400. "
+                    "O6 defaults to request ID 1 for both sides. "
+                    "O30 defaults to right 1, left 2. Classic CAN, default 1 Mbit/s; "
                     "at most five payload bytes per frame; BRS unavailable."
                 ),
             ),

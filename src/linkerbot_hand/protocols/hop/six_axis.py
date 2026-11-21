@@ -168,9 +168,13 @@ class HOPSixAxisBackend(HOPBackend):
         *,
         request_id: int | None = None,
         brs: bool = False,
+        can_fd: bool = True,
     ) -> None:
         super().__init__(
-            side, request_id=1 if request_id is None else request_id, brs=brs
+            side,
+            request_id=1 if request_id is None else request_id,
+            brs=brs,
+            can_fd=can_fd,
         )
         self._model = model
 

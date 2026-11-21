@@ -80,7 +80,7 @@ class DeviceConfig:
 
     ``hop_request_id`` selects a host-side standard HOP endpoint. ``hop_brs``
     defaults off and sets outgoing FD frame BRS; neither field writes device
-    registers. ``hop_transport`` selects O30 HOP over classic CAN or CAN FD
+    registers. ``hop_transport`` selects O6/O30 HOP over classic CAN or CAN FD
     (default); it does not switch device or adapter mode. ``o30_request_id`` is
     retained as a compatible O30-only alias.
 

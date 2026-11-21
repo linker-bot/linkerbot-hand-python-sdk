@@ -50,14 +50,14 @@ def test_default_fd_and_classic_validation():
     with pytest.raises(ValidationError, match="BRS"):
         DeviceConfig(hop_transport=TransportKind.CAN, hop_brs=True)
     for model in ("L6", "O6", "L20", "O20", "L30"):
-        with pytest.raises(ValidationError, match="only for O30"):
+        with pytest.raises(ValidationError, match="requires O6 or O30"):
             HandDevice(
                 model=model,
                 side=None if model == "L30" else "right",
                 transport=object(),
                 config=DeviceConfig(hop_transport=TransportKind.CAN),
             )
-    for model in ("L6", "O6"):
+    for model in ("L6",):
         with pytest.raises(ValidationError):
             get_declared_capabilities(
                 model, side="right", protocol="hop", transport_kind="can"

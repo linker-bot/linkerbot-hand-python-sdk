@@ -105,9 +105,12 @@ class _DeviceCore:
         self._config = DeviceConfig() if config is None else config
         capabilities = get_declared_capabilities(model, side=side, protocol=protocol)
         if self._config.hop_transport is TransportKind.CAN:
-            if capabilities.model != "O30":
+            if (
+                capabilities.model not in {"O6", "O30"}
+                or capabilities.protocol is not ProtocolKind.HOP
+            ):
                 raise ValidationError(
-                    "classic HOP CAN is currently supported only for O30"
+                    "classic HOP CAN requires O6 or O30 with protocol='hop'"
                 )
             capabilities = get_declared_capabilities(
                 model, side=side, protocol=protocol, transport_kind=TransportKind.CAN
